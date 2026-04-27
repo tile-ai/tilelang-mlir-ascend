@@ -2,7 +2,7 @@ name: AscendNPU-IR CI
 
 on:
   pull_request:
-    branches: [npuir]
+    branches: [main]
   issue_comment:
     types: [created]
   release:
@@ -46,9 +46,9 @@ jobs:
           core.setOutput('checkout_ref', `refs/pull/${pr.number}/merge`);
 
     - name: Validate target branch
-      if: steps.pr-info.outputs.target_branch != 'npuir'
+      if: steps.pr-info.outputs.target_branch != 'main'
       run: |
-        echo "::error::PR target branch is '${{ steps.pr-info.outputs.target_branch }}', expected 'npuir'. Skipping."
+        echo "::error::PR target branch is '${{ steps.pr-info.outputs.target_branch }}', expected 'main'. Skipping."
         exit 1
 
   build:

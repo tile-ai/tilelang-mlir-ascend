@@ -2,7 +2,8 @@ name: Dependent Bot Action
 
 on:
   pull_request:
-    branches: [main]
+    types:
+      - closed
   workflow_dispatch:
 
 jobs:

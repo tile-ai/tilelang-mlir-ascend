@@ -365,6 +365,20 @@ public:
   Array<Range> src_range, dst_range, indices_range;
 };
 
+/// A5 phase-1 SIMT indirect load.
+/// Load X[IDX_UB[i]] from GM and materialize the result into O_UB[i].
+class NpuirIndirectLoad : public Operator {
+public:
+  NpuirIndirectLoad(Array<PrimExpr> args, BufferMap vmap);
+
+  static const Op &Get();
+
+  Buffer src, indices_ub, dst_ub;
+  PrimExpr valid_extent;
+
+  Array<Range> src_range, indices_ub_range, dst_ub_range;
+};
+
 /// HIVM vector transpose operation
 /// Permutes the dimensions of src according to the given permutation.
 class NpuirTranspose : public Operator {

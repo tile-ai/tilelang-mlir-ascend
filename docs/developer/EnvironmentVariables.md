@@ -2,7 +2,7 @@
 
 This document describes all supported environment variables and their effects.
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Overview](#overview)
 - [Debugging](#debugging)
@@ -22,7 +22,7 @@ export TILELANG_DUMP_IR=TRUE
 | Variable | Default | Description | Valid Values |
 |----------|---------|-------------|--------------|
 | `TILELANG_DUMP_IR` | `FALSE` | Enable print TVM IR and NPUIR | `FALSE`: Disabled<br>`TRUE`:Enabled |
-| `TILELANG_ASCEND_WORKSPACE_SIZE` | `32768` | Set workspace size for Ascend CV fusion (in Byte, Single aicore) | Positive integer, e.g., `32768`, `65536` |
+| `TILELANG_ASCEND_WORKSPACE_SIZE` | `32768` | Set workspace size for Ascend CV fusion (in Bytes, Single aicore) | Positive integer, e.g., `32768`, `65536` |
 
 ## Compilation Options
 
@@ -35,5 +35,5 @@ export TILELANG_DUMP_IR=TRUE
 
 | Variable | Default | Description | Valid Values |
 |----------|---------|-------------|--------------|
-| `TILELANG_BENCH_METHOD` | `` | Choose the method for kernel execution evaluation |String `npu`: use torch_npu.profiler<br> Otherwise: use torch.npu.Event
+| `TILELANG_BENCH_METHOD` | `` | Choose the method for kernel execution evaluation |String `npu`: use torch_npu.profiler<br> Otherwise: use torch.npu.Event |
 | `TILELANG_CACHE_DIR` | `` | Set the path to store autotuner cache data | String, e.g., `/home/autotune_cache` |

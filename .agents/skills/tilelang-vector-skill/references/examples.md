@@ -3,7 +3,7 @@
 ## Example pattern: elementwise add
 
 - copy input tiles to local buffer
-- call T.vadd
+- call T.vadd to src buffers
 - copy result back
 
 ## Example pattern: normalization pieces

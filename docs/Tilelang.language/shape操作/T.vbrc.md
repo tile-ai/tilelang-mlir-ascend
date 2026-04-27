@@ -91,4 +91,4 @@ def vec_brc(M, N, dtype):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vbrcOp**将被下降为hivm::VBrcOp
+**tilelang::vbrcOp**将被转换为hivm::VBrcOp

@@ -2,7 +2,7 @@
 
 ## 1. OP概述
 
-简介：`tilelang.language.vsqrt`返回输入向量/标量基于输出形状的sqrt计算结果
+简介：`tilelang.language.vsqrt`返回输入向量/标量基于输入形状的sqrt计算结果
 
 sqrt计算公式：x^0.5
 

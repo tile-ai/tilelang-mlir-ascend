@@ -27,11 +27,11 @@ T.vnot(src, dst)
 
 ### 2.3 使用方法
 
-以下示例实现了对输入矩阵做reshape得到[N,M]矩阵
+以下示例实现了对输入矩阵进行按位取反的计算：
 
 ```python
 @tilelang.jit(target="npuir")
-def vnot_dev(M, N, dtype="float16"):
+def vnot_dev(M, N, dtype="int16"):
     BLOCK_SIZE = 1
 
     @T.prim_func
@@ -51,4 +51,4 @@ def vnot_dev(M, N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vnotOP**将被下降为hivm::VNotOp
+**tilelang::vnotOP**将被转换为hivm::VNotOp

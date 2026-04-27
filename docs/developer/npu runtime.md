@@ -9,7 +9,7 @@ tilelang.jit.compile(
     func=None,
     out_idx=None,
     execution_backend="cython",
-    target="auto",
+    target="npuir",
     target_host=None,
     verbose=False,
     pass_configs=None,

@@ -75,4 +75,4 @@ def concat(M, N, block_M, block_N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-tilelang::concatOp将被下降为hivm::VConcatOp
+tilelang::concatOp将被转换为hivm::VConcatOp

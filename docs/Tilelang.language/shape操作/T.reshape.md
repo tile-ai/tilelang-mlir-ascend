@@ -48,6 +48,6 @@ def reshape_dev(M, N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**[DEV]: tilelang::gatherOp**将被下降为mlir::tensor::CollapseShapeOp和mlir::tensor::ExpandShapeOp
+**[DEV]: tilelang::reshapeOp**将被转换为mlir::tensor::CollapseShapeOp和mlir::tensor::ExpandShapeOp
 
-**[EXPERT]: tilelang::gatherOp** 将被下降为**mlir::memref::ReinterpretCastOp**
+**[EXPERT]: tilelang::reshapeOp** 将被转换为**mlir::memref::ReinterpretCastOp**

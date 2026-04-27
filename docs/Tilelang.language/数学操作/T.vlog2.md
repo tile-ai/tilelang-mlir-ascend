@@ -8,7 +8,7 @@
 * ​**NPU tile 级 `T.vlog2(src, dst, tmp)`**​：在 UB 等 on-chip buffer 上，对张量 tile 做逐元素 log⁡2 运算，底层用 **`ln` + `mul(1/ln2)`** 组合实现，编译到 NPUIR 算子。
 
 ```python
-T.vlog2(src, dst, temp)
+T.vlog2(src, dst, tmp)
 ```
 
 ## 2. 规格
@@ -88,4 +88,4 @@ def log2_expr_example(block_M):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vlog2**将被下降为`hivm::VLnOp` + `hivm::VMulOp`
+**tilelang::vlog2**将被转换为`hivm::VLnOp` + `hivm::VMulOp`

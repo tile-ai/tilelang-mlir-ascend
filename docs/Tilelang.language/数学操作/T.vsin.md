@@ -61,4 +61,4 @@ def vecsin(M, N, block_M, block_N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**T.vsin**将被下降为 **hivm.hir.vmul** 和 **hivm.hir.vadd**
+**T.vsin**将被转换为 **hivm.hir.vmul** 和 **hivm.hir.vadd**

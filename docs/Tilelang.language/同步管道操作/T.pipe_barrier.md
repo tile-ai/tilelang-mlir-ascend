@@ -63,4 +63,4 @@ def pipe_barrier_kernel(M, N, dtype):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::barrierOp**将被下降为`mlir::hivm::PipeBarrierOp`
+**tilelang::barrierOp**将被转换为`mlir::hivm::PipeBarrierOp`

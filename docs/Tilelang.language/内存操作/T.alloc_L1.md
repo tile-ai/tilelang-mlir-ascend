@@ -78,4 +78,4 @@ def matmul(M, N, K, block_M, block_N, K_L1, dtype="float16", accum_dtype="float3
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-`tilelang::alloc_L1` Op 将被下降为 `memref::alloc` Op
+`tilelang::alloc_L1` Op 将被转换为 `memref::alloc` Op

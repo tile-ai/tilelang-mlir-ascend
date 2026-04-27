@@ -72,4 +72,4 @@ def vec_add(M, N, K, block_M, block_N, dtype="float16"):
 
 ### 3. Tilelang Op到Ascend NPU IR Op的转换
 
-tilelang::wait_flagOp将被下降为hivm::WaitFlagOp
+tilelang::wait_flagOp将被转换为hivm::WaitFlagOp

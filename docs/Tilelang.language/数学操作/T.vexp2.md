@@ -75,4 +75,4 @@ def vec_exp2(M, N, block_M, block_N):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-tilelang::vexp2Op将被下降为`hivm::VMulOp`和`hivm::VExpOp`
+tilelang::vexp2Op将被转换为`hivm::VMulOp`和`hivm::VExpOp`

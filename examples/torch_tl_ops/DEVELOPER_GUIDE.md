@@ -104,21 +104,21 @@ def compile_new_op_kernel():
     print("=" * 60)
     print("编译 New Op 内核")
     print("=" * 60)
-    
+
     os.environ['TILELANG_ASCEND_MODE'] = 'Developer'
-    
+
     # 定义内核参数（固定 shape 或动态 shape）
     # 固定 shape 示例
     M, N, K = 1024, 1024, 1024
-    
+
     # 动态 shape 示例
     # M = T.symbolic("M")
     # N = T.symbolic("N")
     # K = T.symbolic("K")
-    
+
     @tilelang.jit(out_idx=[2], target="npuir")  # out_idx 指定输出参数索引
     def new_op_kernel(block_M=128, block_N=128, dtype="float16"):
-        
+
         @T.prim_func
         def main(
             A: T.Tensor((M, K), dtype),
@@ -129,24 +129,24 @@ def compile_new_op_kernel():
             with T.Kernel(T.ceildiv(M, block_M) * T.ceildiv(N, block_N), is_npu=True) as (cid, _):
                 # ... 内核实现 ...
                 pass
-        
+
         return main
-    
+
     print("正在编译...")
     kernel = new_op_kernel()
-    
+
     # 测试验证
     print("\n测试运行...")
     a = torch.randn(M, K, dtype=torch.float16, device="npu")
     b = torch.randn(K, N, dtype=torch.float16, device="npu")
-    
+
     c = kernel(a, b)
-    
+
     # 验证结果
     ref = a @ b  # 替换为正确的参考实现
     torch.testing.assert_close(c, ref, rtol=1e-2, atol=1e-2)
     print("✓ 验证通过")
-    
+
     return kernel
 ```
 
@@ -182,37 +182,37 @@ from .base import BaseOp
 
 class NewOpOp(BaseOp):
     """New Op 算子"""
-    
+
     _kernel = None
-    
+
     @property
     def name(self) -> str:
         return "new_op"
-    
+
     @property
     def signature(self) -> str:
         # 定义 PyTorch 算子签名
         return "new_op(Tensor A, Tensor B) -> Tensor"
-    
+
     def get_kernel(self, registry):
         if NewOpOp._kernel is None:
             NewOpOp._kernel = registry.get_kernel(self.name)
         return NewOpOp._kernel
-    
+
     def impl(self, A: torch.Tensor, B: torch.Tensor, registry=None) -> torch.Tensor:
         """算子实现"""
         kernel = self.get_kernel(registry)
         output = kernel(A, B)
         return output
-    
+
     def python_api(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
         """
         New Op 算子
-        
+
         Args:
             A: 输入张量 [M, K], NPU tensor, float16
             B: 输入张量 [K, N], NPU tensor, float16
-        
+
         Returns:
             输出张量 [M, N]
         """
@@ -220,7 +220,7 @@ class NewOpOp(BaseOp):
             raise ValueError("A must be an NPU tensor")
         if B.device.type != "npu":
             raise ValueError("B must be an NPU tensor")
-        
+
         return torch.ops.tl_ascend_ops.new_op(A, B)
 
 
@@ -237,16 +237,16 @@ def register_all_ops() -> Dict[str, BaseOp]:
     from .ops.flash_attention import flash_attention_op
     from .ops.gemm import gemm_op
     from .ops.new_op import new_op_op  # 新增
-    
+
     ops = {
         "flash_attention": flash_attention_op,
         "gemm": gemm_op,
         "new_op": new_op_op,  # 新增
     }
-    
+
     for name, op in ops.items():
         _register_op(op)
-    
+
     print(f"✓ 已注册 {len(ops)} 个算子: {', '.join(ops.keys())}")
     return ops
 ```
@@ -292,23 +292,23 @@ def test_new_op():
     print("=" * 60)
     print("测试 New Op 算子")
     print("=" * 60)
-    
+
     M, N, K = 1024, 1024, 1024
-    
+
     a = torch.randn(M, K, dtype=torch.float16, device="npu:0")
     b = torch.randn(K, N, dtype=torch.float16, device="npu:0")
     ref = a @ b
-    
+
     # 方式 1: 通过包调用
     c = tl_ascend_ops.new_op(a, b)
     torch.testing.assert_close(c, ref, rtol=1e-2, atol=1e-2)
     print("  ✓ tl_ascend_ops.new_op 验证通过")
-    
+
     # 方式 2: 通过 torch_npu 调用
     c2 = torch_npu.new_op(a, b)
     torch.testing.assert_close(c2, ref, rtol=1e-2, atol=1e-2)
     print("  ✓ torch_npu.new_op 验证通过")
-    
+
     # 方式 3: 通过 torch.ops 调用
     c3 = torch.ops.tl_ascend_ops.new_op(a, b)
     torch.testing.assert_close(c3, ref, rtol=1e-2, atol=1e-2)
@@ -496,16 +496,16 @@ def matmul(
 def _calc_grid(self, orig_to_input, *args):
     """计算 grid 维度和动态值"""
     dynamic_val = {}
-    
+
     for name, (arg_idx, dim_idx) in self.symbolic.items():
         # 从输入张量获取实际值
         arg = args[arg_idx]
         value = arg.shape[dim_idx]
         dynamic_val[name] = value
-    
+
     # 计算 grid
     grid_value = eval(self.gridfunc, {"math": math, **dynamic_val})
-    
+
     return dynamic_val
 ```
 
@@ -550,15 +550,15 @@ def _to_pure_python(obj):
     # TVM IntImm -> int
     if hasattr(obj, 'value'):
         return int(obj.value)
-    
+
     # TVM tir.Var -> str
     if hasattr(obj, 'name'):
         return str(obj.name)
-    
+
     # 保留 torch.dtype 等不涉及 TVM 的类型
     if isinstance(obj, torch.dtype):
         return obj
-    
+
     ...
 ```
 
@@ -583,8 +583,8 @@ def my_kernel(dtype="float16"):
 
 ## 参考资料
 
-- [TileLang 文档](https://github.com/tilelang/tilelang)
-- [PyTorch 自定义算子](https://pytorch.org/tutorials/advanced/custom_ops.html)
+- [TileLang 文档](https://github.com/tile-ai/tilelang)
+- [PyTorch 自定义算子](https://pytorch.org/tutorials)
 - [华为 Ascend 开发文档](https://www.hiascend.com/)
 
 ---

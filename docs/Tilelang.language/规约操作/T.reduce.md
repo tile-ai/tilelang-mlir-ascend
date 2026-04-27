@@ -2,13 +2,13 @@
 
 ## 1. OP概述
 
-简介：`tilelang.language.reduce` 对张量在指定维度上进行聚合运算（如 `sum`、`max`、`min` 等），将多个元素压缩为更少元素或标量的操作
+简介：`tilelang.language.reduce` 对张量在指定维度上进行聚合运算（如 `sum`、`max`、`min` 等），将多个元素压缩为更少元素或标量的操作。
 
-```markup
+```python
 T.reduce(src, dst, dims=1, reduce_mode="sum", clear=True, size=[m,n])
-T.reduce_max(src, dst, dim=0, clear = False)
-T.reduce_min(src, dst, dim=0, clear = False)
-T.reduce_sum(src, dst, dim=0, clear = False)
+T.reduce_max(src, dst, dims=0, clear = False)
+T.reduce_min(src, dst, dims=0, clear = False)
+T.reduce_sum(src, dst, dims=0, clear = False)
 ```
 
 ## 2. OP规格
@@ -73,4 +73,4 @@ def reduce(M, N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::reduceOp**将被下降为hivm::VReduceOp
+**tilelang::reduceOp**将被转换为hivm::VReduceOp

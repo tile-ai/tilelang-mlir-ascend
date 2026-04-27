@@ -2,7 +2,7 @@
 
 ## 1. OP概述
 
-简介：`tilelang.language.vsrelu`用于计算张量的逐元素ReLU值
+简介：`tilelang.language.vrelu`用于计算张量的逐元素ReLU值
 
 ```python
 T.vrelu(src, dst) [Developer mode]
@@ -60,4 +60,4 @@ def vecrelu(M, N, block_M, block_N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**T.vrelu**将被下降为**hivm.hir.vrelu**
+**T.vrelu**将被转换为**hivm.hir.vrelu**

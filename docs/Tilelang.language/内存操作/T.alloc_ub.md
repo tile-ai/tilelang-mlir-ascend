@@ -28,7 +28,7 @@ T.alloc_ub(shape, dtype) [Expert mode]
 
 #### 2.2.2 Shape支持
 
-结论：目前支持1D ~ 2D, 3D ~ 5D有待充分验证
+要求：目前支持1D ~ 2D, 3D ~ 5D有待充分验证
 
 ### 2.3 特殊限制说明
 
@@ -36,7 +36,7 @@ T.alloc_ub(shape, dtype) [Expert mode]
 
 ### 2.4 使用方法
 
-已下示例实现了一个形状为(M,N)的tensor和一个形状为(M,N)的tensor向量减，其中`T.alloc_ub`申请了Ascend UB内存
+以下示例实现了一个形状为(M,N)的tensor和一个形状为(M,N)的tensor向量减，其中`T.alloc_ub`申请了Ascend UB内存
 
 ```python
 @tilelang.jit(target="npuir")
@@ -68,4 +68,4 @@ def vecsub(M, N, block_M, block_N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**T.alloc_ub**将被下降为**memref::AllocOp**
+**T.alloc_ub**将被转换为**memref::AllocOp**

@@ -2,7 +2,7 @@
 
 ## 1. OP概述
 
-简介：`tilelang.language.gather` 根据给定的索引，从沿最后一个维度张量或 memref 中取出相应元素，并将这些元素存储到另一个张量或 memref 中。
+简介：`tilelang.language.gather` 根据给定的索引，从沿最后一个维度的张量或 memref 中取出相应元素，并将这些元素存储到另一个张量或 memref 中。
 
 ```markup
 T.gather(src, dst, indices,[m,n])
@@ -29,7 +29,7 @@ T.gather(src, dst, indices,[m,n])
 
 ### 2.3 使用方法
 
-以下示例实现了对输入矩阵沿最后一维做gather操作，indices固定为1的结果。
+以下示例实现了对输入矩阵沿最后一维做gather操作（indices固定为1）的结果。
 
 ```python
 @tilelang.jit(target="npuir")
@@ -56,4 +56,4 @@ def gather_dev(M, N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::gatherOp**将被下降为hivm::VGatherOp
+**tilelang::gatherOp**将被转换为hivm::VGatherOp。

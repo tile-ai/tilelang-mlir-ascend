@@ -31,7 +31,7 @@ T.vshr(A, B, C)
 结论：
 
 1. `C`: shape必须和`A`一致
-2. `B`: shape需要和`A`一致或为标量
+2. `B`: shape必须和`A`一致或为标量
 
 ### 2.3 特殊限制说明
 
@@ -60,7 +60,7 @@ def vshr_kernel(M, N, dtype):
             T.copy(A, acc_A)
             T.copy(B, acc_B)
 
-            T.shr(acc_A, acc_B, out_ub)
+            T.vshr(acc_A, acc_B, out_ub)
             T.copy(out_ub, Out)
 
     return main
@@ -94,4 +94,4 @@ def vshr_kernel(M, N):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vshrOp**将被下降为hivm::VShROp
+**tilelang::vshrOp**将被转换为hivm::VShROp

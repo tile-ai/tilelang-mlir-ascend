@@ -15,7 +15,7 @@ T.vbitcast(src, dtype, size = [])
 | 参数名 | 类型 | 说明 |
 | - | - | - |
 | `src` | `tensor` | 源向量 |
-| `dtype`                       | `fp16、fp32` | 结果向量的数据类型 |
+| `dtype`                       | `fp16,fp32` | 结果向量的数据类型 |
 | `size`                        | `list` | 手动指定维度（比如`[32, 32]`），覆盖自动推导的维度，适配非标准形状的数据源 |
 
 ### 2.2 支持规格
@@ -62,4 +62,4 @@ def vec_bitcast(M, N, block_M, block_N, src_dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vbitcastOp**将被下降为hivm::BitcastOp
+**tilelang::vbitcastOp**将被转换为hivm::BitcastOp

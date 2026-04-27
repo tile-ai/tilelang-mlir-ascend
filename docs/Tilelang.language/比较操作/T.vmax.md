@@ -2,7 +2,7 @@
 
 ## 1. OP概述
 
-简介：`tilelang.language.vmax`按向量元素取最大值操作，该算子对比两个输入源的对应元素，并将较大值写入输出目标。
+简介：`tilelang.language.vmax`对向量元素取最大值操作，该算子对比两个输入源的对应元素，并将较大值写入输出目标。
 
 ```python
 T.vmax(src0, src1, dst)

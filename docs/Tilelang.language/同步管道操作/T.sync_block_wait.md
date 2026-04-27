@@ -50,7 +50,7 @@ def simple_sync_demo(A, Workspace, Output):
                     T.sync_block_wait(i)
                     T.copy(Workspace[cid * block_m, i * block_n], cross_kernel_ub)
 
-    return main
+return simple_sync_demo
 ```
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换

@@ -67,4 +67,4 @@ def vecpow(M, N, block_M, block_N, dtype="int32"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**T.vpow**将被下降为**hivm.hir.vpow**
+**T.vpow**将被转换为**hivm.hir.vpow**

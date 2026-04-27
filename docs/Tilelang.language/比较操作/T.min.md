@@ -58,4 +58,4 @@ def Tmin(M, dtype="float16"):
 
 ## Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang.language.min**将被下降为arith::MinimumFOp
+**tilelang.language.min**将被转换为arith::MinimumFOp

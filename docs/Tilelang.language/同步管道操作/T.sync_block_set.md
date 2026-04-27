@@ -83,4 +83,4 @@ def simple_sync(M, N, block_M, block_N, dtype="float16", inner_dtype="float32"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::sync_block_setOP**将被下降为hivm::SyncBlockSetOp
+**tilelang::sync_block_setOP**将被转换为hivm::SyncBlockSetOp

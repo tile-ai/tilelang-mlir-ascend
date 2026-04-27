@@ -53,4 +53,4 @@ def vec_flip(block_M, block_N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-`tilelang::flip` Op 将被下降为 `hivm.hir.vfip` Op
+`tilelang::flip` Op 将被转换为 `hivm.hir.vfip` Op

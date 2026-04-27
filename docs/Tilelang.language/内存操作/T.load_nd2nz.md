@@ -29,8 +29,8 @@ T.npuir_load_nd2nz(src, dst, size)
 
 #### 2.2.2 Shape 支持
 
-1.src支持2-4Dtensor
-2.dst仅支持2Dtensor
+1.src支持2-4D tensor
+2.dst仅支持2D tensor
 
 ### 2.3 特殊限制说明
 

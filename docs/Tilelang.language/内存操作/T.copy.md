@@ -40,7 +40,7 @@ T.copy(src, dst, size) [Expert Op]
 
 ### 2.4 使用方法
 
-示例1：实现了Expert Mode中将一个二维张量（Tensor） 的copy到A_ub中 (gm -> ub)
+示例1：实现了Expert Mode中将一个二维张量（Tensor）copy到A_ub中 (gm -> ub)
 
 ```python
 @tilelang.jit(target="npuir")
@@ -100,14 +100,14 @@ def atomic_add_2d_dev(M, N, block_M, block_N, dtype="float32"):
 
 **1. 在expert 模式下：**
 
-当src和dst的shape一致时：**tilelang::copyOp**将被下降为memref::CopyOp
+当src和dst的shape一致时：**tilelang::copyOp**将被转换为memref::CopyOp
 
-否则：**tilelang::copyOp**将被下降为memref::ExtractStridedMetadataOp、memref::DimOp（动态shape）、arith::ConstantIndexOp（非动态shape）、memref::ReinterpretCastOp、memref::CopyOp
+否则：**tilelang::copyOp**将被转换为memref::ExtractStridedMetadataOp、memref::DimOp（动态shape）、arith::ConstantIndexOp（非动态shape）、memref::ReinterpretCastOp、memref::CopyOp
 
 **2. 在developer 模式下：**
 
-**GM -> UB:  ​tilelang::copyOp**将被下降为 memref::SubViewOp、memref::AllocOp、bufferization::ToTensorOp、（tensor::DimOp、tensor::EmptyOp、hivm::VCastOp）[for type cast]、tensor::InsertSliceOp
+**GM -> UB:  ​tilelang::copyOp**将被转换为 memref::SubViewOp、memref::AllocOp、bufferization::ToTensorOp、（tensor::DimOp、tensor::EmptyOp、hivm::VCastOp）[for type cast]、tensor::InsertSliceOp
 
-**UB​​​ -> UB​:  tilelang::copyOp**将被下降为 tensor::ExtractSliceOp、（tensor::DimOp、tensor::EmptyOp、hivm::VCastOp）[for type cast]、tensor::InsertSliceOp
+**UB​​​ -> UB​:  tilelang::copyOp**将被转换为 tensor::ExtractSliceOp、（tensor::DimOp、tensor::EmptyOp、hivm::VCastOp）[for type cast]、tensor::InsertSliceOp
 
-**UB -> GM:  tilelang::copyOp**将被下降为 tensor::ExtractSliceOp、（tensor::DimOp、tensor::EmptyOp、hivm::VCastOp）[for type cast]、bufferization::MaterializeInDestinationOp
+**UB -> GM:  tilelang::copyOp**将被转换为 tensor::ExtractSliceOp、（tensor::DimOp、tensor::EmptyOp、hivm::VCastOp）[for type cast]、bufferization::MaterializeInDestinationOp

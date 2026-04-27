@@ -4,7 +4,7 @@
 
 ## 概述
 
-此 Dockerfile 基于 Ubuntu 22.04，预装了 TileLang 项目及其依赖，包括 Ascend NPU 支持。容器已预编译 AscendNPU-IR 组件，并优化了镜像大小以便打包 ISO。
+此 Dockerfile 基于 Ubuntu 22.04，预装了 TileLang 项目及其依赖，包括 Ascend NPU 支持。容器已预编译 AscendNPU-IR 组件，并优化了镜像大小以便导出为 tar 文件。
 
 ## 构建镜像
 

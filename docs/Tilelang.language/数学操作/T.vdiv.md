@@ -75,4 +75,4 @@ def sub_kernel(M, N, dtype):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-tilelang::vdivOp将被下降为hivm::VDivOp
+tilelang::vdivOp将被转换为hivm::VDivOp

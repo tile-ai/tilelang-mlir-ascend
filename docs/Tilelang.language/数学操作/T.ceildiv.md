@@ -61,4 +61,4 @@ def vec_add(block_M, block_N, dtype="float32"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-`tilelang::ceildiv` Op 将被下降为 `arith.addi` Op, `arith.divsi` Op
+`tilelang::ceildiv` Op 将被转换为 `arith.addi` Op, `arith.divsi` Op

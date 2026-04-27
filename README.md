@@ -15,7 +15,6 @@ Within the TileLang ecosystem, we have developed an NPU Intermediate Representat
 <img src=./images/npuir_architecture.png style="width: 50%";/>
 </div>
 
-
 ## Latest News
 - 4/24/2026 🚀: Released DeepSeek V4 kernels [DeepSeek-V4](./examples/deepseek_v4)!
 - 3/28/2026 🚀: We provide a free environment to facilitate user experience and development for TileLang [Pull Request#708](https://github.com/tile-ai/tilelang-ascend/pull/708).
@@ -52,7 +51,7 @@ Currently, we need to set environment variables to configure the developer mode 
 | `TILELANG_ASCEND_MODE` | Expert | Set the TileLang Mode; currently, Expert mode and Developer mode are supported | `Expert`: Expert Mode<br>`Developer`: Developer Mode |
 
 ## Tested Devices
-Although TileLang aims to support portability across a variety of devices, it has been specifically tested and validated on the following hardware:Huawei Ascend AI accelerators,including Ascend 910B/C.
+Although TileLang aims to support portability across a variety of devices, it has been specifically tested and validated on the following hardware:Huawei Ascend AI accelerators, including Atlas 300I Pro/300V Pro.
 
 ## Accessing Ascend NPU
 If you need to access Ascend NPU computing resources for development or testing, please visit the [HiDevLab - Online Development](https://hidevlab.huawei.com/online-develop-intro) page on the Huawei HiDevLab platform to apply for and use them
@@ -65,7 +64,6 @@ If you need to access Ascend NPU computing resources for development or testing,
 
 Within the `examples` directory, you will also find additional complex kernels—such as convolutions, forward/backward passes for FlashAttention, more operators will continuously be added.
 
-
 ## Installation
 ### Environment Setup
 
@@ -74,7 +72,7 @@ Install the Ascend Toolkit.
 [Download the installation package](https://www.hiascend.com/developer/download/community/result?cann=8.3.RC1.alpha002)，install`Ascend-cann-toolkit`.For complete installation instructions, refer to the [relevant documentation](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/83RC1alpha002/softwareinst/instg/instg_0008.html?Mode=PmIns&OS=Debian&Software=cannToolKit).
 
 ```shell
-chmod +x Ascend-cann-toolkit_{ascend-cann-toolkit version}_linux-aarch64.run
+chmod +x Ascend-cann-toolkit_{ascend_cann_toolkit version}_linux-aarch64.run
 ./Ascend-cann-toolkit_{ascend-cann-toolkit version}_linux-aarch64.run --install
 ```
 
@@ -86,14 +84,11 @@ source /path/to/install/Ascend/ascend-toolkit/set_env.sh
 
 Prepare a Python environment with Python version between 3.7.*x* and 3.11.4 (inclusive) and ensure that `pip3` is available.
 
-
    Ascend Toolkit Installation Requirements
 
    ```shell
    pip3 install attrs cython 'numpy>=1.19.2,<=1.24.0' decorator sympy cffi pyyaml pathlib2 psutil protobuf==3.20.0 scipy requests absl-py
    ```
-
-
 
 <!-- 补充环境变量设置 -->
 Set Environment Variables
@@ -106,16 +101,13 @@ export ACL_OP_INIT_MODE=1
   Note: If you require a new compiler installation package, please contact the community administrators:
 **zhaojiqiao@huawei.com**, **yangsichan@huawei.com**
 
-
-
-
 #### Build
 
 <!-- 拉取代码 -->
 Pull the code
 
 ```shell
-git clone https://github.com/tile-ai/tilelang-ascend.git --recursive -b npuir
+git clone https://github.com/tile-ai/tilelang-ascend.git --recursive
 ```
 
 <!-- 执行安装脚本 -->
@@ -288,4 +280,3 @@ def matmul(M, N, K, block_M, block_N, block_K, dtype="float16", accum_dtype="flo
 ## Acknowledgements
 
 Peking University Kunpeng & Ascend Center for Excellence in Science, Education, Innovation
-

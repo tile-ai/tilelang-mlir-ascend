@@ -2,7 +2,7 @@
 
 ## 1. OP概述
 
-简介：`tilelang.language.vrsqrt` 返回输入向量/标量基于输出形状的rsqrt计算结果
+简介：`tilelang.language.vrsqrt` 返回输入向量/标量基于输入形状的rsqrt计算结果
 rsqrt计算公式: 1/ x^0.5
 
 ```python
@@ -28,7 +28,7 @@ T.vrsqrt(src, dst)
 
 #### 2.2.2 Shape支持
 
-结论：在shape方面，vrsqrt无特殊要求；
+结论：在shape方面，vrsqrt无特殊要求。
 
 ### 2.3 特殊限制说明
 
@@ -57,4 +57,4 @@ def rsqrt_kernel(M, N, dtype):
 
 ### 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vrsqrtOp**将被下降为hivm::VRsqrtOp
+**tilelang::vrsqrtOp**将被转换为hivm::VRsqrtOp

@@ -2,9 +2,9 @@
 
 ## 1. OP概述
 
-简介：`tilelang.language.verf`返回输入tensor src基于输出形状的误差函数（error function）计算结果。误差函数定义为
+简介：`tilelang.language.verf`返回输入tensor src的误差函数（error function）计算结果。误差函数定义为
 $$
-\operatorname{verf}(x) = \frac{2}{\sqrt{\pi}} \int_0^x e^x{-t^2} \, dt
+\operatorname{erf}(x) = \frac{2}{\sqrt{\pi}} \int_0^x e^x-t^2 \, dt
 $$
 其值域为 \((-1, 1)\)。
 

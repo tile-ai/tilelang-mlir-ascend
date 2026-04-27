@@ -1,4 +1,4 @@
-# Tilelang.language.vor
+# Tilelang.language.vxor
 
 ## 1. OP概述
 
@@ -67,4 +67,4 @@ def vec_exp(M, N, block_M, block_N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vor**将被下降为`hivm::VXorOp`
+**tilelang::vxor**将被转换为`hivm::VXorOp`

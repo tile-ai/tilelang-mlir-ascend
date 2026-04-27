@@ -28,7 +28,7 @@ T.vabs(src, dst) [Expert Op]
 
 #### 2.2.2 Shape支持
 
-结论：输入（input）与输出（output）shape要一致。
+要求：输入（input）与输出（output）shape要一致。
 
 ### 2.3 特殊限制说明
 
@@ -59,4 +59,4 @@ def vabs_kernel(M, N, dtype="float16", out_dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vabsOp**将被下降为hivm::VAbsOp
+**tilelang::vabsOp**将被转换为hivm::VAbsOp

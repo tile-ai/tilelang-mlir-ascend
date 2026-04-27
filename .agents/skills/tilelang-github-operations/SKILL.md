@@ -19,7 +19,7 @@ Before answering, follow AGENTS.md section "Docs Auto Routing Rules (Mandatory)"
 ## Workflow baseline
 
 1. Sync with upstream npuir
-2. Run pre-PR format validation from repo root: bash format.sh --files changed_files
+2. Run pre-PR format validation from repo root: bash format.sh --files {changed_files}
 3. Commit focused changes
 4. Push branch and create PR
 5. Verify CI status and address feedback

@@ -58,4 +58,4 @@ def sigmoid_kernel(M, N, dtype):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-`tilelang::vsigmoid` Op 将被下降为 `hivm::VAdd` Op, `hivm::VSub` Op, `hivm::VExp` Op , `hivm::VDiv` Op
+`tilelang::vsigmoid` Op 将被转换为 `hivm::VAdd` Op, `hivm::VSub` Op, `hivm::VExp` Op , `hivm::VDiv` Op

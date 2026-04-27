@@ -61,7 +61,7 @@ def main(
         T.copy(A[bx, by], A_VEC)
 
         # 1）在第 0 维两端各 pad block_M/2 行，pad_value = 0.0
-        T.pad(A_VEC, B_VEC, 0.0, [block_M / 2, 0], [block_M / 2, 0])
+        T.pad(A_VEC, B_VEC, 0.0, [block_M // 2, 0], [block_M // 2, 0])
 
         # 2）在第 0 维前后各 pad cid 行，作为示例
         T.pad(A_VEC, C_VEC, 0.0, [cid, 0], [cid, 0])
@@ -72,4 +72,4 @@ def main(
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::pad**将被下降为`hivm::VPadOp`
+**tilelang::pad**将被转换为`hivm::VPadOp`

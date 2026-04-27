@@ -16,7 +16,7 @@ T.alloc_L1(shape, dtype) [Expert mode]
 
 | 参数名  | 类型  | 说明  |
 | ------------ | ------------ | ------------ |
-| `shape` | `shape`| 用于指定申请shared memroy (UB/L1)的维度形状，整数元组|
+| `shape` | `shape`| 用于指定申请shared memory (UB/L1)的维度形状，整数元组 |
 | `dtype` | `str`| 数据类型，例如`float32`,`float16`|
 
 ### 2.2 支持规格
@@ -104,4 +104,4 @@ def vecsub(M, N, block_M, block_N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**T.alloc_shared**将被下降为**tensor.empty**
+**T.alloc_shared**将被转换为**tensor.empty**

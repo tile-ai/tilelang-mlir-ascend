@@ -146,4 +146,4 @@ def vec_cast(M, N, block_M, block_N, round_mode="round"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vcastOp**将被下降为hivm::VCastOp
+**tilelang::vcastOp**将被转换为hivm::VCastOp

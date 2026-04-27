@@ -77,4 +77,4 @@ def vec_add(M, N, K, block_M, block_N, dtype="float16"):
 
 ## 3. Tilelang Op 到 Ascend NPU IR Op 的转换
 
-`tilelang.language.set_flag` 被下降为 `hivm.hir.set_flag`
+`tilelang.language.set_flag` 被转换为 `hivm.hir.set_flag`

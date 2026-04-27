@@ -2,7 +2,7 @@
 
 ## 1. OP概述
 
-简介：`tilelang.language.vor` 用于在 NPU ​tile 级上做逐元素按位或运算.
+简介：`tilelang.language.vor` 用于在 NPU ​tile 级上做逐元素按位或运算。
 
 ```python
 T.vor(src0, src1, dst)
@@ -15,7 +15,7 @@ T.vor(src0, src1, dst)
 | 参数名   | 类型       | 描述   |
 |-------|----------|------|
 | `src0` | `tensor` | 源张量0  |
-| `src1` | `tensor` | 源张量1 (或 Python 标量 int / float：会被提升为与 C 相同 dtype 的常量并广播)|
+| `src1` | `tensor` | 源张量1 (或 Python 标量 int / float：会被提升为与 src0 相同 dtype 的常量并广播)|
 | `dst` | `tensor` | 目的张量 |
 
 约束：`src0`, `src1`(张量时) 和`dst`应具有相同的形状和数据类型
@@ -67,4 +67,4 @@ def vec_exp(M, N, block_M, block_N, dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vor**将被下降为`hivm::VOrOp`
+**tilelang::vor**将被转换为`hivm::VOrOp`

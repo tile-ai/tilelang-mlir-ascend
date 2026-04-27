@@ -88,4 +88,4 @@ def kernel_mha_qk_matmul(b, n, s, d, block_d, dtype="float16", accum_dtype="floa
 
 ## 3. Tilelang Op 到 Ascend NPU IR Op 的转换
 
-`tilelang.language.store_fixpipe` 被下降为 `hivm.hir.fixpipe`
+`tilelang.language.store_fixpipe` 被转换为 `hivm.hir.fixpipe`

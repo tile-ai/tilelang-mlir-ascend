@@ -66,4 +66,4 @@ def vec_exp(M, N, block_M, block_N, dtype="float16"):
 
 ## 3. Tilelang Op 到 Ascend NPU IR Op 的转换
 
-`tilelang.language.vexp` 被下降为 `hivm.hir.vexp`
+`tilelang.language.vexp` 被转换为 `hivm.hir.vexp`

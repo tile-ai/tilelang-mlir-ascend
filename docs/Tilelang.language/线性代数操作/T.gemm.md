@@ -5,8 +5,8 @@
 简介：`tilelang.language.gemm` 返回输入tensor的矩阵乘计算结果
 
 ```python
-T.gemm(src1, src2, dst, size=[], initC=False, a_transpose=False, b_transpose=False) [Developer mode]
-T.npuir_dot(src1, src2, dst, size=[], initC=False, a_transpose=False, b_transpose=False) [Expert mode]
+T.gemm(src1, src2, dst, size=[], initC=False, a_transpose=False, b_transpose=False) # [Developer mode]
+T.npuir_dot(src1, src2, dst, size=[], initC=False, a_transpose=False, b_transpose=False) # [Expert mode]
 ```
 
 ## 2. OP规格
@@ -33,7 +33,7 @@ T.npuir_dot(src1, src2, dst, size=[], initC=False, a_transpose=False, b_transpos
 
 #### 2.2.2 Shape支持
 
-结论：`src1` 为2维，`src2`为2维，`dst`为2维|
+结论：`src1` 为2维，`src2`为2维，`dst`为2维。
 
 ### 2.3 特殊限制说明
 
@@ -77,4 +77,4 @@ def matmul(M, N, K, block_M, block_N, block_K, dtype="float16", accum_dtype="flo
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::gemmOp**将被下降为**hivm.hir.mmadL1**
+**tilelang::gemmOp**将被转换为**hivm.hir.mmadL1**

@@ -5,7 +5,7 @@
 简介：`tilelang.language.cumsum`该算子返回对输入张量 `src` 沿指定维度 `dim` 进行**​累积和（cumulative sum）​**操作。
 
 ```python
-T.vcumsum(src, dst, dim, reverse) [Developer Op]
+T.cumsum(src, dst, dim, reverse) [Developer Op]
 ```
 
 ## 2. OP规格
@@ -17,7 +17,7 @@ T.vcumsum(src, dst, dim, reverse) [Developer Op]
 | `src` | `tensor` | 输入tensor |
 | `dst` | `tensor` | 输出tensor |
 | ``dim`` | ``int`` | (可选)  指定在输入张量的哪个维度上执行累积和，默认为0 |
-| ``reverse`` | ``bool`` | (可选)  如果 reverse 为 True，则执行反向累积和（即从末尾向前累加） 目前只支持False|
+| ``reverse`` | ``bool`` | (可选)  如果 reverse 为 True，则执行反向累积和（即从末尾向前累加。目前只支持False|
 
 ### 2.2 支持规格
 
@@ -66,4 +66,4 @@ def cumsum_kernel(M, N, dim, reverse, dtype="float16", accum_dtype="float16"):
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::cumsumOp**将被下降为hivm::VCumsumOp
+**tilelang::cumsumOp**将被转换为hivm::VCumsumOp

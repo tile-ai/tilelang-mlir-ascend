@@ -62,4 +62,4 @@ def vec_ln(M, N, block_M, block_N, dtype="float16"):
 
 ### 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vLnOp**将被下降为hivm::VLnOp
+**tilelang::vLnOp**将被转换为hivm::VLnOp

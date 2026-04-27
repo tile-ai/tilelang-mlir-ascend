@@ -1,8 +1,8 @@
-# Tilelang.language.mul
+# Tilelang.language.vmul
 
 ## 1. OP概述
 
-简介：`tilelang.language.mul` 返回给定向量/变量的乘法计算结果
+简介：`tilelang.language.vmul` 返回给定向量的乘法计算结果
 
 ```python
 T.vmul(src1, src2, dst)

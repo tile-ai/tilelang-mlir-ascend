@@ -68,4 +68,4 @@ def vec_arange(M, N, block_M, block_N, src_dtype="float32", dst_dtype="float16")
 
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::arangeOp**将被下降为hivm::VArangeOp
+**tilelang::arangeOp**将被转换为hivm::VArangeOp

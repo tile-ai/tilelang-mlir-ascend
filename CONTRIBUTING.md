@@ -18,14 +18,13 @@ Any issue you open must include:
 - Code snippet that reproduces the bug with a minimal setup.
 - A clear explanation of what the issue is.
 
-
 ## Asking Questions
 
 Please ask questions in issues.
 
 ## Submitting Pull Requests
 
-All pull requests are super welcomed and greatly appreciated! Issues in need of a solution are marked with a [`♥ help`](https://github.com/ianstormtaylor/TileLang/issues?q=is%3Aissue+is%3Aopen+label%3A%22%E2%99%A5+help%22) label if you're looking for somewhere to start.
+All pull requests are super welcomed and greatly appreciated! Issues in need of a solution are marked with a `help` label if you're looking for somewhere to start.
 
 Please run `./format.sh` before submitting a pull request to make sure that your code is formatted correctly.
 
@@ -39,7 +38,6 @@ To run the build, you need to have the TileLang repository cloned to your comput
 python setup.py install
 ```
 
-
 ## Running Tests
 
 To run the tests, start by building the project as described in the [Repository Setup](CONTRIBUTING.md#repository-setup) section.
@@ -49,4 +47,3 @@ Then you can rerun the tests with:
 ```text
 python -m pytest testing
 ```
-

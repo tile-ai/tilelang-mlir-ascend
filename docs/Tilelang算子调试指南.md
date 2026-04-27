@@ -327,8 +327,8 @@ fi
 ```shell
 /tilelang-ascend-dev/3rdparty/AscendNPU-IR/build/bin/bishengir-compile \
   tilelang_debug.mlir \
-  --enable-auto-multi-buffer=True \
-  --enable-auto-bind-sub-block=True \
+  --enable-auto-multi-buffer=true \
+  --enable-auto-bind-sub-block=true \
   --enable-hfusion-compile=true \
   --enable-hivm-compile=true \
   --enable-triton-kernel-compile=true \
@@ -389,7 +389,7 @@ T.print(row_sum_2)
 
 ## 4.3 在jit_npu中增加编译选项进行调试（常用在性能优化）
 
-在jit_npu中找到compile_option_list，其中有3个默认编译选项"--enable-auto-multi-buffer=true" 表示开始自动multi-buffer选项，此外，"--limit-auto-multi-buffer-only-for-local-buffer=false"表示开启核间流水， "--enable-auto-bind-sub-block=true"表示开启自动进行C:V 1:2分核。可根据需要开启合适的编译选项。
+在jit_npu中找到compile_option_list，其中有3个默认编译选项"--enable-auto-multi-buffer=true" 表示开启自动multi-buffer选项，此外，"--limit-auto-multi-buffer-only-for-local-buffer=false"表示开启核间流水， "--enable-auto-bind-sub-block=true"表示开启自动进行C:V 1:2分核。可根据需要开启合适的编译选项。
 
 ```python
 _compile_option_list = [

@@ -96,6 +96,10 @@ def OptimizeForTarget(mod: IRModule, target: Target) -> IRModule:
         mod = tilelang.transform.RewriteWgmmaSync()(mod)
         mod = tilelang.transform.InjectFenceProxy()(mod)
     elif target.kind.name == "npuir":
+        # A5 SIMT indirect load must run before NpuLoopVectorize. The matched
+        # T.Parallel pattern is intentionally not vectorized as a continuous
+        # SIMD access.
+        mod = tilelang.transform.NpuSimtIndirectLoad()(mod)
         # The position of NpuLoopVectorize pass has two requirements:
         # 1. must be before LowerOpaqueBlock pass, otherwise the temporary buffer created cannot correctly become T.decl_buffer
         # 2. better to be before PlanAndUpdateBufferAllocationLocation, reuse its ability of Memory reusing

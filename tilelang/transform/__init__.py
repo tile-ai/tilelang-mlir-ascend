@@ -355,6 +355,16 @@ def NpuLoopVectorize():
     """
     return _ffi_api.NpuLoopVectorize()  # type: ignore
 
+def NpuSimtIndirectLoad():
+    """Lower phase-1 A5 SIMT indirect load patterns for npu
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.NpuSimtIndirectLoad()  # type: ignore
+
 def PlanAndUpdateBufferAllocationLocation():
     """PlanAndUpdateBufferAllocationLocation
 

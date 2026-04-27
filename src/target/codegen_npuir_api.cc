@@ -2348,6 +2348,10 @@ mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const CallNode *op) {
     VAtomicAddCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_gather"))) {
     VgatherCodegen(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_indirect_load"))) {
+    ICHECK(false)
+        << "A5 SIMT indirect load phase 1 is only supported in "
+           "TILELANG_ASCEND_MODE=dev";
   } else if (op->op.same_as(Op::Get("tl.npuir_transpose"))) {
     VtransposeCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_interleave"))) {

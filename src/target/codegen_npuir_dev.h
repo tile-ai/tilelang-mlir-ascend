@@ -255,6 +255,7 @@ private:
   void VAtomicAddCodegen(const CallNode *op);
   void VsigmoidCodegen(const CallNode *op);
   void VgatherCodegen(const CallNode *op);
+  void VIndirectLoadCodegen(const CallNode *op);
   void VtransposeCodegen(const CallNode *op);
   void VinterleaveCodegen(const CallNode *op);
   void VdeinterleaveCodegen(const CallNode *op);
@@ -348,6 +349,10 @@ private:
       mlir::Type elem_type,
       mlir::Location loc);
   bool IsStaticOneOFR(mlir::OpFoldResult ofr) const;
+  void EnsureTritonIndirectLoadDecl(
+      mlir::Type src_type, mlir::RankedTensorType indices_type,
+      mlir::RankedTensorType mask_type, mlir::RankedTensorType other_type,
+      mlir::RankedTensorType result_type);
   // Collapse static-1 dims with an optional rank limit. When maxRank < 0,
   // removes all static-1 dims.
   CollapsedDims CollapseStaticOneDims(
@@ -381,6 +386,8 @@ private:
   // another is for aiv. current_coretype denotes which coretype that we are
   // within during visiting tir ops.
   NPU_CORETYPE current_coretype;
+  bool requires_simt_indirect_load_{false};
+  bool triton_indirect_load_declared_{false};
 
   tvm::tl::BufferMap vmap{tvm::tl::BufferMap()};
 

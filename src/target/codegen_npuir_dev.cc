@@ -291,6 +291,7 @@ namespace {
     bool hasVector = false;
     bool hasCube = false;
     bool hasExpert = false;
+    bool hasSimtIndirectLoad = false;
     void VisitStmt(const Stmt &stmt) override {
       StmtExprVisitor::VisitStmt(stmt);
     }
@@ -313,6 +314,10 @@ namespace {
         || op->op.same_as(Op::Get("tl.npuir_load_nd2nz")) 
         || op->op.same_as(Op::Get("tl.npuir_store_fixpipe"))) {
         hasCube = true;
+      }
+      else if (op->op.same_as(Op::Get("tl.npuir_indirect_load"))) {
+        hasVector = true;
+        hasSimtIndirectLoad = true;
       }
       else if (op->op.as<OpNode>()) {
         // Convert TVM String to std::string
@@ -2629,6 +2634,129 @@ void CodeGenTileLangNPUIRDEV::VgatherCodegen(const CallNode *op) {
   SetVarValue(npuirop.dst, newGatherOp->getResult(0));
 }
 
+void CodeGenTileLangNPUIRDEV::EnsureTritonIndirectLoadDecl(
+    mlir::Type src_type, mlir::RankedTensorType indices_type,
+    mlir::RankedTensorType mask_type, mlir::RankedTensorType other_type,
+    mlir::RankedTensorType result_type) {
+  if (triton_indirect_load_declared_) {
+    return;
+  }
+
+  mlir::OpBuilder::InsertionGuard guard(builder);
+  builder.setInsertionPointToStart(module->getBody());
+  llvm::SmallVector<mlir::Type> args = {src_type, indices_type, mask_type,
+                                        other_type};
+  auto func_type = builder.getFunctionType(args, {result_type});
+  auto func_op = builder.create<mlir::func::FuncOp>(
+      builder.getUnknownLoc(), "triton_indirect_load", func_type);
+  func_op.setPrivate();
+  triton_indirect_load_declared_ = true;
+}
+
+void CodeGenTileLangNPUIRDEV::VIndirectLoadCodegen(const CallNode *op) {
+  constexpr const char *kFeature = "A5 SIMT indirect load phase 1";
+  tvm::tl::NpuirIndirectLoad npuirop(op->args, this->vmap);
+
+  ICHECK_EQ(npuirop.indices_ub_range.size(), 1U)
+      << kFeature << ": expected IDX_UB rank 1 in codegen";
+  ICHECK_EQ(npuirop.dst_ub_range.size(), 1U)
+      << kFeature << ": expected O_UB rank 1 in codegen";
+  ICHECK(is_zero(npuirop.indices_ub_range[0]->min))
+      << kFeature << ": expected IDX_UB region offset 0";
+  ICHECK(is_zero(npuirop.dst_ub_range[0]->min))
+      << kFeature << ": expected O_UB region offset 0";
+
+  auto block = as_const_int(npuirop.dst_ub_range[0]->extent);
+  ICHECK(block) << kFeature << ": expected static O_UB extent";
+  ICHECK_EQ(*block, 256) << kFeature
+                         << ": only BLOCK=256 is supported in phase 1, got "
+                         << *block;
+
+  mlir::Location loc = builder.getUnknownLoc();
+  mlir::Value src = GetVarValue(npuirop.src);
+  mlir::Value idx_i32 = GenExtractSliceFromRegion(npuirop.indices_ub,
+                                                  npuirop.indices_ub_range);
+  mlir::Value dst = GetVarValue(npuirop.dst_ub);
+  auto dst_type = mlir::dyn_cast<mlir::RankedTensorType>(dst.getType());
+  ICHECK(dst_type) << kFeature << ": expected O_UB to be a ranked tensor";
+  ICHECK_EQ(dst_type.getRank(), 1) << kFeature
+                                   << ": expected O_UB tensor rank 1";
+  ICHECK_EQ(dst_type.getShape()[0], *block)
+      << kFeature << ": expected O_UB tensor shape to match BLOCK";
+
+  auto idx_type = mlir::dyn_cast<mlir::RankedTensorType>(idx_i32.getType());
+  ICHECK(idx_type) << kFeature << ": expected IDX_UB to be a ranked tensor";
+  ICHECK_EQ(idx_type.getRank(), 1) << kFeature
+                                   << ": expected IDX_UB tensor rank 1";
+  ICHECK_EQ(idx_type.getShape()[0], *block)
+      << kFeature << ": expected IDX_UB tensor shape to match BLOCK";
+
+  auto i64_tensor_type =
+      mlir::RankedTensorType::get({*block}, builder.getI64Type());
+  mlir::Value idx_i64 =
+      builder.create<mlir::arith::ExtSIOp>(loc, i64_tensor_type, idx_i32);
+
+  auto i32_tensor_type =
+      mlir::RankedTensorType::get({*block}, builder.getI32Type());
+  auto lane_empty = builder.create<mlir::tensor::EmptyOp>(
+      loc, llvm::ArrayRef<int64_t>{*block}, builder.getI32Type());
+  mlir::Value zero_index =
+      builder.create<mlir::arith::ConstantIndexOp>(loc, 0);
+  mlir::Value one_index =
+      builder.create<mlir::arith::ConstantIndexOp>(loc, 1);
+  llvm::SmallVector<mlir::Value> strides = {one_index};
+  mlir::TypeRange lane_result(&i32_tensor_type, 1);
+  mlir::Value lanes = builder
+                          .create<mlir::hivm::VArangeOp>(
+                              loc, lane_result, lane_empty.getResult(),
+                              zero_index, strides)
+                          ->getResult(0);
+
+  mlir::Value valid = MakeValue(npuirop.valid_extent);
+  if (valid.getType().isIndex()) {
+    valid = builder.create<mlir::arith::IndexCastOp>(
+        loc, builder.getI32Type(), valid);
+  } else if (auto int_type = mlir::dyn_cast<mlir::IntegerType>(
+                 valid.getType())) {
+    if (int_type.getWidth() < 32) {
+      valid = builder.create<mlir::arith::ExtSIOp>(
+          loc, builder.getI32Type(), valid);
+    } else if (int_type.getWidth() > 32) {
+      valid = builder.create<mlir::arith::TruncIOp>(
+          loc, builder.getI32Type(), valid);
+    }
+  } else {
+    ICHECK(false) << kFeature << ": valid extent must lower to integer/index";
+  }
+
+  auto valid_empty = builder.create<mlir::tensor::EmptyOp>(
+      loc, llvm::ArrayRef<int64_t>{*block}, builder.getI32Type());
+  mlir::Value valid_tensor =
+      builder.create<mlir::linalg::FillOp>(loc, valid,
+                                           valid_empty.getResult())
+          ->getResult(0);
+  mlir::Value mask = builder.create<mlir::arith::CmpIOp>(
+      loc, mlir::arith::CmpIPredicate::slt, lanes, valid_tensor);
+  auto mask_type = mlir::RankedTensorType::get({*block}, builder.getI1Type());
+
+  auto elem_type = dst_type.getElementType();
+  mlir::Value zero = builder.create<mlir::arith::ConstantOp>(
+      loc, mlir::FloatAttr::get(elem_type, 0.0));
+  auto other_empty = builder.create<mlir::tensor::EmptyOp>(
+      loc, llvm::ArrayRef<int64_t>{*block}, elem_type);
+  mlir::Value other =
+      builder.create<mlir::linalg::FillOp>(loc, zero, other_empty.getResult())
+          ->getResult(0);
+
+  EnsureTritonIndirectLoadDecl(src.getType(), i64_tensor_type, mask_type,
+                               dst_type, dst_type);
+  llvm::SmallVector<mlir::Value> operands = {src, idx_i64, mask, other};
+  mlir::TypeRange result_types(&dst_type, 1);
+  auto call_op = builder.create<mlir::func::CallOp>(
+      loc, "triton_indirect_load", result_types, operands);
+  SetVarValue(npuirop.dst_ub, call_op.getResult(0));
+}
+
 void CodeGenTileLangNPUIRDEV::VtransposeCodegen(const CallNode *op) {
   tvm::tl::NpuirTranspose npuirop(op->args, this->vmap);
   Value src = GenExtractSliceFromRegion(npuirop.src, npuirop.src_range);
@@ -3597,6 +3725,8 @@ mlir::Value CodeGenTileLangNPUIRDEV::VisitExpr_(const CallNode *op) {
     VcumsumCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_gather"))) {
     VgatherCodegen(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_indirect_load"))) {
+    VIndirectLoadCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_transpose"))) {
     VtransposeCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_interleave"))) {
@@ -4010,7 +4140,10 @@ void CodeGenTileLangNPUIRDEV::AddFunctionForCoreType(const GlobalVar &gvar,
     funcOp->setAttr("mix_mode", builder.getStringAttr(
                                     NPU_CORETYPE_STR[this->current_coretype]));
   }
-  funcOp->setAttr("parallel_mode", builder.getStringAttr("simd"));
+  funcOp->setAttr("parallel_mode",
+                  builder.getStringAttr(requires_simt_indirect_load_
+                                            ? "mix_simd_simt"
+                                            : "simd"));
   // Call VisitStmt on function body
   this->VisitStmt(f->body);
   builder.create<func::ReturnOp>(builder.getUnknownLoc());
@@ -4043,6 +4176,7 @@ void CodeGenTileLangNPUIRDEV::AddFunction(const GlobalVar& gvar, const PrimFunc&
     }
 
     this->func_coretype = infer.func_coretype;  // NPU_CORETYPE::MIX;
+    this->requires_simt_indirect_load_ = infer.hasSimtIndirectLoad;
 
     auto moduleCoreType =
         mlir::hivm::TModuleCoreTypeAttr::get(&this->context, NPUIR_MODULECORETYPE_STR[this->func_coretype]);

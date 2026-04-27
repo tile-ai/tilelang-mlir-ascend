@@ -1078,8 +1078,8 @@ mlir::Value CodeGenTileLangNPUIRDEV::CreateCastIfTypeMismatch(mlir::Value src, m
   auto srcTensorTy = src.getType().dyn_cast<mlir::TensorType>();
   ICHECK(srcTensorTy) << "src must be a tensor";
 
-  auto dstTensorTy = src.getType().dyn_cast<mlir::TensorType>();
-  ICHECK(dstTensorTy) << "dst must be a tensor";
+  auto dstTensorTy = dst.getType().dyn_cast<mlir::ShapedType>();
+  ICHECK(dstTensorTy) << "dst must be a shaped type";
 
   mlir::Type srcElemTy = mlir::getElementTypeOrSelf(src.getType());
   mlir::Type dstElemTy = mlir::getElementTypeOrSelf(dst.getType());
@@ -1119,7 +1119,7 @@ mlir::Value CodeGenTileLangNPUIRDEV::CreateCastIfTypeMismatch(mlir::Value src, m
       mlir::hfusion::TypeFn::cast_signed);
 
   auto castDstTensor = builder.create<mlir::tensor::EmptyOp>(
-      loc, dstTensorTy, dynamicDims);
+      loc, mlir::RankedTensorType::get(dstTensorTy.getShape(), dstElemTy), dynamicDims);
   
   SmallVector<mlir::NamedAttribute> attrs;
   attrs.push_back(builder.getNamedAttr(
@@ -1145,6 +1145,37 @@ mlir::Value CodeGenTileLangNPUIRDEV::InsertSlice(
 
   auto dstTensorTy = dst_tensor.getType().dyn_cast<mlir::RankedTensorType>();
   assert(dstTensorTy && "dst_tensor must be a ranked tensor");
+
+  auto srcTensorType = src_slice.getType().cast<mlir::RankedTensorType>();
+  auto srcShape = srcTensorType.getShape();
+  auto dstShape = llvm::map_to_vector(dst_sizes, [](mlir::OpFoldResult ofr) {
+    return ofr.is<Attribute>()
+               ? ofr.get<Attribute>().cast<IntegerAttr>().getInt()
+               : mlir::ShapedType::kDynamic;
+  });
+
+  SmallVector<mlir::ReassociationIndices> reassoc;
+  int64_t j = 0;
+  for (int64_t i = 0; i < srcShape.size(); ++i) {
+    ReassociationIndices group;
+    while (j < dstShape.size() && srcShape[i] != dstShape[j]) {
+      assert(
+          dstShape[j] == 1 &&
+          "trivially expandable shape should only expand to unit dimensions.");
+      group.push_back(j++);
+    }
+    group.push_back(j++);
+    reassoc.push_back(group);
+  }
+  while (j < dstShape.size())
+    reassoc.back().push_back(j++);
+
+  // NOTE: This is a workaround because AscendNPU-IR doesn't support
+  // tensor.insert_slice with different src & dst ranks.
+  src_slice = builder.create<mlir::tensor::ExpandShapeOp>(
+      loc,
+      mlir::RankedTensorType::get(dstShape, srcTensorType.getElementType()),
+      src_slice, reassoc);
 
   auto insertOp = builder.create<mlir::tensor::InsertSliceOp>(
       loc,

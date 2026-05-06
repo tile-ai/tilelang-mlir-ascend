@@ -1,6 +1,4 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025.
-import os
-import argparse
 import torch
 
 import tilelang
@@ -19,8 +17,8 @@ def vec_insert(M, N, a, b, dtype):
 
     @T.prim_func
     def insert(
-            A: T.Tensor((M, N), dtype),
-            B: T.Tensor((a, b), dtype),
+        A: T.Tensor((M, N), dtype),
+        B: T.Tensor((a, b), dtype),
     ):
         with T.Kernel(M, is_npu=True) as (cid, _):
             A_ub = T.alloc_shared((4, 4), dtype)
@@ -55,12 +53,12 @@ def generate_tensor(shape, dtype, clear=False):
 @pytest.mark.parametrize("dtype", DATATYPE_CASES)
 def test_insert(dtype):
     func = vec_insert(M, N, a, b, dtype)
-    compiled_kernel = tilelang.compile(func, target='npuir')
+    compiled_kernel = tilelang.compile(func, target="npuir")
     shape = [M, N]
     shape2 = [a, b]
     output = generate_tensor(shape, dtype).npu()
-    intput = generate_tensor(shape2, dtype).npu()
+    input = generate_tensor(shape2, dtype).npu()
 
-    ref_output = intput.reshape(M, N)
-    compiled_kernel(output, intput)
+    ref_output = input.reshape(M, N)
+    compiled_kernel(output, input)
     tc.assert_close(output, ref_output, rtol=1e-2, atol=1e-2)

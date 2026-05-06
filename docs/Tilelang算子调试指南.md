@@ -4,9 +4,9 @@
 全文内容概览如下：
 
 | 章节  | 主要内容  |
-| ------------ | ------------ | 
+| ------------ | ------------ |
 | **1.概述** | 说明Tilelang算子调试中的常见问题分类和调试指引 |
-| **2.编译流程概览**| 说明Tilelang-AscendNPUIR端到端编译全流程，方便用户定位问题调试目标 | 
+| **2.编译流程概览**| 说明Tilelang-AscendNPUIR端到端编译全流程，方便用户定位问题调试目标 |
 | **3.调试方法** | 基于编译流程介绍每个阶段的调试方法 |
 
 ## 1.1 Tilelang算子调试常见问题
@@ -169,7 +169,7 @@ T.npuir_add(T.region(tmp_2_buf[0, 0], 1, 64, 4), T.float32(9.9999999999999995e-0
 
 ```python
 for i in T.serial(block_M):
- for j in T.serial(n) 
+ for j in T.serial(n)
         A[i, j] = T.sigmoid(B[i, j] * C[0] + D[0, j]) + eps
 ```
 
@@ -195,7 +195,7 @@ T.npuir_brc(0, T.region(A_VEC[0, 0], 2, 128, 256))
 ```shell
 error: 'float' object has no attribute 'buffer'
  --> /home/d00957057/tilelang-ascend/testing/npuir/test_vec_add_2d_scalar.py:39:21
-    |  
+    |
  39 |                      T.npuir_add(A_VEC, eps, C_VEC)
     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: run with `TVM_BACKTRACE=1` environment variable to display a backtrace.
@@ -236,7 +236,7 @@ class AscendBinaryOp(object):
 (Pdb) p dir(self) # 检查输入参数有哪些可以查看的属性 ->找到src1对应 '_AscendBinaryOp__src1'
 (Pdb) p type(self._AscendBinaryOp__src1)  # 检查输入参数src1的数据类型 ->输出<class 'float'>
 (Pdb) n  # 单步执行到下一行
-(Pdb) p src1 -> # T.float16(0.001) 
+(Pdb) p src1 -> # T.float16(0.001)
 (Pdb) p type(src1) -># <class 'tvm.tir.expr.FloatImm'>  数据类型修改成功，从float修改为tvm.tir.expr.FloatImm
 
 ```
@@ -289,7 +289,7 @@ void CodeGenTileLangNPUIRDEV::VreduceCodegen(const CallNode *op) {
 **GDB调试**：当无法推测可能引起core dump的代码位置时，需要用GDB深入跟踪C++代码执行流
 
 - 用GDB定位core dump位置，之后可进一步调试codegen代码进行修改。
-  
+
   ```C++
   //执行下面的gdb 语句
   gdb --args python .py

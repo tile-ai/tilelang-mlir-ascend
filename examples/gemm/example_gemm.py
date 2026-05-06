@@ -13,7 +13,10 @@ def matmul(M, N, K, block_M, block_N, block_K, dtype="float16", accum_dtype="flo
         B: T.Tensor((K, N), dtype),
         C: T.Tensor((M, N), dtype),
     ):
-        with T.Kernel(T.ceildiv(N, block_N) * T.ceildiv(M, block_M), is_npu=True) as (cid, _):
+        with T.Kernel(T.ceildiv(N, block_N) * T.ceildiv(M, block_M), is_npu=True) as (
+            cid,
+            _,
+        ):
             by = cid // T.ceildiv(N, block_N)
             bx = cid % T.ceildiv(N, block_N)
 
@@ -32,9 +35,9 @@ def matmul(M, N, K, block_M, block_N, block_K, dtype="float16", accum_dtype="flo
 
 
 def main():
-    # In the futrue, Developer mode and Expert Mode will transition smoothly without
+    # In the future, Developer mode and Expert Mode will transition smoothly without
     # requiring explicit declarations.
-    os.environ['TILELANG_ASCEND_MODE'] = 'Developer'
+    os.environ["TILELANG_ASCEND_MODE"] = "Developer"
     kernel = matmul(1024, 1024, 1024, 128, 128, 32)
 
     a = torch.randn(1024, 1024).npu().half()

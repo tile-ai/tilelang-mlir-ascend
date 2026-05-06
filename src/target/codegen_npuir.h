@@ -16,8 +16,8 @@
 #include <string>
 #include <unordered_map>
 
-#include "target/source/codegen_c.h"
 #include "../op/op.h"
+#include "target/source/codegen_c.h"
 
 namespace tvm {
 namespace codegen {
@@ -83,17 +83,18 @@ public:
   void PrintType(DataType t, std::ostream &os) final; // NOLINT(*)
   void PrintShape(Array<PrimExpr> shape, std::string delimiter,
                   std::ostream &os); // Added function
-  void PrintSSAAssign(const std::string& target, const std::string& src, DataType t) final;
+  void PrintSSAAssign(const std::string &target, const std::string &src,
+                      DataType t) final;
 
   // overload visitor
-  void VisitExpr_(const MinNode* op, std::ostream& os) final;
-  void VisitExpr_(const MaxNode* op, std::ostream& os) final;
-  void VisitExpr_(const AddNode* op, std::ostream& os) final;
+  void VisitExpr_(const MinNode *op, std::ostream &os) final;
+  void VisitExpr_(const MaxNode *op, std::ostream &os) final;
+  void VisitExpr_(const AddNode *op, std::ostream &os) final;
   void VisitExpr_(const AndNode *op, std::ostream &os) final;
   void VisitExpr_(const OrNode *op, std::ostream &os) final;
-  void VisitExpr_(const SubNode* op, std::ostream& os) final;
-  void VisitExpr_(const MulNode* op, std::ostream& os) final;
-  void VisitExpr_(const DivNode* op, std::ostream& os) final;
+  void VisitExpr_(const SubNode *op, std::ostream &os) final;
+  void VisitExpr_(const MulNode *op, std::ostream &os) final;
+  void VisitExpr_(const DivNode *op, std::ostream &os) final;
   void VisitExpr_(const LTNode *op, std::ostream &os) final;
   void VisitExpr_(const LENode *op, std::ostream &os) final;
   void VisitExpr_(const NENode *op, std::ostream &os) final;
@@ -107,11 +108,11 @@ public:
   void VisitExpr_(const FloorModNode *op, std::ostream &os);
   void VisitExpr_(const CastNode *op, std::ostream &os) final;
   void VisitExpr_(const SelectNode *op, std::ostream &os) final;
-  void VisitExpr_(const BufferLoadNode* op, std::ostream& os) final;
+  void VisitExpr_(const BufferLoadNode *op, std::ostream &os) final;
   void VisitStmt_(const AllocateNode *op) final;
   void VisitStmt_(const AttrStmtNode *op) final;
   void VisitStmt_(const LetStmtNode *op) final;
-  void VisitStmt_(const BufferStoreNode* op) final;
+  void VisitStmt_(const BufferStoreNode *op) final;
 
   // Override this as a work around for __grid_constant__ parameter
   void AddFunction(const GlobalVar &gvar, const PrimFunc &f);
@@ -125,8 +126,8 @@ private:
   std::string ConstIntCodegen(const IntImmNode *op);
   std::string ConstFloatCodegen(const FloatImmNode *op);
   void CallExternCodegen(const CallNode *op, std::ostream &os);
-  void AscendCopyCodegen(const CallNode* op, std::ostream& os);
-  void Nd2NzCodegen(const CallNode* op, std::ostream& os);
+  void AscendCopyCodegen(const CallNode *op, std::ostream &os);
+  void Nd2NzCodegen(const CallNode *op, std::ostream &os);
   template <typename T>
   void UnaryVecOpCodegen(const CallNode *op, std::ostream &os);
   void VbrcCodegen(const CallNode *op, std::ostream &os);
@@ -134,16 +135,17 @@ private:
   void VcmpCodegen(const CallNode *op, std::ostream &os);
   void VselectCodegen(const CallNode *op, std::ostream &os);
   void VreduceCodegen(const CallNode *op, std::ostream &os);
-  void FixpipeCodegen(const CallNode* op, std::ostream& os);
-  void DotCodegen(const CallNode* op, std::ostream& os);
-  void BinaryVecOpCodegen(const CallNode* op, std::string opName, std::ostream& os);
+  void FixpipeCodegen(const CallNode *op, std::ostream &os);
+  void DotCodegen(const CallNode *op, std::ostream &os);
+  void BinaryVecOpCodegen(const CallNode *op, std::string opName,
+                          std::ostream &os);
   template <typename T>
-  void SyncBlockSetCodegen(const T &sync_op, std::ostream& os);
+  void SyncBlockSetCodegen(const T &sync_op, std::ostream &os);
   template <typename T>
-  void SyncBlockWaitCodegen(const T &sync_op, std::ostream& os);
-  void BarrierCodegen(const CallNode* op, std::ostream& os);
-  template<typename T>
-  void PipeFlagCodegen(const T &sync_op, std::ostream& os);
+  void SyncBlockWaitCodegen(const T &sync_op, std::ostream &os);
+  void BarrierCodegen(const CallNode *op, std::ostream &os);
+  template <typename T>
+  void PipeFlagCodegen(const T &sync_op, std::ostream &os);
   void DebugPrintCodegen(const CallNode *op, std::ostream &os);
   std::string PrintID(PrimExpr id);
   // Whether scope such as "__shared__" or "__constant__"  is part of type.
@@ -156,7 +158,7 @@ private:
                         String &recast_inst);
   String GetMemrefInfo(String name);
   String GetMemrefInfo(Memref *memrefObj);
-  std::string GetBufferRef(const BufferNode* buffer, Array<PrimExpr> indices);
+  std::string GetBufferRef(const BufferNode *buffer, Array<PrimExpr> indices);
   // save memref name and type
   std::map<String, SSAType *> type_info;
 
@@ -197,7 +199,7 @@ private:
   // within during visiting tir ops.
   NPU_CORETYPE current_coretype;
 
-  tvm::tl::BufferMap vmap {tvm::tl::BufferMap()};
+  tvm::tl::BufferMap vmap{tvm::tl::BufferMap()};
 };
 
 } // namespace codegen

@@ -21,8 +21,8 @@ def vec_insert(M, N, a, b):
 
     @T.prim_func
     def insert(
-            A: T.Tensor((M, N), dtype),
-            B: T.Tensor((a, b), dtype),
+        A: T.Tensor((M, N), dtype),
+        B: T.Tensor((a, b), dtype),
     ):
         with T.Kernel(M, is_npu=True) as (cid, _):
             A_ub = T.alloc_shared((4, 4), dtype)
@@ -54,30 +54,29 @@ def generate_tensor(shape, dtype, clear=False):
 
 
 def test_tensor_insert():
-    os.environ['TILELANG_ASCEND_MODE'] = 'Developer'
+    os.environ["TILELANG_ASCEND_MODE"] = "Developer"
     main_args = parser.parse_args([])
     func = vec_insert(
         main_args.M,
         main_args.N,
         main_args.a,
         main_args.b,
-
     )
-    kernel = tilelang.engine.lower(func, target='npuir')
+    kernel = tilelang.engine.lower(func, target="npuir")
     # print(kernel)
 
     curr_name = os.path.splitext(os.path.basename(__file__))[0][5:] + ".mlir"
     # Export to .mlir file
-    output_file = './output/' + curr_name
-    with open(output_file, 'w') as f:
+    output_file = "./output/" + curr_name
+    with open(output_file, "w") as f:
         f.write(kernel)
-    
+
     ref_file = "./mlir_files/" + curr_name
     # filecmp.cmp returns True if files are identical, False otherwise
-    are_identical = filecmp.cmp(output_file, ref_file , shallow=False)
+    are_identical = filecmp.cmp(output_file, ref_file, shallow=False)
     # assertion for pytest
     assert are_identical, f"'{output_file}' and '{ref_file}' are not identical"
 
 
 if __name__ == "__main__":
-    run_test_insert()
+    test_tensor_insert()

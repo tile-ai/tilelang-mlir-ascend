@@ -1,6 +1,4 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025.
-import os
-import argparse
 import torch
 
 import tilelang
@@ -19,9 +17,9 @@ def vec_add(M, N, n, dtype):
 
     @T.prim_func
     def add(
-            A: T.Tensor((M, N), dtype),
-            B: T.Tensor((3,), dtype),
-            C: T.Tensor((M, N), dtype),
+        A: T.Tensor((M, N), dtype),
+        B: T.Tensor((3,), dtype),
+        C: T.Tensor((M, N), dtype),
     ):
         with T.Kernel(n, is_npu=True) as (cid, _):
             i = cid
@@ -38,13 +36,14 @@ def vec_add(M, N, n, dtype):
 
     return add
 
+
 def vec_mul(M, N, n, dtype):
 
     @T.prim_func
     def mul(
-            A: T.Tensor((M, N), dtype),
-            B: T.Tensor((3,), dtype),
-            C: T.Tensor((M, N), dtype),
+        A: T.Tensor((M, N), dtype),
+        B: T.Tensor((3,), dtype),
+        C: T.Tensor((M, N), dtype),
     ):
         with T.Kernel(n, is_npu=True) as (cid, _):
             i = cid
@@ -61,13 +60,14 @@ def vec_mul(M, N, n, dtype):
 
     return mul
 
+
 def vec_sub(M, N, n, dtype):
 
     @T.prim_func
     def sub(
-            A: T.Tensor((M, N), dtype),
-            B: T.Tensor((3,), dtype),
-            C: T.Tensor((M, N), dtype),
+        A: T.Tensor((M, N), dtype),
+        B: T.Tensor((3,), dtype),
+        C: T.Tensor((M, N), dtype),
     ):
         with T.Kernel(n, is_npu=True) as (cid, _):
             i = cid
@@ -84,13 +84,14 @@ def vec_sub(M, N, n, dtype):
 
     return sub
 
+
 def vec_div(M, N, n, dtype):
 
     @T.prim_func
     def div(
-            A: T.Tensor((M, N), dtype),
-            B: T.Tensor((3,), dtype),
-            C: T.Tensor((M, N), dtype),
+        A: T.Tensor((M, N), dtype),
+        B: T.Tensor((3,), dtype),
+        C: T.Tensor((M, N), dtype),
     ):
         with T.Kernel(n, is_npu=True) as (cid, _):
             i = cid
@@ -122,11 +123,12 @@ def generate_tensor(shape, dtype, clear=False):
         return torch.randint(low=0, high=2, size=shape).bool()
     raise ValueError('Invalid parameter "dtype" is found : {}'.format(dtype))
 
+
 @pytest.mark.op("vadd_extract")
 @pytest.mark.parametrize("dtype", DATATYPE_CASES)
 def test_add_extract(dtype):
     func = vec_add(M, N, n, dtype)
-    compiled_kernel = tilelang.compile(func, target='npuir')
+    compiled_kernel = tilelang.compile(func, target="npuir")
 
     shape = [M, N]
     shape2 = [3]
@@ -140,11 +142,12 @@ def test_add_extract(dtype):
     compiled_kernel(a, b, c)
     tc.assert_close(c.cpu(), ref_output.cpu(), rtol=1e-2, atol=1e-2)
 
+
 @pytest.mark.op("vmul_extract")
 @pytest.mark.parametrize("dtype", DATATYPE_CASES)
 def test_mul_extract(dtype):
     func = vec_mul(M, N, n, dtype)
-    compiled_kernel = tilelang.compile(func, target='npuir')
+    compiled_kernel = tilelang.compile(func, target="npuir")
 
     shape = [M, N]
     shape2 = [3]
@@ -158,11 +161,12 @@ def test_mul_extract(dtype):
     compiled_kernel(a, b, c)
     tc.assert_close(c.cpu(), ref_output.cpu(), rtol=1e-2, atol=1e-2)
 
+
 @pytest.mark.op("vsub_extract")
 @pytest.mark.parametrize("dtype", DATATYPE_CASES)
 def test_sub_extract(dtype):
     func = vec_sub(M, N, n, dtype)
-    compiled_kernel = tilelang.compile(func, target='npuir')
+    compiled_kernel = tilelang.compile(func, target="npuir")
 
     shape = [M, N]
     shape2 = [3]
@@ -176,11 +180,12 @@ def test_sub_extract(dtype):
     compiled_kernel(a, b, c)
     tc.assert_close(c.cpu(), ref_output.cpu(), rtol=1e-2, atol=1e-2)
 
+
 @pytest.mark.op("vdiv_extract")
 @pytest.mark.parametrize("dtype", DATATYPE_CASES)
 def test_div_extract(dtype):
     func = vec_div(M, N, n, dtype)
-    compiled_kernel = tilelang.compile(func, target='npuir')
+    compiled_kernel = tilelang.compile(func, target="npuir")
 
     shape = [M, N]
     shape2 = [3]

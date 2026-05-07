@@ -17,6 +17,13 @@
 namespace tvm {
 namespace tl {
 
+static constexpr const char *kEnableAutoMultiBuffer =
+    "npuir.enable_auto_multi_buffer";
+static constexpr const char *kDisableHivmAutoInjectSync =
+    "npuir.disable_hivm_auto_inject_sync";
+static constexpr const char *kEnablePlanAndUpdateBufferAllocation =
+    "tl.enable_plan_and_update_buffer_allocation";
+
 using namespace tir;
 
 class NpuirOperand {

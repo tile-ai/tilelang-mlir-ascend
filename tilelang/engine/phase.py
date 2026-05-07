@@ -118,7 +118,8 @@ def OptimizeForTarget(mod: IRModule, target: Target) -> IRModule:
         mod = tilelang.transform.NpuLoopVectorize()(mod)
         if need_npuir_bf16_legalize(target=target):
             mod = tilelang.transform.LegalizeNpuirBF16()(mod)
-        mod = tilelang.transform.PlanAndUpdateBufferAllocationLocation()(mod)
+        if pass_ctx.config.get("tl.enable_plan_and_update_buffer_allocation", True):
+            mod = tilelang.transform.PlanAndUpdateBufferAllocationLocation()(mod)
         mod = tir.transform.LowerOpaqueBlock()(mod)
         mod = tilelang.transform.LowerNpuirBlock()(mod)
         mod = tir.transform.RemoveNoOp()(mod)

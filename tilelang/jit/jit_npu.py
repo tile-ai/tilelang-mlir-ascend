@@ -21,8 +21,10 @@ from ..utils import (
 
 from tvm import tir
 from tvm.tir import PrimFunc
+from tvm import transform
 
 from tilelang.profiler import Profiler, TensorSupplyType
+from tilelang.transform.pass_config import normalize_pass_configs
 
 
 class LaunchThreadExtractor:
@@ -1143,7 +1145,9 @@ class compiler_npu:
                 continue
         return default
 
-    def compile(self, mod: PrimFunc, out_idx=None) -> JitKernel_NPU:
+    def compile(
+        self, mod: PrimFunc, out_idx=None, pass_configs: dict[str, Any] = None
+    ) -> JitKernel_NPU:
         self.original_mod = mod
         # extract_param_info
         param_info = self._extract_param_info(mod, out_idx)
@@ -1162,7 +1166,13 @@ class compiler_npu:
         self.out_idx = out_idx
         self.metadata["out_idx"] = self.out_idx
 
-        mlir_path = lower(self.mod)
+        # Apply pass_configs using TVM PassContext
+        if pass_configs is None:
+            pass_configs = {}
+        # Store pass_configs for later use in NPU compilation
+        self.pass_configs = normalize_pass_configs(pass_configs)
+        with transform.PassContext(opt_level=3, config=pass_configs):
+            mlir_path = lower(self.mod)
         if mlir_path.endswith(".mlir"):
             self.mlir_content = self._read_mlir_file(mlir_path)
         else:
@@ -1439,11 +1449,34 @@ class compiler_npu:
             npu_compiler_path = get_npucompiler_path()
             # TileLang Ascend JIT Runtime now follows Triton JIT style.
             # bishengir-compile --enable-triton-kernel-compile=true make sure the way.
-            _compile_option_list = [
-                "--enable-auto-multi-buffer=true",
-                "--enable-triton-kernel-compile=true",
-                "--enable-hivm-compile=true",
-            ]
+
+            # Build compile options with pass_configs support
+            _compile_option_list = []
+
+            # Get configuration from pass_configs with default values
+            pass_configs = getattr(self, "pass_configs", {})
+
+            # Handle --enable-auto-multi-buffer option
+            enable_auto_multi_buffer = pass_configs.get(
+                "npuir.enable_auto_multi_buffer",
+                True,  # Default: enabled
+            )
+            _compile_option_list.append(
+                f"--enable-auto-multi-buffer={str(enable_auto_multi_buffer).lower()}"
+            )
+
+            # Handle --disable-hivm-auto-inject-sync option
+            disable_hivm_auto_inject_sync = pass_configs.get(
+                "npuir.disable_hivm_auto_inject_sync",
+                False,  # Default: enabled
+            )
+            _compile_option_list.append(
+                f"--disable-hivm-auto-inject-sync={str(disable_hivm_auto_inject_sync).lower()}"
+            )
+
+            _compile_option_list.append("--enable-triton-kernel-compile=true")
+
+            _compile_option_list.append("--enable-hivm-compile=true")
 
             TILELANG_ASCEND_MODE = os.environ.get("TILELANG_ASCEND_MODE")
             if TILELANG_ASCEND_MODE is None or TILELANG_ASCEND_MODE.lower().strip() in [

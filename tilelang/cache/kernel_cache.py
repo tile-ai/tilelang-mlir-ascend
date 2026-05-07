@@ -361,7 +361,7 @@ class KernelCache:
                 self._memory_cache[_key] = disk_hit
                 return disk_hit
 
-        kernel = compiler_npu().compile(func, out_idx)
+        kernel = compiler_npu().compile(func, out_idx, pass_configs=pass_configs)
 
         if env.is_cache_enabled():
             self.save_compile_result(_key, kernel, verbose=verbose)

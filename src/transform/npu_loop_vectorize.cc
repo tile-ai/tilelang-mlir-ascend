@@ -71,23 +71,17 @@ private:
   // ============================================================
 
   inline static std::unordered_map<std::string, std::string> TirOps2NpuirOps = {
-      {"tir.exp", "tl.npuir_exp"},
-      {"tir.fabs", "tl.npuir_abs"},
-      {"tir.sigmoid", "tl.npuir_sigmoid"},
-      {"Cast", "tl.npuir_cast"},
-      {"tir.if_then_else", "tl.npuir_select"},
-      {"Add", "tl.npuir_add"},
-      {"Mul", "tl.npuir_mul"},
-      {"Sub", "tl.npuir_sub"},
-      {"Div", "tl.npuir_div"},
-      {"EQ", "tl.npuir_cmp"},
-      {"NE", "tl.npuir_cmp"},
-      {"LT", "tl.npuir_cmp"},
-      {"LE", "tl.npuir_cmp"},
-      {"GE", "tl.npuir_cmp"},
-      {"GT", "tl.npuir_cmp"},
-      {"Broadcast", "tl.npuir_brc"},
-      {"Copy", "tl.copy"},
+      {"tir.exp", "tl.npuir_exp"},     {"tir.fabs", "tl.npuir_abs"},
+      {"tir.log", "tl.npuir_ln"},      {"tir.sqrt", "tl.npuir_sqrt"},
+      {"tir.rsqrt", "tl.npuir_rsqrt"}, {"tir.sigmoid", "tl.npuir_sigmoid"},
+      {"Cast", "tl.npuir_cast"},       {"tir.if_then_else", "tl.npuir_select"},
+      {"Add", "tl.npuir_add"},         {"Mul", "tl.npuir_mul"},
+      {"Sub", "tl.npuir_sub"},         {"Div", "tl.npuir_div"},
+      {"Min", "tl.npuir_min"},         {"Max", "tl.npuir_max"},
+      {"EQ", "tl.npuir_cmp"},          {"NE", "tl.npuir_cmp"},
+      {"LT", "tl.npuir_cmp"},          {"LE", "tl.npuir_cmp"},
+      {"GE", "tl.npuir_cmp"},          {"GT", "tl.npuir_cmp"},
+      {"Broadcast", "tl.npuir_brc"},   {"Copy", "tl.copy"},
   };
 
   // ============================================================
@@ -268,7 +262,8 @@ private:
     if (auto call = expr.as<CallNode>()) {
       if (auto op = call->op.as<OpNode>()) {
         return op->name == "tir.exp" || op->name == "tir.fabs" ||
-               op->name == "tir.sigmoid";
+               op->name == "tir.log" || op->name == "tir.sqrt" ||
+               op->name == "tir.rsqrt" || op->name == "tir.sigmoid";
       }
     }
     return false;
@@ -292,6 +287,8 @@ private:
     HANDLE_BINARY_OP(DivNode, "Div")
     HANDLE_BINARY_OP(FloorDivNode, "FloorDiv")
     HANDLE_BINARY_OP(FloorModNode, "FloorMod")
+    HANDLE_BINARY_OP(MinNode, "Min")
+    HANDLE_BINARY_OP(MaxNode, "Max")
     HANDLE_BINARY_OP(LTNode, "LT")
     HANDLE_BINARY_OP(LENode, "LE")
     HANDLE_BINARY_OP(GENode, "GE")
@@ -832,6 +829,7 @@ private:
 
     if (!resolved_a) {
       if (binary_op_name == "Add" || binary_op_name == "Mul" ||
+          binary_op_name == "Min" || binary_op_name == "Max" ||
           IsCmpOp(binary_op_name)) {
         if (binary_op_name == "LT")
           binary_op_name = "GT";
@@ -1164,9 +1162,11 @@ private:
 class LoopVectorize : public StmtMutator {
 private:
   inline static std::unordered_set<std::string> CandidateVectorizationOps = {
-      "tl.copy",      "tl.npuir_exp", "tl.npuir_abs",    "tl.npuir_add",
-      "tl.npuir_mul", "tl.npuir_sub", "tl.npuir_div",    "tl.npuir_sigmoid",
-      "tl.npuir_brc", "tl.npuir_cmp", "tl.npuir_select", "tl.npuir_cast",
+      "tl.copy",       "tl.npuir_exp",  "tl.npuir_abs",   "tl.npuir_add",
+      "tl.npuir_mul",  "tl.npuir_sub",  "tl.npuir_div",   "tl.npuir_sigmoid",
+      "tl.npuir_ln",   "tl.npuir_sqrt", "tl.npuir_rsqrt", "tl.npuir_min",
+      "tl.npuir_max",  "tl.npuir_brc",  "tl.npuir_cmp",   "tl.npuir_select",
+      "tl.npuir_cast",
   };
 
   bool IsScalar(const PrimExpr &expr) {

@@ -4410,7 +4410,7 @@ void CodeGenTileLangNPUIRDEV::LoopCarriedVarCollector::VisitExpr_(
     CheckVar(npuirop.src->data.get());
     CheckVar(npuirop.dst->data.get());
   } else if (call->op.same_as(Op::Get("tl.npuir_rsqrt"))) {
-    tvm::tl::NpuirSqrt npuirop(call->args, outer_->vmap);
+    tvm::tl::NpuirRsqrt npuirop(call->args, outer_->vmap);
     CheckVar(npuirop.src->data.get());
     CheckVar(npuirop.dst->data.get());
   } else if (call->op.same_as(Op::Get("tl.npuir_rec"))) {

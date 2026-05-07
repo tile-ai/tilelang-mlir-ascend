@@ -563,8 +563,8 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     {
         f'''
     uint64_t totalWorkSpaceSize = {workspace_size} * blockNum;
-    ret = rtMalloc(reinterpret_cast<void **>(&workspace_addr),
-                   totalWorkSpaceSize, RT_MEMORY_HBM, ModuleId);
+    ret = const_cast<void *>(at::empty({workspace_size}* blockNum,
+                   at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte)).storage().data());
     if (ret != RT_ERROR_NONE) {{
       return {'ret' if enable_taskqueue else ''};
     }}

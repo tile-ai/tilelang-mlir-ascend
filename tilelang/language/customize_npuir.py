@@ -542,8 +542,8 @@ def npuir_dot(
         C_extent = _get_extent(C)
     else:
         assert len(size) == 3, "size must contains [m, k, n]"
-        A_extent = [size[0], size[1]]
-        B_extent = [size[1], size[2]]
+        A_extent = [size[1], size[0]] if a_transpose else [size[0], size[1]]
+        B_extent = [size[2], size[1]] if b_transpose else [size[1], size[2]]
         C_extent = [size[0], size[2]]
 
     A = _to_region(A, "r", A_extent)

@@ -49,7 +49,7 @@ class LaunchThreadExtractor:
     def extract(self, node: PrimFunc, thread: str):
         self.thread = thread
         self.visit_thread_extent(node)
-        if self.expressions is None:
+        if not self.expressions:
             return None
         return self.expressions[0]
 
@@ -551,7 +551,11 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
       return {'ret' if enable_taskqueue else ''};
     }}
     std::vector<int64_t> lockInitData({lock_num}, {lock_ini_val});
-    workspace_addr = const_cast<void *>(at::empty({workspace_size}, at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte)).storage().data());
+    ret = rtMemcpy(syncBlockLock, syncBlockLockSize, reinterpret_cast<void *>(lockInitData.data()),
+                   syncBlockLockSize, RT_MEMCPY_HOST_TO_DEVICE);
+    if (ret != RT_ERROR_NONE) {{
+      return {'ret' if enable_taskqueue else ''};
+    }}
     '''
         if lock_num > 0
         else ""
@@ -559,11 +563,9 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     {
         f'''
     uint64_t totalWorkSpaceSize = {workspace_size} * blockNum;
-    ret = const_cast<void *>(at::empty({workspace_size}* blockNum,
-                   at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte)).storage().data());
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
+    workspace_addr = const_cast<void *>(at::empty({workspace_size}* blockNum,
+        at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte)).storage().data());
+
     '''
         if workspace_size > 0
         else ""
@@ -851,7 +853,8 @@ class JitKernel_NPU:
     ):
         if isinstance(out_idx, int):
             out_idx = [out_idx]
-
+        metadata["so_launcher_path"] = kernel_launcher_path
+        metadata["out_idx"] = out_idx
         instance = cls(metadata)
         instance.so_launcher_path = kernel_launcher_path
         instance.so_utils_path = kernel_utils_path
@@ -1280,9 +1283,9 @@ class compiler_npu:
         return mapping.get(dtype_str, torch.float32)
 
     def _parse_grid(self):
-        launcher = LaunchThreadExtractor()
-        expr = launcher.extract(self.mod, "blockIdx.x")
-        self.metadata["gridfunc"] = str(expr)
+        launcher_x = LaunchThreadExtractor()
+        expr_x = launcher_x.extract(self.mod, "blockIdx.x")
+        self.metadata["gridfunc"] = str(expr_x)
 
     def _read_mlir_file(self, file_path) -> str:
         """

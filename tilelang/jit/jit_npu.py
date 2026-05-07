@@ -567,9 +567,6 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     uint64_t totalWorkSpaceSize = {workspace_size} * blockNum;
     workspace_addr = const_cast<void *>(at::empty({workspace_size}* blockNum,
         at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte)).storage().data());
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
     '''
         if workspace_size > 0
         else ""

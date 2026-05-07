@@ -551,11 +551,7 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
       return {'ret' if enable_taskqueue else ''};
     }}
     std::vector<int64_t> lockInitData({lock_num}, {lock_ini_val});
-    ret = rtMemcpy(syncBlockLock, syncBlockLockSize, reinterpret_cast<void *>(lockInitData.data()),
-                   syncBlockLockSize, RT_MEMCPY_HOST_TO_DEVICE);
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
+    workspace_addr = const_cast<void *>(at::empty({workspace_size}, at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte)).storage().data());
     '''
         if lock_num > 0
         else ""

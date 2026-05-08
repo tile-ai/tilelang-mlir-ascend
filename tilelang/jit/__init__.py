@@ -77,18 +77,6 @@ def compile(
             pass_configs=pass_configs,
         )
 
-    # --- GPU / other targets ------------------------------------------
-    return cached(
-        func=func,
-        out_idx=out_idx,
-        execution_backend=execution_backend,
-        target=target,
-        target_host=target_host,
-        verbose=verbose,
-        pass_configs=pass_configs,
-    )
-
-
 class _JitImplementation:
     out_idx: Any
     target: Union[str, Target]

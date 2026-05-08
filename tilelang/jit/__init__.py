@@ -22,7 +22,7 @@ from tvm.tir import PrimFunc
 from tvm.target import Target
 
 from tilelang.jit.kernel import JITKernel
-from tilelang.cache import cached, cached_npu
+from tilelang.cache import cached_npu
 from os import path, makedirs
 from logging import getLogger
 import functools

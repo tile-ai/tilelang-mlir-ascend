@@ -377,10 +377,7 @@ class AutoTuner:
         )
 
     def _resolve_compile_func(self) -> Callable:
-        """Wrap jit_compile with a device-pin if a GPU/NPU is active."""
         func = self.jit_compile
-        if torch.cuda.is_available():
-            return self._device_wrapper(func, "cuda", torch.cuda.current_device())
         if hasattr(torch, "npu") and torch.npu.is_available():
             return self._device_wrapper(func, "npu", torch.npu.current_device())
         return func

@@ -543,7 +543,7 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     }}
     // stub argument for workspace
     void *syncBlockLock = NULL;
-    
+
     uint16_t ModuleId = 0;
     {
         f'''

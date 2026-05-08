@@ -522,7 +522,8 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
   // base_ptr offset shape and stride are not used, arbitrarily set for now
   std::string name = "";
   name.append(kernelName);
-  {"auto launch_call = [=]()" if enable_taskqueue else ""} {{
+  void *workspace_addr = NULL;
+  {"auto launch_call = [&]()" if enable_taskqueue else ""} {{
     uint32_t blockNum = gridX * gridY * gridZ;
     {
         "blockNum = std::min(blockNum, (uint32_t)" + str(num_physical_blocks) + ");"
@@ -542,7 +543,7 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     }}
     // stub argument for workspace
     void *syncBlockLock = NULL;
-    void *workspace_addr = NULL;
+    
     uint16_t ModuleId = 0;
     {
         f'''
@@ -565,8 +566,11 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     {
         f'''
     uint64_t totalWorkSpaceSize = {workspace_size} * blockNum;
-    workspace_addr = const_cast<void *>(at::empty({workspace_size}* blockNum,
-        at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte)).storage().data());
+    ret = rtMalloc(reinterpret_cast<void **>(&workspace_addr),
+                   totalWorkSpaceSize, RT_MEMORY_HBM, ModuleId);
+    if (ret != RT_ERROR_NONE) {{
+      return {'ret' if enable_taskqueue else ''};
+    }}
     '''
         if workspace_size > 0
         else ""
@@ -616,7 +620,8 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     {"return ret;" if enable_taskqueue else ""}
    }};
    {
-        "at_npu::native::OpCommand::RunOpApi(name.c_str(), launch_call);"
+        "at_npu::native::OpCommand::RunOpApi(name.c_str(), launch_call, true);"
+        "rtFree(workspace_addr); "
         if enable_taskqueue
         else ""
     }
@@ -854,7 +859,7 @@ class JitKernel_NPU:
     ):
         if isinstance(out_idx, int):
             out_idx = [out_idx]
-
+        metadata["so_launcher_path"] = kernel_launcher_path
         instance = cls(metadata)
         instance.so_launcher_path = kernel_launcher_path
         instance.so_utils_path = kernel_utils_path

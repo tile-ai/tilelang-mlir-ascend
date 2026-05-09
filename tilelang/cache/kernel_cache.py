@@ -7,7 +7,6 @@ import json
 import shutil
 from pathlib import Path
 from typing import Callable, List, Optional
-from tvm.tir import PrimFunc
 from tilelang.jit.jit_npu import JitKernel_NPU
 import threading
 import cloudpickle

@@ -7,11 +7,7 @@ from tvm.tir import PrimFunc
 from tvm.target import Target
 from typing import Callable, Literal, Any
 from dataclasses import dataclass
-from pathlib import Path
 
-from tilelang.jit.jit_npu import JitKernel_NPU
-import cloudpickle
-from tilelang import logger
 import json
 import hashlib
 

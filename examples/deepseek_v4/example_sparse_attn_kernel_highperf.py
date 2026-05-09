@@ -1,43 +1,65 @@
-# Copyright (c) Huawei Technologies Co., Ltd. 2026.
+# Copyright (c) Huawei Technologies Co., Ltd. 2025.
+# Import necessary libraries
 import torch
+
+# Import tilelang modules for NPU kernel development
 import tilelang
 import tilelang.language as T
 
 from typing import Optional
 
 
-@tilelang.jit(target="npuir")
+@tilelang.jit(
+    target="npuir",
+    pass_configs={
+        tilelang.PassConfigKey.TL_ENABLE_PLAN_AND_UPDATE_BUFFER_ALLOCATION: False,
+        tilelang.PassConfigKey.NPUIR_ENABLE_AUTO_MULTI_BUFFER: False,
+    },
+)
 def sparse_attn_kernel(
-        batch,
-        seq_len,
-        seq_len_kv,
-        heads,
-        dim,
-        tail_dim,
-        top_k,
-        num_kernels,
-        sm_scale=None,
-        block_I=64,
-        block_K=64,
+    batch,
+    heads,
+    dim,
+    top_k,
+    num_kernels,
+    sm_scale=None,
+    block=64,
+    multi_ws_kv=1,
+    multi_ws_s=1,
+    multi_ws_p=1,
+    multi_ws_o=1,
 ):
     # Validate input parameters
-    assert block_I % 2 == 0, "Block I size must be even"
-    assert dim == tilelang.math.next_power_of_2(
-        dim
-    ), f"haven't check padding correctness yet, dim={dim}"
-    assert tail_dim==0 or tail_dim == tilelang.math.next_power_of_2(
-        tail_dim
-    ), f"haven't check padding correctness yet, dim={tail_dim}"
+    assert block % 2 == 0, "Block size must be even"
+    assert dim == tilelang.math.next_power_of_2(dim), (
+        f"haven't check padding correctness yet, dim={dim}"
+    )
+
+    seq_len = T.symbolic("seqLen")
+    seq_len_kv = T.symbolic("seqLenKV")
 
     # Set softmax scale if not provided
     if sm_scale is None:
-        sm_scale = (1.0 / (dim + tail_dim)) ** 0.5
-    else:
-        sm_scale = sm_scale
+        sm_scale = (1.0 / dim) ** 0.5
 
+    multi_l1_kv = 2
+    multi_ub_inner_cross = 2
 
-    # Calculate total number of logical kernels
+    # ws_kv: V0S -> C1L -> ...
+    flag_base_V0S_C1L_kv = 0
+
+    # ws_s: C1S -> V1L -> ...
+    flag_base_C1S_V1L_s = 0
+
+    # ws_p: V1S -> C2L -> ...
+    flag_base_V1S_C2L_p = flag_base_V0S_C1L_kv + multi_ws_kv
+
+    # ws_o: C2S -> V2L -> ...
+    flag_base_C2S_V2L_o = flag_base_C1S_V1L_s + multi_ws_s
+
+    num_physical_kernels = 24
     num_logic_kernels = batch * seq_len
+    num_top_k_blocks = (top_k - 1) // block + 1
 
     # Define data types
     indices_dtype = "int32"
@@ -48,287 +70,652 @@ def sparse_attn_kernel(
     heads_half = heads // 2
 
     # Calculate half block sizes for vector operations
-    block_I_half = block_I // 2
+    block_half = block // 2
 
-    # Calculate shared block size for I and K dimensions
-    share_block_IK = max(block_I, block_K)
+    block_dim_share = max(block, dim)
+    block_heads_shared_half = max(block_half, heads_half)
 
-    # Calculate full dimension (dim + tail_dim)
-    full_dim = dim + tail_dim
-    num_block_i = T.ceildiv(top_k, block_I)
+    @T.macro
+    def C1L(Q, workspace_kv, l1_q, l1_kv_sparse, kernel_id, task_id):
+        local_id = task_id // num_top_k_blocks
+        block_i_id = task_id % num_top_k_blocks
 
-    # Define tensor shapes
-    shape_q = [batch, seq_len, heads, full_dim]
-    shape_kv = [batch, seq_len_kv, full_dim]
-    shape_out = [batch, seq_len, heads, dim]
-    shape_idx = [batch, seq_len, top_k]
-    shape_kv_sparse_work = [num_kernels, top_k, full_dim]
-    shape_s_work = [num_kernels, num_block_i, heads, block_I]
-    shape_o_work = [num_kernels, num_block_i, heads, dim]
-    shape_u_work = [num_kernels, num_block_i, heads, 1]
+        # Calculate batch and sequence indices
+        logic_kernel_id = local_id * num_kernels + kernel_id
+        batch_id = logic_kernel_id // seq_len
+        seq_id = logic_kernel_id % seq_len
+
+        with T.rs("PIPE_MTE2"):
+            if block_i_id == 0:
+                # Load query data to L1
+                T.copy(Q[batch_id, seq_id, :, :], l1_q)
+
+            flag_V0S_C1L_kv = flag_base_V0S_C1L_kv + task_id % multi_ws_kv
+            T.sync_block_wait(flag_V0S_C1L_kv)
+            # Load sparse KV data to L1
+            T.copy(
+                workspace_kv[kernel_id, task_id % multi_ws_kv, :, :],
+                l1_kv_sparse[task_id % multi_l1_kv, :, :],
+            )
+
+    @T.macro
+    def C1P(
+        l1_q,
+        l1_kv_sparse,
+        l0_c,
+        kernel_id,
+        task_id,
+    ):
+        with T.rs("PIPE_C"):
+            # Perform matrix multiplication (Q @ K^T)
+            T.gemm(
+                l1_q[:, :],
+                l1_kv_sparse[task_id % multi_l1_kv, :, :],
+                l0_c[:, :block],
+                initC=True,
+                b_transpose=True,
+            )
+
+    @T.macro
+    def C1S(
+        workspace_s,
+        l0_c,
+        kernel_id,
+        task_id,
+    ):
+        # Store intermediate results and synchronize
+        with T.rs("PIPE_FIX"):
+            T.copy(l0_c[:, :block], workspace_s[kernel_id, task_id % multi_ws_s, :, :])
+            flag_C1S_V1L_s = flag_base_C1S_V1L_s + task_id % multi_ws_s
+            T.sync_block_set(flag_C1S_V1L_s)
+
+    @T.macro
+    def C2L(
+        workspace_p,
+        l1_p,
+        kernel_id,
+        task_id,
+    ):
+        # Load intermediate results for softmax
+        with T.rs("PIPE_MTE2"):
+            flag_V1S_C2L_p = flag_base_V1S_C2L_p + task_id % multi_ws_p
+            T.sync_block_wait(flag_V1S_C2L_p)
+            T.copy(workspace_p[kernel_id, task_id % multi_ws_p, :, :], l1_p)
+
+    @T.macro
+    def C2P(
+        l1_p,
+        l1_kv_sparse,
+        l0_c,
+        kernel_id,
+        task_id,
+    ):
+        with T.rs("PIPE_C"):
+            # Perform matrix multiplication (P @ V)
+            T.gemm(
+                l1_p[:, :],
+                l1_kv_sparse[task_id % multi_l1_kv, :, :],
+                l0_c[:, :dim],
+                initC=True,
+            )
+
+    @T.macro
+    def C2S(
+        workspace_o,
+        l0_c,
+        kernel_id,
+        task_id,
+    ):
+        # Synchronize after output computation
+        with T.rs("PIPE_FIX"):
+            T.copy(l0_c[:, :dim], workspace_o[kernel_id, task_id % multi_ws_o, :, :])
+            flag_C2S_V2L_o = flag_base_C2S_V2L_o + task_id % multi_ws_o
+            T.sync_block_set(flag_C2S_V2L_o)
+
+    @T.macro
+    def V0L(
+        KV,
+        Indices,
+        ub_indices,
+        ub_kv_sparse,
+        kernel_id,
+        vid,
+        task_id,
+    ):
+        value_zero = 0
+
+        local_id = task_id // num_top_k_blocks
+        block_i_id = task_id % num_top_k_blocks
+
+        logic_kernel_id = local_id * num_kernels + kernel_id
+        batch_id = logic_kernel_id // seq_len
+        seq_id = logic_kernel_id % seq_len
+
+        tail_size_i = T.min(top_k - block_i_id * block, block)
+        tail_size_i_half = (tail_size_i + 1) // 2
+
+        block_i_offset = block_i_id * block
+        block_i_sub_offset = vid * tail_size_i_half
+        tail_size_i_half = tail_size_i_half - (tail_size_i % 2) * vid
+
+        with T.rs("PIPE_V"):
+            if tail_size_i_half > 0:
+                T.vbrc(value_zero, ub_kv_sparse[:block_half, :dim])
+
+        with T.rs("PIPE_MTE2"):
+            # Load indices and gather sparse KV data (only for first head block)
+            T.copy(
+                Indices[batch_id, seq_id, block_i_offset : block_i_offset + block],
+                ub_indices[task_id % multi_ub_inner_cross, 0, :],
+            )
+            for idx_id in T.serial(T.max(tail_size_i_half, 0)):
+                current_index = ub_indices[
+                    task_id % multi_ub_inner_cross, 0, block_i_sub_offset + idx_id
+                ]
+                if current_index >= 0 and current_index < seq_len_kv:
+                    T.copy(KV[batch_id, current_index, :], ub_kv_sparse[idx_id, :dim])
+
+    @T.macro
+    def V0S(
+        workspace_kv,
+        ub_kv_sparse,
+        kernel_id,
+        vid,
+        task_id,
+    ):
+        block_i_id = task_id % num_top_k_blocks
+
+        tail_size_i = T.min(top_k - block_i_id * block, block)
+        tail_size_i_half = (tail_size_i + 1) // 2
+        block_i_sub_offset = vid * tail_size_i_half
+        tail_size_i_half = tail_size_i_half - (tail_size_i % 2) * vid
+
+        # Synchronize after KV gathering
+        with T.rs("PIPE_MTE3"):
+            if tail_size_i_half > 0:
+                T.copy(
+                    ub_kv_sparse[:tail_size_i_half, :dim],
+                    workspace_kv[
+                        kernel_id,
+                        task_id % multi_ws_kv,
+                        block_i_sub_offset : block_i_sub_offset + tail_size_i_half,
+                        :,
+                    ],
+                )
+            flag_V0S_C1L_kv = flag_base_V0S_C1L_kv + task_id % multi_ws_kv
+            T.sync_block_set(flag_V0S_C1L_kv)
+
+    @T.macro
+    def V1L(
+        workspace_s,
+        ub_cross_kernel_32,
+        kernel_id,
+        vid,
+        task_id,
+    ):
+        sub_offset = vid * heads_half
+
+        # Load attention scores from workspace
+        with T.rs("PIPE_MTE2"):
+            flag_C1S_V1L_s = flag_base_C1S_V1L_s + task_id % multi_ws_s
+            T.sync_block_wait(flag_C1S_V1L_s)
+            T.copy(
+                workspace_s[
+                    kernel_id,
+                    task_id % multi_ws_s,
+                    sub_offset : sub_offset + heads_half,
+                    :block,
+                ],
+                ub_cross_kernel_32[:heads_half, :block],
+            )
+
+    @T.macro
+    def V1P(
+        # Global UB
+        ub_attn_sink,
+        ub_var_scores_max,
+        ub_var_scores_scale,
+        ub_indices,
+        ub_arrange_mask,
+        ub_attn_sink_tmp,
+        # Local UB
+        ub_var_scores_max_prev,
+        ub_var_scores_sum,
+        ub_cross_kernel_16,
+        ub_cross_kernel_32,
+        ub_var_valid_indices,
+        ub_var_valid_mask,
+        ub_var_valid_indices_32,
+        # Offset Info
+        kernel_id,
+        vid,
+        task_id,
+    ):
+        acc_s_scale = sm_scale
+        value_zero = 0
+        value_ignore_index = -1
+
+        block_i_id = task_id % num_top_k_blocks
+        tail_size_i = T.min(top_k - block_i_id * block, block)
+
+        with T.rs("PIPE_V"):
+            # Save previous max scores for numerical stability
+            T.copy(ub_var_scores_max, ub_var_scores_max_prev)
+
+            # Apply softmax scaling and compute max
+            T.vmul(
+                ub_cross_kernel_32[:, :block],
+                acc_s_scale,
+                ub_cross_kernel_32[:, :block],
+            )
+            T.reduce(
+                ub_cross_kernel_32[:, :block],
+                ub_var_scores_max,
+                dims=[1],
+                reduce_mode="max",
+            )
+
+            # Update max scores and compute scaling factors
+            if block_i_id != 0:
+                T.vmax(ub_var_scores_max_prev, ub_var_scores_max, ub_var_scores_max)
+                T.vsub(
+                    ub_var_scores_max_prev,
+                    ub_var_scores_max,
+                    ub_var_scores_scale[task_id % multi_ub_inner_cross, :, :],
+                )
+                T.vexp(
+                    ub_var_scores_scale[task_id % multi_ub_inner_cross, :, :],
+                    ub_var_scores_scale[task_id % multi_ub_inner_cross, :, :],
+                )
+            else:
+                T.vbrc(
+                    value_zero,
+                    ub_var_scores_scale[task_id % multi_ub_inner_cross, :, :],
+                )
+
+            # Apply softmax stabilization and compute exponentials
+            T.vsub(
+                ub_cross_kernel_32[:, :block],
+                ub_var_scores_max,
+                ub_cross_kernel_32[:, :block],
+            )
+            T.vexp(ub_cross_kernel_32[:, :block], ub_cross_kernel_32[:, :block])
+
+            # Create valid mask for incomplete blocks
+            T.vcmp(
+                ub_indices[task_id % multi_ub_inner_cross, :, :],
+                value_ignore_index,
+                ub_var_valid_indices,
+                "ne",
+            )
+            if tail_size_i < block:
+                tail_size_i = tail_size_i
+                T.vcmp(ub_arrange_mask, tail_size_i, ub_var_valid_mask, "lt")
+                T.vand(ub_var_valid_indices, ub_var_valid_mask, ub_var_valid_indices)
+
+            # Apply valid mask
+            T.vcast(ub_var_valid_indices, ub_var_valid_indices_32)
+            T.vmul(
+                ub_cross_kernel_32[:heads_half, :block],
+                ub_var_valid_indices_32,
+                ub_cross_kernel_32[:heads_half, :block],
+            )
+            T.vcast(
+                ub_cross_kernel_32[:heads_half, :block],
+                ub_cross_kernel_16[:heads_half, :block],
+                round_mode="rint",
+            )
+
+    @T.macro
+    def V1S(
+        workspace_p,
+        ub_cross_kernel_16,
+        kernel_id,
+        vid,
+        task_id,
+    ):
+        sub_offset = vid * heads_half
+
+        # Store softmax results and synchronize
+        with T.rs("PIPE_MTE3"):
+            T.copy(
+                ub_cross_kernel_16[:heads_half, :block],
+                workspace_p[
+                    kernel_id,
+                    task_id % multi_ws_p,
+                    sub_offset : sub_offset + heads_half,
+                    :,
+                ],
+            )
+            flag_V1S_C2L_p = flag_base_V1S_C2L_p + task_id % multi_ws_p
+            T.sync_block_set(flag_V1S_C2L_p)
+
+    @T.macro
+    def V1P_post(
+        ub_attn_sink,
+        ub_var_scores_max,
+        ub_attn_sink_tmp,
+        ub_var_scores_sum,
+        ub_cross_kernel_32,
+        kernel_id,
+        vid,
+        task_id,
+    ):
+        block_i_id = task_id % num_top_k_blocks
+
+        # Compute sum of exponential for softmax denominator
+        offset_tmp = (task_id % multi_ub_inner_cross) * heads_half
+        T.reduce(
+            ub_cross_kernel_32[:heads_half, :block],
+            ub_var_scores_sum[offset_tmp : offset_tmp + heads_half, :],
+            dims=[1],
+            reduce_mode="sum",
+        )
+
+        if block_i_id == num_top_k_blocks - 1:
+            T.vsub(ub_attn_sink, ub_var_scores_max, ub_attn_sink_tmp)
+            T.vexp(ub_attn_sink_tmp, ub_attn_sink_tmp)
+
+    @T.macro
+    def V2L(
+        workspace_o,
+        ub_acc_o_new,
+        kernel_id,
+        vid,
+        task_id,
+    ):
+        # Load and accumulate output values
+        with T.rs("PIPE_MTE2"):
+            flag_C2S_V2L_o = flag_base_C2S_V2L_o + task_id % multi_ws_o
+            T.sync_block_wait(flag_C2S_V2L_o)
+            T.copy(
+                workspace_o[kernel_id, task_id % multi_ws_o, vid * heads_half, 0],
+                ub_acc_o_new,
+                size=[heads_half, dim],
+            )
+
+    @T.macro
+    def V2P(
+        ub_acc_o,
+        ub_acc_o_new,
+        ub_var_scores_scale,
+        ub_cross_kernel_16,
+        ub_var_logsum,
+        ub_var_scores_sum,
+        ub_attn_sink_tmp,
+        kernel_id,
+        vid,
+        task_id,
+    ):
+        value_zero = 0
+
+        block_i_id = task_id % num_top_k_blocks
+
+        with T.rs("PIPE_V"):
+            if block_i_id == 0:
+                # Initialize softmax variables
+                T.vbrc(value_zero, ub_var_logsum)
+                T.vbrc(value_zero, ub_acc_o)
+
+            # Update logsum and accumulate output
+            T.vmul(
+                ub_var_logsum,
+                ub_var_scores_scale[task_id % multi_ub_inner_cross, :, :],
+                ub_var_logsum,
+            )
+            offset_tmp = (task_id % multi_ub_inner_cross) * heads_half
+            T.vadd(
+                ub_var_logsum,
+                ub_var_scores_sum[offset_tmp : offset_tmp + heads_half, :],
+                ub_var_logsum,
+            )
+
+            T.vmul(
+                ub_acc_o,
+                ub_var_scores_scale[task_id % multi_ub_inner_cross, :, :],
+                ub_acc_o,
+            )
+            T.vadd(ub_acc_o, ub_acc_o_new, ub_acc_o)
+
+            if block_i_id == num_top_k_blocks - 1:
+                # Normalize output by softmax denominator
+                T.vadd(ub_var_logsum, ub_attn_sink_tmp, ub_var_logsum)
+                T.vdiv(ub_acc_o, ub_var_logsum, ub_acc_o)
+                T.vcast(
+                    ub_acc_o, ub_cross_kernel_16[:heads_half, :dim], round_mode="rint"
+                )
+
+    @T.macro
+    def V2S(
+        Output,
+        ub_cross_kernel_16,
+        kernel_id,
+        vid,
+        task_id,
+    ):
+        local_id = task_id // num_top_k_blocks
+        block_i_id = task_id % num_top_k_blocks
+
+        logic_kernel_id = local_id * num_kernels + kernel_id
+        batch_id = logic_kernel_id // seq_len
+        seq_id = logic_kernel_id % seq_len
+
+        sub_offset = vid * heads_half
+
+        with T.rs("PIPE_MTE3"):
+            if block_i_id == num_top_k_blocks - 1:
+                T.copy(
+                    ub_cross_kernel_16[:heads_half, :dim],
+                    Output[batch_id, seq_id, sub_offset : sub_offset + heads_half, :],
+                )
 
     # Define the main sparse attention kernel using TileLang
     @T.prim_func
     def SparseAttnExp(
-            Q: T.Tensor(shape_q, dtype),
-            KV: T.Tensor(shape_kv, dtype),
-            Output: T.Tensor(shape_out, dtype),
-            attn_sink: T.Tensor((heads), accum_dtype),
-            Indices: T.Tensor(shape_idx, indices_dtype),
-            workspace_kv: T.Tensor(shape_kv_sparse_work, dtype),
-            workspace_s: T.Tensor(shape_s_work, accum_dtype),
-            workspace_p: T.Tensor(shape_s_work, dtype),
-            workspace_o: T.Tensor(shape_o_work, accum_dtype),
-            workspace_u: T.Tensor(shape_u_work, accum_dtype),
+        Q: T.Tensor([batch, seq_len, heads, dim], dtype),  # type: ignore
+        KV: T.Tensor([batch, seq_len_kv, dim], dtype),  # type: ignore
+        Output: T.Tensor([batch, seq_len, heads, dim], dtype),  # type: ignore
+        attn_sink: T.Tensor([heads], accum_dtype),
+        Indices: T.Tensor([batch, seq_len, top_k], indices_dtype),  # type: ignore
+        workspace_kv: T.Tensor([num_kernels, multi_ws_kv, block, dim], dtype),
+        workspace_s: T.Tensor([num_kernels, multi_ws_s, heads, block], accum_dtype),
+        workspace_p: T.Tensor([num_kernels, multi_ws_p, heads, block], dtype),
+        workspace_o: T.Tensor([num_kernels, multi_ws_o, heads, dim], accum_dtype),
     ):
         # Launch NPU kernel with specified number of parallel kernels
-        with T.Kernel(num_kernels, is_npu=True) as (kernel_id, subid):
-            acc_s_scale = sm_scale
-
+        with T.Kernel(num_physical_kernels, is_npu=True) as (kernel_id, vid):
             # Cube computation section (matrix operations)
             with T.Scope("Cube"):
                 # Allocate L1 buffers for cube operations
-                l1_q = T.alloc_L1([heads, full_dim], dtype)
-                l1_p = T.alloc_L1([heads, block_I], dtype)
-                l1_kv_sparse = T.alloc_L1([block_I, full_dim], dtype)
+                l1_q = T.alloc_L1([heads, dim], dtype)
+                l1_p = T.alloc_L1([heads, block], dtype)
+                l1_kv_sparse = T.alloc_L1([multi_l1_kv, block, dim], dtype)
 
                 # Allocate L0 buffer for accumulation
                 l0_c = T.alloc_L0C([heads, dim], accum_dtype)
 
-                # Process tasks in serial across logical kernels
-                for task_id in T.serial(T.ceildiv(num_logic_kernels, num_kernels)):
-                    logic_kernel_id = task_id * num_kernels
-                    logic_kernel_id = logic_kernel_id + kernel_id
-                    if logic_kernel_id < num_logic_kernels:
-                        # Calculate batch and sequence indices
-                        batch_id = logic_kernel_id // seq_len
-                        seq_id = logic_kernel_id % seq_len
+                num_local_logic_kernels = T.ceildiv(
+                    num_logic_kernels - kernel_id, num_kernels
+                )
+                num_tasks = num_local_logic_kernels * num_top_k_blocks
 
-                        # Load query data to L1
-                        T.npuir_load_nd2nz(Q[batch_id, seq_id, 0, 0], l1_q, size=[heads, full_dim])
+                for stream_id in T.serial(num_tasks + 1):
+                    if stream_id < num_tasks:
+                        task_id = stream_id
+                        C1L(Q, workspace_kv, l1_q, l1_kv_sparse, kernel_id, task_id)
+                        C1P(l1_q, l1_kv_sparse, l0_c, kernel_id, task_id)
+                        C1S(workspace_s, l0_c, kernel_id, task_id)
 
-                        # Process blocks along I dimension (top-k)
-                        for block_i_id in T.serial(T.ceildiv(top_k, block_I)):
-                            block_i_offset = block_i_id * block_I
-
-                            # Wait for Vector computation section synchronization
-                            with T.rs("PIPE_MTE2"):
-                                T.sync_block_wait(block_i_id)
-
-                            # Load sparse KV data to L1
-                            T.npuir_load_nd2nz(workspace_kv[kernel_id, block_i_offset, 0],
-                                               l1_kv_sparse, size=[block_I, full_dim])
-
-                            # Perform matrix multiplication (Q @ K^T)
-                            T.npuir_dot(l1_q, l1_kv_sparse, l0_c, initC=True, b_transpose=True,
-                                        size=[heads, full_dim, block_I])
-
-                            # Store intermediate results and synchronize
-                            with T.rs("PIPE_FIX"):
-                                T.npuir_store_fixpipe(l0_c, workspace_s[kernel_id, block_i_id, 0, 0], size=[heads, block_I],
-                                                      enable_nz2nd=True)
-                                T.sync_block_set(block_i_id)
-
-                        for block_i_id in T.serial(T.ceildiv(top_k, block_I)):
-                            block_i_offset = block_i_id * block_I
-                            # Load intermediate results for softmax
-                            with T.rs("PIPE_MTE2"):
-                                T.sync_block_wait(block_i_id)
-                                T.npuir_load_nd2nz(workspace_p[kernel_id, block_i_id, 0, 0], l1_p, size=[heads, block_I])
-
-                            # Perform matrix multiplication (P @ V)
-                            T.npuir_load_nd2nz(workspace_kv[kernel_id, block_i_offset, 0],
-                                               l1_kv_sparse, size=[block_I, full_dim])
-
-                            T.npuir_dot(l1_p, l1_kv_sparse, l0_c, initC=True,
-                                        size=[heads, block_I, dim])
-
-                            T.npuir_store_fixpipe(l0_c, workspace_o[kernel_id, block_i_id, 0, 0],
-                                                  size=[heads, dim], enable_nz2nd=True)
-
-                            # Synchronize after output computation
-                            with T.rs("PIPE_FIX"):
-                                T.sync_block_set(block_i_id)
+                    if stream_id > 0:
+                        task_id = stream_id - 1
+                        C2L(workspace_p, l1_p, kernel_id, task_id)
+                        C2P(l1_p, l1_kv_sparse, l0_c, kernel_id, task_id)
+                        C2S(workspace_o, l0_c, kernel_id, task_id)
 
             # Vector computation section (softmax and normalization)
             with T.Scope("Vector"):
-                value_zero = 0
-                value_ignore_index = -1
-                value_min = -T.infinity("float32")
-
                 # Allocate unified buffers for vector operations
-                ub_kv_sparse = T.alloc_ub([block_I_half, full_dim], dtype)
-                ub_indices = T.alloc_ub([1, block_I], indices_dtype)
                 ub_acc_o = T.alloc_ub([heads_half, dim], accum_dtype)
-                ub_acc_o_new = T.alloc_ub([heads_half, dim], accum_dtype)
-                ub_cross_kernel_16 = T.alloc_ub([heads_half, share_block_IK], dtype)
-                ub_cross_kernel_32 = T.alloc_ub([heads_half, share_block_IK], accum_dtype)
+                ub_attn_sink = T.alloc_ub([heads_half, 1], accum_dtype)
 
-                # Allocate buffers for softmax variables
-                ub_var_logsum = T.alloc_ub([heads_half, 1], accum_dtype)
-                ub_var_scores_max = T.alloc_ub([heads_half, 1], accum_dtype)
+                ub_cross_kernel_16 = T.alloc_ub(
+                    [block_heads_shared_half, block_dim_share], dtype
+                )
+                ub_cross_kernel_32 = T.alloc_ub(
+                    [heads_half, block_dim_share], accum_dtype
+                )
+
+                # ub only used in V1P
                 ub_var_scores_max_prev = T.alloc_ub([heads_half, 1], accum_dtype)
-                ub_var_scores_scale = T.alloc_ub([heads_half, 1], accum_dtype)
-                ub_var_scores_sum = T.alloc_ub([heads_half, 1], accum_dtype)
-                ub_var_valid_indices = T.alloc_ub([1, block_I], "bool")
-                ub_var_valid_mask = T.alloc_ub([1, block_I], "bool")
-                ub_var_valid_indices_32 = T.alloc_ub([1, block_I], accum_dtype)
+                ub_var_scores_max = T.alloc_ub([heads_half, 1], accum_dtype)
+                ub_var_valid_indices = T.alloc_ub([1, block], "bool")
+                ub_var_valid_mask = T.alloc_ub([1, block], "bool")
+                ub_var_valid_indices_32 = T.alloc_ub([1, block], accum_dtype)
 
-                ub_arrange_mask = T.alloc_ub([1, block_I], "int16")
-                T.npuir_arange(ub_arrange_mask, [0, 1], 0)
+                # ub only used in V2P
+                ub_var_logsum = T.alloc_ub([heads_half, 1], accum_dtype)
 
-                # Process tasks in serial across logical kernels
-                for task_id in T.serial(T.ceildiv(num_logic_kernels, num_kernels)):
-                    logic_kernel_id = task_id * num_kernels
-                    logic_kernel_id = logic_kernel_id + kernel_id
-                    if logic_kernel_id < num_logic_kernels:
-                        batch_id = logic_kernel_id // seq_len
-                        seq_id = logic_kernel_id % seq_len
+                # inner cross
+                ub_indices = T.alloc_ub([multi_ub_inner_cross, 1, block], indices_dtype)
+                ub_var_scores_sum = T.alloc_ub(
+                    [multi_ub_inner_cross * heads_half, 1], accum_dtype
+                )
+                ub_var_scores_scale = T.alloc_ub(
+                    [multi_ub_inner_cross, heads_half, 1], accum_dtype
+                )
 
-                        # Initialize softmax variables
-                        T.npuir_brc(value_zero, ub_var_logsum)
-                        T.npuir_brc(value_zero, ub_acc_o)
-                        T.npuir_brc(value_zero, ub_var_scores_scale)
-                        T.npuir_brc(value_min, ub_var_scores_max)
+                # outer loop inner cross
+                ub_attn_sink_tmp = T.alloc_ub([heads_half, 1], accum_dtype)
 
-                        # Process blocks along I dimension (top-k)
-                        for block_i_id in T.serial(T.ceildiv(top_k, block_I)):
-                            tail_size_i = T.min(top_k - block_i_id * block_I, block_I)
-                            tail_size_i_half = (tail_size_i + 1) // 2
+                ub_arrange_mask = T.alloc_ub([1, block], "int16")
+                offset_heads_sub = vid * heads_half
+                with T.rs("PIPE_MTE2"):
+                    T.copy(
+                        attn_sink[offset_heads_sub : offset_heads_sub + heads_half],
+                        ub_attn_sink[:, 0],
+                    )
+                with T.rs("PIPE_V"):
+                    T.arange(ub_arrange_mask, [0, 1], 0)
 
-                            block_i_offset = block_i_id * block_I
-                            block_i_sub_offset = subid * tail_size_i_half
-                            tail_size_i_half = tail_size_i_half - (tail_size_i % 2) * subid
+                num_local_logic_kernels = T.ceildiv(
+                    num_logic_kernels - kernel_id, num_kernels
+                )
+                num_tasks = num_local_logic_kernels * num_top_k_blocks
 
-                            # Load indices and gather sparse KV data (only for first head block)
-                            T.copy(Indices[batch_id, seq_id, block_i_offset], ub_indices, size=[1, block_I])
-                            if tail_size_i_half > 0:
-                                T.npuir_brc(value_zero, ub_kv_sparse)
-                                for idx_id in T.serial(tail_size_i_half):
-                                    current_index = ub_indices[0, block_i_sub_offset + idx_id]
-                                    if current_index >= 0 and current_index < seq_len_kv:
-                                        T.copy(KV[batch_id, current_index, 0], ub_kv_sparse[idx_id, 0],
-                                               size=[1, full_dim])
+                for stream_id in T.serial(num_tasks + 2):
+                    if stream_id < num_tasks:
+                        task_id = stream_id
+                        V0L(
+                            KV,
+                            Indices,
+                            ub_indices,
+                            ub_cross_kernel_16,
+                            kernel_id,
+                            vid,
+                            task_id,
+                        )
+                        V0S(workspace_kv, ub_cross_kernel_16, kernel_id, vid, task_id)
 
-                                # Store gathered KV data to workspace
-                                T.copy(ub_kv_sparse, workspace_kv[kernel_id, block_i_offset + block_i_sub_offset, 0],
-                                       size=[tail_size_i_half, full_dim])
+                    if stream_id > 0 and stream_id - 1 < num_tasks:
+                        task_id = stream_id - 1
+                        V1L(workspace_s, ub_cross_kernel_32, kernel_id, vid, task_id)
+                        V1P(
+                            # Global UB
+                            ub_attn_sink,
+                            ub_var_scores_max,
+                            ub_var_scores_scale,
+                            ub_indices,
+                            ub_arrange_mask,
+                            ub_attn_sink_tmp,
+                            # Local UB
+                            ub_var_scores_max_prev,
+                            ub_var_scores_sum,
+                            ub_cross_kernel_16,
+                            ub_cross_kernel_32,
+                            ub_var_valid_indices,
+                            ub_var_valid_mask,
+                            ub_var_valid_indices_32,
+                            # Offset Info
+                            kernel_id,
+                            vid,
+                            task_id,
+                        )
+                        V1S(workspace_p, ub_cross_kernel_16, kernel_id, vid, task_id)
+                        V1P_post(
+                            ub_attn_sink,
+                            ub_var_scores_max,
+                            ub_attn_sink_tmp,
+                            ub_var_scores_sum,
+                            ub_cross_kernel_32,
+                            kernel_id,
+                            vid,
+                            task_id,
+                        )
 
-                            # Synchronize after KV gathering
-                            with T.rs("PIPE_MTE3"):
-                                T.sync_block_set(block_i_id)
-
-                        for block_i_id in T.serial(T.ceildiv(top_k, block_I)):
-                            # Save previous max scores for numerical stability
-                            T.copy(ub_var_scores_max, ub_var_scores_max_prev)
-                            block_i_offset = block_i_id * block_I
-                            T.copy(Indices[batch_id, seq_id, block_i_offset], ub_indices, size=[1, block_I])
-
-                            # Load attention scores from workspace
-                            with T.rs("PIPE_MTE2"):
-                                T.sync_block_wait(block_i_id)
-                                T.copy(workspace_s[kernel_id, block_i_id, subid * heads_half, 0],
-                                       ub_cross_kernel_32, size=[heads_half, block_I])
-
-                            # Apply softmax scaling and compute max
-                            T.npuir_mul(ub_cross_kernel_32, acc_s_scale, ub_cross_kernel_32)
-                            T.npuir_reduce(ub_cross_kernel_32, ub_var_scores_max, dims=[1], reduce_mode="max")
-
-                            # Update max scores and compute scaling factors
-                            if block_i_id != 0:
-                                T.npuir_max(ub_var_scores_max_prev, ub_var_scores_max, ub_var_scores_max)
-                                T.npuir_sub(ub_var_scores_max_prev, ub_var_scores_max, ub_var_scores_scale)
-                                T.npuir_exp(ub_var_scores_scale, ub_var_scores_scale)
-
-                            T.copy(ub_var_scores_scale, workspace_u[kernel_id, block_i_id, subid * heads_half, 0],
-                                   size=[heads_half, 1])
-                            # Apply softmax stabilization and compute exponentials
-                            T.npuir_sub(ub_cross_kernel_32, ub_var_scores_max, ub_cross_kernel_32)
-                            T.npuir_exp(ub_cross_kernel_32, ub_cross_kernel_32)
-
-                            # Create valid mask for incomplete blocks
-                            T.npuir_cmp(ub_indices, value_ignore_index, ub_var_valid_indices, "ne")
-                            tail_size_i = T.min(top_k - block_i_id * block_I, block_I)
-                            if tail_size_i < block_I:
-                                tail_size_i = tail_size_i
-                                T.npuir_cmp(ub_arrange_mask, tail_size_i, ub_var_valid_mask, "lt")
-                                T.npuir_and(ub_var_valid_indices, ub_var_valid_mask, ub_var_valid_indices)
-
-                            # Apply valid mask
-                            T.npuir_cast(ub_var_valid_indices, ub_var_valid_indices_32)
-                            T.npuir_mul(ub_cross_kernel_32, ub_var_valid_indices_32, ub_cross_kernel_32)
-                            T.npuir_cast(ub_cross_kernel_32, ub_cross_kernel_16, round_mode="rint",
-                                         size=[heads_half, block_I])
-
-                            # Store softmax results and synchronize
-                            with T.rs("PIPE_MTE3"):
-                                T.copy(ub_cross_kernel_16, workspace_p[kernel_id, block_i_id, subid * heads_half, 0],
-                                       size=[heads_half, block_I])
-                                T.sync_block_set(block_i_id)
-
-                            # Compute sum of exponential for softmax denominator
-                            T.npuir_reduce(ub_cross_kernel_32, ub_var_scores_sum, dims=[1], reduce_mode="sum")
-
-                            # Update logsum and accumulate output
-                            T.npuir_mul(ub_var_logsum, ub_var_scores_scale, ub_var_logsum)
-                            T.npuir_add(ub_var_logsum, ub_var_scores_sum, ub_var_logsum)
-
-                        for block_i_id in T.serial(T.ceildiv(top_k, block_I)):
-                            T.copy(workspace_u[kernel_id, block_i_id, subid * heads_half, 0],
-                                   ub_var_scores_scale,
-                                   size=[heads_half, 1])
-                            T.npuir_mul(ub_acc_o, ub_var_scores_scale, ub_acc_o)
-
-                            # Load and accumulate output values
-                            with T.rs("PIPE_MTE2"):
-                                T.sync_block_wait(block_i_id)
-                                T.copy(workspace_o[kernel_id, block_i_id, subid * heads_half, 0], ub_acc_o_new,
-                                       size=[heads_half, dim])
-
-                            T.npuir_add(ub_acc_o, ub_acc_o_new, ub_acc_o)
-
-                        # Normalize output by softmax denominator
-                        T.copy(attn_sink[subid * heads_half:(subid + 1) * heads_half], ub_var_scores_max_prev[:, 0])
-                        T.npuir_sub(ub_var_scores_max_prev, ub_var_scores_max, ub_var_scores_max_prev)
-                        T.npuir_exp(ub_var_scores_max_prev, ub_var_scores_max_prev)
-                        T.npuir_add(ub_var_logsum, ub_var_scores_max_prev, ub_var_logsum)
-                        T.npuir_div(ub_acc_o, ub_var_logsum, ub_acc_o)
-
-                        # Store final output results
-                        for block_k_id in T.serial(T.ceildiv(dim, block_K)):
-                            block_k_offset = block_k_id * block_K
-                            tail_size_k = dim - block_k_offset
-                            tail_size_k = T.min(tail_size_k, block_K)
-
-                            T.npuir_cast(ub_acc_o[0, block_k_offset], ub_cross_kernel_16, round_mode="rint",
-                                         size=[heads_half, tail_size_k])
-
-                            T.copy(ub_cross_kernel_16, Output[batch_id, seq_id, subid * heads_half, block_k_offset],
-                                   size=[heads_half, tail_size_k])
+                    if stream_id > 1:
+                        task_id = stream_id - 2
+                        V2L(workspace_o, ub_cross_kernel_32, kernel_id, vid, task_id)
+                        V2P(
+                            ub_acc_o,
+                            ub_cross_kernel_32,
+                            ub_var_scores_scale,
+                            ub_cross_kernel_16,
+                            ub_var_logsum,
+                            ub_var_scores_sum,
+                            ub_attn_sink_tmp,
+                            kernel_id,
+                            vid,
+                            task_id,
+                        )
+                        V2S(Output, ub_cross_kernel_16, kernel_id, vid, task_id)
 
     return SparseAttnExp
 
 
 def sparse_attn(
-        q: torch.Tensor, kv: torch.Tensor, attn_sink: torch.Tensor, topk_idxs: torch.Tensor,
-        softmax_scale: Optional[float] = None
+    q: torch.Tensor,
+    kv: torch.Tensor,
+    attn_sink: torch.Tensor,
+    topk_idxs: torch.Tensor,
+    softmax_scale: Optional[float] = None,
 ):
     num_kernels = 24
-    block_I = 64
-    block_K = 64
+    block = 64
+    multi_ws_kv = 2
+    multi_ws_s = 2
+    multi_ws_p = 2
+    multi_ws_o = 2
     batch, seq_len, heads, dim = q.size()
-    _, seq_len_kv, _ = kv.size()
     _, _, top_k = topk_idxs.size()
-    num_block_i = torch.ceil(torch.tensor(top_k / block_I)).int().item()
-    kernel = sparse_attn_kernel(batch, seq_len, seq_len_kv, heads, dim, tail_dim=0, top_k=top_k,
-                                num_kernels=num_kernels, sm_scale=softmax_scale, block_I=block_I, block_K=block_K)
-    output = torch.empty((batch, seq_len, heads, dim), dtype=q.dtype).npu()
-    w_kv = torch.empty((num_kernels, top_k, dim), dtype=q.dtype).npu()
-    w_s = torch.empty((num_kernels, num_block_i, heads, block_I), dtype=attn_sink.dtype).npu()
-    w_p = torch.empty((num_kernels, num_block_i, heads, block_I), dtype=q.dtype).npu()
-    w_o = torch.empty((num_kernels, num_block_i, heads, dim), dtype=attn_sink.dtype).npu()
-    w_u = torch.empty((num_kernels, num_block_i, heads, 1), dtype=attn_sink.dtype).npu()
-    kernel(q, kv, output, attn_sink, topk_idxs, w_kv, w_s, w_p, w_o, w_u)
+
+    sparse_attn.kernel = sparse_attn_kernel(
+        batch,
+        heads,
+        dim,
+        top_k,
+        num_kernels,
+        softmax_scale,
+        block,
+        multi_ws_kv,
+        multi_ws_s,
+        multi_ws_p,
+        multi_ws_o,
+    )
+    output = torch.empty((batch, seq_len, heads, dim), dtype=q.dtype, device=q.device)
+    w_kv = torch.empty(
+        (num_kernels, multi_ws_kv, block, dim), dtype=q.dtype, device=q.device
+    )
+    w_s = torch.empty(
+        (num_kernels, multi_ws_s, heads, block), dtype=attn_sink.dtype, device=q.device
+    )
+    w_p = torch.empty(
+        (num_kernels, multi_ws_p, heads, block), dtype=q.dtype, device=q.device
+    )
+    w_o = torch.empty(
+        (num_kernels, multi_ws_o, heads, dim), dtype=attn_sink.dtype, device=q.device
+    )
+    sparse_attn.kernel(q, kv, output, attn_sink, topk_idxs, w_kv, w_s, w_p, w_o)
+    torch.npu.synchronize()
     return output
 
 
@@ -347,7 +734,9 @@ def softmax_with_sink(x: torch.Tensor, attn_sink: torch.Tensor, head_dim, dim=-1
     sum_exp = torch.sum(exp_x, dim=dim, keepdim=True)
 
     sink_view_shape = [1] * x.dim()
-    sink_view_shape[head_dim if head_dim > 0 else head_dim % x.dim()] = x.shape[head_dim]
+    sink_view_shape[head_dim if head_dim > 0 else head_dim % x.dim()] = x.shape[
+        head_dim
+    ]
 
     sink_term = torch.exp(attn_sink.view(sink_view_shape) - max_vals)
     adjusted_sum = sum_exp + sink_term
@@ -355,28 +744,45 @@ def softmax_with_sink(x: torch.Tensor, attn_sink: torch.Tensor, head_dim, dim=-1
     return exp_x / adjusted_sum
 
 
-def sparse_attn_torch(q: torch.Tensor, kv: torch.Tensor, attn_sink: torch.Tensor, topk_idxs: torch.Tensor,
-                      softmax_scale: Optional[float] = None):
+def sparse_attn_torch(
+    q: torch.Tensor,
+    kv: torch.Tensor,
+    attn_sink: torch.Tensor,
+    topk_idxs: torch.Tensor,
+    softmax_scale: Optional[float] = None,
+):
     """Reference Sparse Attention kernel implemented in PyTorch"""
     kv_sparse = gather_from_kv(kv, topk_idxs)
-    mask_acc_s = torch.where((topk_idxs == -1).unsqueeze(-2), -torch.inf, 0.)
+    mask_acc_s = torch.where((topk_idxs == -1).unsqueeze(-2), -torch.inf, 0.0)
     mask_acc_s = mask_acc_s.to(device=q.device, dtype=torch.float32)
-    ref_output = softmax_with_sink(
-        ((q @ kv_sparse.transpose(-2, -1)).to(torch.float32) + mask_acc_s) * softmax_scale, attn_sink, head_dim=-2,
-        dim=-1).to(torch.bfloat16) @ kv_sparse
+    ref_output = (
+        softmax_with_sink(
+            ((q @ kv_sparse.transpose(-2, -1)).to(attn_sink.dtype) + mask_acc_s)
+            * softmax_scale,
+            attn_sink,
+            head_dim=-2,
+            dim=-1,
+        ).to(q.dtype)
+        @ kv_sparse
+    )
 
     return ref_output
 
 
-def rand_sparse_attn_input(batch_size, num_heads, seq_len, seq_len_kv, top_k, dim, seed=88888888, causal=True):
+def rand_sparse_attn_input(
+    batch_size, num_heads, seq_len, seq_len_kv, top_k, dim, seed=88888888, causal=True
+):
     """Generate legalized random inputs for Sparse Attention"""
     torch.manual_seed(seed)
+    base_dtype = torch.bfloat16
 
     # Generate inputs
-    q = torch.randn((batch_size, seq_len, num_heads, dim), dtype=torch.bfloat16).npu()
-    kv = torch.randn((batch_size, seq_len_kv, dim), dtype=torch.bfloat16).npu()
+    q = torch.randn((batch_size, seq_len, num_heads, dim), dtype=base_dtype).npu()
+    kv = torch.randn((batch_size, seq_len_kv, dim), dtype=base_dtype).npu()
     attn_sink = torch.randn((num_heads,), dtype=torch.float32).npu()
-    top_k_indices = torch.randint(low=0, high=seq_len_kv, size=(batch_size, seq_len, top_k), dtype=torch.int32).npu()
+    top_k_indices = torch.randint(
+        low=0, high=seq_len_kv, size=(batch_size, seq_len, top_k), dtype=torch.int32
+    ).npu()
 
     if causal:
         # Apply causal mask on top_k_indices
@@ -389,47 +795,87 @@ def rand_sparse_attn_input(batch_size, num_heads, seq_len, seq_len_kv, top_k, di
     scale = (1.0 / dim) ** 0.5
 
     return {
-        'q': q,
-        'kv': kv,
-        'attn_sink': attn_sink,
-        'topk_idxs': top_k_indices,
-        'softmax_scale': scale,
+        "q": q,
+        "kv": kv,
+        "attn_sink": attn_sink,
+        "topk_idxs": top_k_indices,
+        "softmax_scale": scale,
     }
 
 
-def generate_and_save_data(case_id, **kwargs):
-    inputs = rand_sparse_attn_input(**kwargs)
-    outputs = sparse_attn_torch(**inputs)
-    torch.save({'inputs': inputs, 'outputs': outputs}, f"case_{case_id}.pt")
+TEST_CASES = [
+    {
+        "case_id": 0,
+        "params": {
+            "batch_size": 1,
+            "num_heads": 64,
+            "seq_len": 4096,
+            "seq_len_kv": 4096,
+            "top_k": 128,
+            "dim": 512,
+        },
+    },
+    {
+        "case_id": 1,
+        "params": {
+            "batch_size": 1,
+            "num_heads": 64,
+            "seq_len": 2999,
+            "seq_len_kv": 4096,
+            "top_k": 128,
+            "dim": 512,
+        },
+    },
+]
 
 
-def generate_data():
-    generate_and_save_data(
-        case_id=0,
-        batch_size=1,
-        num_heads=32,
-        seq_len=4096,
-        seq_len_kv=4096,
-        top_k=128,
-        dim=512,
-        # causal=False,
-    )
+def run_test(verify_acc=True):
+    """
+    Run tests for all cases defined in TEST_CASES.
+    If verify_acc is True, check numerical accuracy (rtol=1e-2, atol=1e-2).
+    If False, only ensure the function runs without error (output is not None).
+    """
+    errors = []
 
+    for case in TEST_CASES:
+        case_id = case.get("case_id", "unknown")
+        kwargs = case["params"]
 
-def run_test(verify_result=True):
-    data = torch.load("case_0.pt", map_location=torch.device('npu'))
-    output = sparse_attn(**data['inputs'])
-    if verify_result:
-        print("torch:", data['outputs'])
-        print("output:", output)
-        torch.testing.assert_close(data['outputs'], output, rtol=1e-2, atol=1e-2)
-        print('\033[92mAll check passed.\033[0m')
+        try:
+            # 1. Generate random inputs in memory
+            inputs = rand_sparse_attn_input(**kwargs)
+
+            # 2. Compute reference output (only when accuracy check is needed)
+            if verify_acc:
+                expected = sparse_attn_torch(**inputs)
+
+            # 3. Compute output of the function under test
+            output = sparse_attn(**inputs)
+
+            # 4. Verification
+            if verify_acc:
+                torch.testing.assert_close(expected, output, rtol=1e-2, atol=1e-2)
+                print(f"case_{case_id}: \033[92mPassed.\033[0m")
+            else:
+                assert output is not None, "Output is None"
+                print(f"case_{case_id}: \033[92mFinished.\033[0m")
+
+        except Exception as e:
+            errors.append(f"case_{case_id}: {str(e)}")
+            print(f"case_{case_id}: \033[91mFailed: {e}\033[0m")
+
+    # 5. Report errors if any
+    if errors:
+        error_msg = "\n".join(errors)
+        raise AssertionError(f"Some cases failed:\n{error_msg}")
     else:
-        print(output)
+        print("\033[92mAll checks passed.\033[0m")
 
 
 if __name__ == "__main__":
-    # Generate data and run tests
-    generate_data()
-    run_test(verify_result=True)
-    # run_test(verify_result=False)
+    # Specifies which NPU device to use
+    torch.npu.set_device(0)
+    tilelang.cache.clear_cache()
+
+    # Run tests
+    run_test(verify_acc=True)

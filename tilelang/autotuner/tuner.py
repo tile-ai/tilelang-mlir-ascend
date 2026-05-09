@@ -361,9 +361,11 @@ class AutoTuner:
 
     def _npu_device_wrapper(self, func: Callable, device: int) -> Callable:
         """Return a wrapper that pins the given NPU device before calling *func*."""
+
         def inner(**config_arg):
             torch.npu.set_device(device)
             return func(**config_arg)
+
         return inner
 
     def _determine_num_workers(self) -> int:
@@ -614,7 +616,9 @@ class AutoTuner:
                 )
                 continue
 
-        use_npu_profiling = os.getenv("TILELANG_BENCH_METHOD", "default").lower() == "npu"
+        use_npu_profiling = (
+            os.getenv("TILELANG_BENCH_METHOD", "default").lower() == "npu"
+        )
 
         progress_bar = tqdm(
             range(len(results_with_configs)), desc="Bench configurations"

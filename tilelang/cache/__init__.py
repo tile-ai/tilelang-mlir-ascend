@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 """The cache utils with class and database persistence - Init file"""
 
-from typing import List, Union, Optional
+from typing import List, Union, Literal, Optional
 from pathlib import Path
 from tvm.target import Target
 from tvm.tir import PrimFunc
@@ -19,7 +19,7 @@ def cached_npu(
     out_idx: List[int] = None,
     target: Union[str, Target] = "npuir",
     target_host: Union[str, Target] = None,
-    execution_backend: Optional[str] = "cython",
+    execution_backend: Optional[Literal["cython"]] = "cython",
     verbose: Optional[bool] = True,
     pass_configs: Optional[dict] = None,
 ):

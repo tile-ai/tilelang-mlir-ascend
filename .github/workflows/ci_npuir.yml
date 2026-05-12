@@ -141,6 +141,7 @@ jobs:
           examples/sparse_mla_fwd_dynamic_shape.py
           examples/deepseek_v4/engram/engram_gate_kernel_bwd.py
           examples/deepseek_v4/engram/engram_gate_kernel_fwd.py
+          examples/deepseek_v4/example_sparse_attn_bwd_kernel.py
           examples/norm/layer_norm.py
         )
 

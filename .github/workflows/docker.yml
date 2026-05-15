@@ -19,6 +19,8 @@ on:
 
 env:
   REGISTRY: quay.io
+  # 直接写死固定仓库名，不再用 github.repository
+  IMAGE_REPO: tilelang
   CHIP: 910b
   OS: ubuntu22.04
   PYTHON: py3.11
@@ -32,13 +34,9 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Read version
+      - name: Read version from VERSION file
         id: version
         run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
-
-      - name: Convert repo to lowercase
-        id: repo
-        run: echo "REPO=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -62,7 +60,7 @@ jobs:
             REGION=other
             CANN_VERSION=${{ inputs.cann_version }}
             CHIP_TYPE=${{ inputs.chip_type }}
-          tags: ${{ env.REGISTRY }}/${{ steps.repo.outputs.REPO }}:${{ steps.version.outputs.VERSION }}-${{ env.CHIP }}-${{ env.OS }}-${{ env.PYTHON }}-arm64
+          tags: ${{ env.REGISTRY }}/${{ secrets.QUAY_USERNAME }}/${{ env.IMAGE_REPO }}:${{ steps.version.outputs.VERSION }}-${{ env.CHIP }}-${{ env.OS }}-${{ env.PYTHON }}-arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -74,13 +72,9 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Read version
+      - name: Read version from VERSION file
         id: version
         run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
-
-      - name: Convert repo to lowercase
-        id: repo
-        run: echo "REPO=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -104,6 +98,6 @@ jobs:
             REGION=other
             CANN_VERSION=${{ inputs.cann_version }}
             CHIP_TYPE=${{ inputs.chip_type }}
-          tags: ${{ env.REGISTRY }}/${{ steps.repo.outputs.REPO }}:${{ steps.version.outputs.VERSION }}-${{ env.CHIP }}-${{ env.OS }}-${{ env.PYTHON }}-x86_64
+          tags: ${{ env.REGISTRY }}/${{ secrets.QUAY_USERNAME }}/${{ env.IMAGE_REPO }}:${{ steps.version.outputs.VERSION }}-${{ env.CHIP }}-${{ env.OS }}-${{ env.PYTHON }}-x86_64
           cache-from: type=gha
           cache-to: type=gha,mode=max

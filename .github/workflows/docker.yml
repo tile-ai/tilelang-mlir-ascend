@@ -19,7 +19,6 @@ on:
 
 env:
   REGISTRY: quay.io
-  # 直接写死固定仓库名，不再用 github.repository
   IMAGE_REPO: tilelang
   CHIP: 910b
   OS: ubuntu22.04

@@ -19,17 +19,26 @@ on:
 
 env:
   REGISTRY: quay.io
-  IMAGE_NAME: ${{ github.repository }}
+  CHIP: 910b
+  OS: ubuntu22.04
+  PYTHON: py3.11
 
 jobs:
-  build-and-push:
+  build-and-push-arm64:
     runs-on: ubuntu-22.04-arm
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
+
+      - name: Read version
+        id: version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Convert repo to lowercase
+        id: repo
+        run: echo "REPO=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -42,31 +51,59 @@ jobs:
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
+      - name: Build and push (arm64)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
           push: ${{ inputs.push_image }}
-          load: false
+          platforms: linux/arm64
           build-args: |
             REGION=other
-            CANN_VERSION=${{ inputs.cann_version || '8.5.0' }}
-            CHIP_TYPE=${{ inputs.chip_type || 'a3' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+            CANN_VERSION=${{ inputs.cann_version }}
+            CHIP_TYPE=${{ inputs.chip_type }}
+          tags: ${{ env.REGISTRY }}/${{ steps.repo.outputs.REPO }}:${{ steps.version.outputs.VERSION }}-${{ env.CHIP }}-${{ env.OS }}-${{ env.PYTHON }}-arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-and-push-amd64:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Read version
+        id: version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Convert repo to lowercase
+        id: repo
+        run: echo "REPO=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Quay.io
+        if: inputs.push_image
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: ${{ inputs.push_image }}
+          platforms: linux/amd64
+          build-args: |
+            REGION=other
+            CANN_VERSION=${{ inputs.cann_version }}
+            CHIP_TYPE=${{ inputs.chip_type }}
+          tags: ${{ env.REGISTRY }}/${{ steps.repo.outputs.REPO }}:${{ steps.version.outputs.VERSION }}-${{ env.CHIP }}-${{ env.OS }}-${{ env.PYTHON }}-x86_64
           cache-from: type=gha
           cache-to: type=gha,mode=max

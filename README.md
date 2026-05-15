@@ -44,6 +44,87 @@ https://github.com/tile-ai/tilelang-ascend/pull/129) for details!
 
 - 09/29/2025 🚀: Officially establish the NPU Intermediate Representation (AscendNPU IR) infrastructure for Ascend within the TileLang ecosystem, deeply integrating into the open-source AI compiler ecosystem based on MLIR. At the same time, deliver peak performance—fusion operators such as FlashAttention (FA) written in TileLang achieve performance on Ascend hardware that matches hand-written AscendC equivalents at a 1.0x level, balancing both development efficiency and ultimate performance!
 
+## High-Performance Ascend Operators with Developer Mode
+
+TileLang enables developers to write high-performance kernels on Ascend NPU with minimal effort. The following benchmarks demonstrate that TileLang achieves performance comparable to hand-written AscendC implementations.
+
+<h3 align="center">Cube Operators</h3>
+
+<p align="center"><b>Typical Case: GEMM</b> | <b>Average Performance: 0.98x AscendC</b> | <a href="https://github.com/tile-ai/tilelang-mlir-ascend/blob/main/examples/gemm/example_gemm.py">Example</a></p>
+
+<div align="center">
+
+<table>
+<tr>
+<th>Operator</th>
+<th>Test Shape</th>
+<th>AscendC (us)</th>
+<th>TileLang (us)</th>
+<th>Performance Ratio</th>
+</tr>
+<tr>
+<td>gemm</td>
+<td>M,N,K=(4096,4096,4096)</td>
+<td>497.930</td>
+<td>501.190</td>
+<td>0.993</td>
+</tr>
+<tr>
+<td>batch_gemm</td>
+<td>Batch,M,N,K=(8,4096,4096,4096)</td>
+<td>3800.376</td>
+<td>3963.859</td>
+<td>0.959</td>
+</tr>
+</table>
+
+</div>
+
+<h3 align="center">Vector Operators</h3>
+
+<p align="center"><b>Typical Case: DeepSeek-V4 mHC</b> | <b>Average Performance: 0.96x AscendC</b> | <a href="https://github.com/tile-ai/tilelang-mlir-ascend/blob/main/examples/deepseek_v4/example_hc_split_sinkhorn_kernel.py">Example</a></p>
+
+<div align="center">
+
+<table>
+<tr>
+<th>Operator</th>
+<th>Test Shape</th>
+<th>AscendC (us)</th>
+<th>TileLang (us)</th>
+<th>Performance Ratio</th>
+</tr>
+<tr>
+<td rowspan="3" valign="middle">hc_sinkhorn (DSV4)</td>
+<td>b*s=128; hc=4; d=4096</td>
+<td>24.6</td>
+<td>28.21</td>
+<td>0.872</td>
+</tr>
+<tr>
+<td>b*s=4096; hc=4; d=4096</td>
+<td>485.97</td>
+<td>490.84</td>
+<td>0.990</td>
+</tr>
+<tr>
+<td>b*s=16384; hc=4; d=4096</td>
+<td>1902.1</td>
+<td>1850.12</td>
+<td>1.028</td>
+</tr>
+</table>
+
+</div>
+
+<h3 align="center">Cube-Vector Operators</h3>
+
+<p align="center"><b>Typical Case: Flash Attention</b> | <b>Average Performance: 0.95x AscendC</b> | <a href="https://github.com/tile-ai/tilelang-mlir-ascend/blob/highperf-dev/examples/flash_attn_npuir_highperf-dev.py">Example</a></p>
+
+<div align="center">
+<img src=./images/fa_performance.png width="80%" />
+</div>
+
 ## Environment Variables Guide
 Currently, we need to set environment variables to configure the developer mode or expert mode. For more environment variables, please refer to the [EnvironmentVariables.md](https://github.com/tile-ai/tilelang-ascend/tree/npuir/docs/developer/EnvironmentVariables.md)
 | Variable | Default | Description | Valid Values |

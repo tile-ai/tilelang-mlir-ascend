@@ -7,96 +7,85 @@ on:
         description: 'CANN version'
         required: false
         default: '8.5.0'
-      chip_type:
-        description: 'Chip type'
-        required: false
-        default: 'a3'
-      push_image:
-        description: 'Whether to push the image'
-        required: false
-        type: boolean
-        default: true
 
 env:
   REGISTRY: quay.io
-  IMAGE_REPO: tilelang
-  CHIP: 910b
+  ORG: ascend
+  IMAGE_NAME: tilelang
   OS: ubuntu22.04
   PYTHON: py3.11
 
 jobs:
-  build-and-push-arm64:
+  build-arm64:
     runs-on: ubuntu-22.04-arm
+    strategy:
+      matrix:
+        chip: [910b, a3]
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
 
-      - name: Read version from VERSION file
+      - name: Read version from VERSION
         id: version
-        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+        run: echo "VERSION=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Quay.io
-        if: inputs.push_image
+      - name: Login to Quay.io
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
-      - name: Build and push (arm64)
+      - name: Build & Push arm64
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
-          push: ${{ inputs.push_image }}
+          push: true
           platforms: linux/arm64
           build-args: |
             REGION=other
             CANN_VERSION=${{ inputs.cann_version }}
-            CHIP_TYPE=${{ inputs.chip_type }}
-          tags: ${{ env.REGISTRY }}/${{ secrets.QUAY_USERNAME }}/${{ env.IMAGE_REPO }}:${{ steps.version.outputs.VERSION }}-${{ env.CHIP }}-${{ env.OS }}-${{ env.PYTHON }}-arm64
+            CHIP_TYPE=${{ matrix.chip }}
+          tags: ${{ env.REGISTRY }}/${{ env.ORG }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}-${{ matrix.chip }}-${{ env.OS }}-${{ env.PYTHON }}-arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  build-and-push-amd64:
+  build-amd64:
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        chip: [910b, a3]
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
 
-      - name: Read version from VERSION file
+      - name: Read version from VERSION
         id: version
-        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+        run: echo "VERSION=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Quay.io
-        if: inputs.push_image
+      - name: Login to Quay.io
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
-      - name: Build and push (amd64)
+      - name: Build & Push amd64
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
-          push: ${{ inputs.push_image }}
+          push: true
           platforms: linux/amd64
           build-args: |
             REGION=other
             CANN_VERSION=${{ inputs.cann_version }}
-            CHIP_TYPE=${{ inputs.chip_type }}
-          tags: ${{ env.REGISTRY }}/${{ secrets.QUAY_USERNAME }}/${{ env.IMAGE_REPO }}:${{ steps.version.outputs.VERSION }}-${{ env.CHIP }}-${{ env.OS }}-${{ env.PYTHON }}-x86_64
+            CHIP_TYPE=${{ matrix.chip }}
+          tags: ${{ env.REGISTRY }}/${{ env.ORG }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}-${{ matrix.chip }}-${{ env.OS }}-${{ env.PYTHON }}-x86_64
           cache-from: type=gha
           cache-to: type=gha,mode=max

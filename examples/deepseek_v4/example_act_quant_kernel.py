@@ -64,7 +64,7 @@ def act_quant_kernel(
                 x_ub_fp[i, j] = x_ub_fp[i, j] / scale_ub[i, 0]
 
             T.vclamp(x_ub_fp, x_ub_fp, -127.0, 127.0)
-            T.vcast(x_ub_fp, x_ub_fp, round_mode="round")
+            T.vcast(x_ub_fp, x_ub_fp, round_mode="rint")  # match torch.round semantics (tie-to-even / IEEE banker rounding)
 
             T.vcast(x_ub_fp, x_ub_half)
             T.vcast(x_ub_half, y_ub)
@@ -93,7 +93,7 @@ def act_quant(
     N = x.size(-1)
     y = torch.empty_like(x, dtype=torch.int8)
     #s = x.new_empty(*x.size()[:-1], N, dtype=torch.float32)
-    s = x.new_empty(N, 1, dtype=torch.float32)
+    s = x.new_empty(x.size(0), 1, dtype=torch.float32)  # rows (M), not cols (N) — latent bug at M==N
     kernel = act_quant_kernel(N, round_scale=scale_fmt is not None)
     kernel(x.view(-1, N), y.view(-1, N), s.view(-1, N))
     return y, s

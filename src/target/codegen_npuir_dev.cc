@@ -1279,8 +1279,24 @@ mlir::Value CodeGenTileLangNPUIRDEV::ReshapeTensorImpl(
       reassoc.push_back(group);
     }
 
-    return builder.create<mlir::tensor::CollapseShapeOp>(loc, dstTensorTy, src,
-                                                         reassoc);
+    // -2 fix: when src has dynamic dims, the corresponding
+    // dst dim group must be dynamic. Rebuild dstTensorTy honoring src's
+    // dynamic dims.
+    llvm::SmallVector<int64_t> adjustedDstShape(dstShapeStatic.begin(),
+                                                dstShapeStatic.end());
+    for (int64_t dstIdx = 0; dstIdx < dstRank; ++dstIdx) {
+      for (int64_t srcIdx : reassoc[dstIdx]) {
+        if (mlir::ShapedType::isDynamic(srcShape[srcIdx])) {
+          adjustedDstShape[dstIdx] = mlir::ShapedType::kDynamic;
+          break;
+        }
+      }
+    }
+    auto adjustedDstTy = mlir::RankedTensorType::get(
+        adjustedDstShape, srcTensorTy.getElementType());
+
+    return builder.create<mlir::tensor::CollapseShapeOp>(loc, adjustedDstTy,
+                                                         src, reassoc);
   }
 
   // srcRank == dstRank but shapes differ: fallback to collapse + expand
@@ -2128,8 +2144,30 @@ mlir::Value CodeGenTileLangNPUIRDEV::NeedGenInsertSlice(Buffer buffer_data,
   auto elemType = dstType.getElementType();
   auto srcShape = srcType.getShape();
 
+  // (v4): derive dynamic-size Values from src. Use tensor::DimOp
+  // when src is a tensor, memref::DimOp when src is a memref (the loop-
+  // carried args can be memref).
+  llvm::SmallVector<mlir::Value, 4> dynamicSizes;
+  for (size_t i = 0; i < srcShape.size(); ++i) {
+    if (srcShape[i] == mlir::ShapedType::kDynamic) {
+      mlir::Value dimVal;
+      if (src.getType().isa<mlir::TensorType>()) {
+        dimVal =
+            builder.create<mlir::tensor::DimOp>(builder.getUnknownLoc(), src, i)
+                .getResult();
+      } else if (src.getType().isa<mlir::MemRefType>()) {
+        dimVal =
+            builder.create<mlir::memref::DimOp>(builder.getUnknownLoc(), src, i)
+                .getResult();
+      } else {
+        ICHECK(false) << "unsupported src type for dynamic-shape dim query";
+      }
+      dynamicSizes.push_back(dimVal);
+    }
+  }
+
   auto emptyTensor = builder.create<mlir::tensor::EmptyOp>(
-      builder.getUnknownLoc(), srcShape, elemType);
+      builder.getUnknownLoc(), srcShape, elemType, dynamicSizes);
 
   return emptyTensor.getResult();
 }
@@ -2671,8 +2709,14 @@ template <typename T>
 void CodeGenTileLangNPUIRDEV::CreateHIVMBinaryVectorOp(const CallNode *op) {
   auto processImm = [&](mlir::Value &src, int arg_id,
                         Array<PrimExpr> &buffer_shape) {
+    // include BufferLoadNode as a Scalar case input — when the
+    // upstream pass detects a loop-invariant scalar BufferLoad and keeps
+    // it as PrimExpr (rather than broadcasting), it reaches us as a
+    // BufferLoadNode. Handle it as a runtime scalar via MakeValue
+    // (which lowers to memref.load returning a scalar mlir::Value).
     if (op->args[arg_id].as<IntImm>() || op->args[arg_id].as<FloatImm>() ||
-        op->args[arg_id].as<tir::VarNode>()) {
+        op->args[arg_id].as<tir::VarNode>() ||
+        op->args[arg_id].as<BufferLoadNode>()) {
       // Scalar case
       const CallNode *region_node = op->args[1 - arg_id].as<CallNode>();
       const BufferLoadNode *buffer_load_node =
@@ -2700,17 +2744,12 @@ void CodeGenTileLangNPUIRDEV::CreateHIVMBinaryVectorOp(const CallNode *op) {
       // If load only one element, do not use memref.subview, use memref.load as
       // a scalar
       if (is_scalar_load) {
-        if (arg_id == 0) {
-          src = GetVarValue(region_node);
-          auto region = tvm::tl::RegionOp(region_node->args, vmap);
-          auto region_buffer = region.GetBuffer();
-          buffer_shape.clear();
-          for (auto dim : region_buffer->shape) {
-            buffer_shape.push_back(dim);
-          }
-        } else {
-          src = VisitExpr_(buffer_node);
-        }
+        // + buffer_shape fix: scalar load extracts an f32 (or other
+        // scalar) — the operand is effectively a scalar with no tensor shape.
+        // Leave buffer_shape EMPTY so downstream getBroadcastDim() short-
+        // circuits via its `if (...empty()) return dims;` early-return.
+        src = VisitExpr_(buffer_node);
+        buffer_shape.clear();
       } else {
         src = GenExtractSliceFromRegion(region_node);
 
@@ -2738,6 +2777,75 @@ void CodeGenTileLangNPUIRDEV::CreateHIVMBinaryVectorOp(const CallNode *op) {
 
   tvm::tl::RegionOp region_dst_tmp(region_node_dst->args, vmap);
   Array<Range> dst_range = region_dst_tmp.GetRanges();
+
+  // -scalar-swap: if only src0 is scalar but src1 is tensor,
+  // swap them (for commutative ops) so operand 0 is vector. The
+  // bishengir VAddOp/VMulOp/VMaxOp/etc all have VectorOnlyTrait<0>
+  // requiring operand 0 to be vector.
+  if (!src0.getType().isa<mlir::TensorType>() &&
+      src1.getType().isa<mlir::TensorType>()) {
+    constexpr bool is_commutative = std::is_same_v<T, mlir::hivm::VAddOp> ||
+                                    std::is_same_v<T, mlir::hivm::VMulOp> ||
+                                    std::is_same_v<T, mlir::hivm::VMaxOp> ||
+                                    std::is_same_v<T, mlir::hivm::VMinOp> ||
+                                    std::is_same_v<T, mlir::hivm::VOrOp> ||
+                                    std::is_same_v<T, mlir::hivm::VAndOp> ||
+                                    std::is_same_v<T, mlir::hivm::VXorOp>;
+    if constexpr (is_commutative) {
+      std::swap(src0, src1);
+      std::swap(buffer_shape0, buffer_shape1);
+    }
+  }
+
+  // +F1+scalar-dispatch: if both src0/src1 are scalars (came from
+  // per-element loads via is_scalar_load path), emit arith.mulf instead
+  // of vmul. The dst is also a single-element write to the destination
+  // buffer.
+  if (!src0.getType().isa<mlir::TensorType>() &&
+      !src1.getType().isa<mlir::TensorType>()) {
+    // Scalar-scalar path. Emit scalar arith op + memref.store / tensor.insert.
+    mlir::Value scalarResult;
+    auto loc = builder.getUnknownLoc();
+    if constexpr (std::is_same_v<T, mlir::hivm::VMulOp>) {
+      scalarResult =
+          builder.create<mlir::arith::MulFOp>(loc, src0, src1).getResult();
+    } else if constexpr (std::is_same_v<T, mlir::hivm::VAddOp>) {
+      scalarResult =
+          builder.create<mlir::arith::AddFOp>(loc, src0, src1).getResult();
+    } else if constexpr (std::is_same_v<T, mlir::hivm::VSubOp>) {
+      scalarResult =
+          builder.create<mlir::arith::SubFOp>(loc, src0, src1).getResult();
+    } else if constexpr (std::is_same_v<T, mlir::hivm::VDivOp>) {
+      scalarResult =
+          builder.create<mlir::arith::DivFOp>(loc, src0, src1).getResult();
+    } else {
+      // Fallback for ops without scalar arith equivalent — bail to vmul path
+      ICHECK(false) << "scalar-scalar fallback only supports VMul/Add/Sub/Div";
+    }
+    // Store to destination at the indexed location
+    mlir::Value dst = GetVarValue(region_node_dst);
+    // Collect destination indices from dst_range
+    llvm::SmallVector<mlir::Value, 4> dstIndices;
+    for (const auto &r : dst_range) {
+      if (auto s_int = as_const_int(r.get()->min)) {
+        // const index — make arith.constant
+        mlir::Value c =
+            builder.create<mlir::arith::ConstantIndexOp>(loc, *s_int);
+        dstIndices.push_back(c);
+      } else {
+        dstIndices.push_back(CreateIndexCastOp(MakeValue(r.get()->min)));
+      }
+    }
+    if (dst.getType().isa<mlir::MemRefType>()) {
+      builder.create<mlir::memref::StoreOp>(loc, scalarResult, dst, dstIndices);
+    } else {
+      // tensor type — insert via tensor.insert
+      mlir::Value updated = builder.create<mlir::tensor::InsertOp>(
+          loc, scalarResult, dst, dstIndices);
+      SetVarValue(region_node_dst, updated);
+    }
+    return;
+  }
 
   auto srcTensorTy = src0.getType().cast<mlir::TensorType>();
   auto srcShape = srcTensorTy.getShape();
@@ -3768,8 +3876,17 @@ void CodeGenTileLangNPUIRDEV::VisitStmt_(const AllocateNode *op) {
   if (scope_coretype_map.count(scope) == 0) {
     std::vector<long int> shape = GetShape(op->extents);
 
+    // gather dynamic-shape SSA values for symbolic extents.
+    llvm::SmallVector<mlir::Value, 4> dynamicSizes;
+    for (const auto &extent : op->extents) {
+      if (!as_const_int(extent)) {
+        dynamicSizes.push_back(
+            this->CreateIndexCastOp(this->MakeValue(extent)));
+      }
+    }
     auto tensorEmptyOp = builder.create<mlir::tensor::EmptyOp>(
-        builder.getUnknownLoc(), shape, DTypetoMLIRType(op->dtype));
+        builder.getUnknownLoc(), shape, DTypetoMLIRType(op->dtype),
+        dynamicSizes);
 
     // Update var_map_ with the new variable
     ICHECK(GetVarValue(op->buffer_var.get()) == mlir::Value{});
@@ -3777,8 +3894,17 @@ void CodeGenTileLangNPUIRDEV::VisitStmt_(const AllocateNode *op) {
   } else if (scope_coretype_map[scope] == this->current_coretype) {
     std::vector<long int> shape = GetShape(op->extents);
 
+    // gather dynamic-shape SSA values for symbolic extents.
+    llvm::SmallVector<mlir::Value, 4> dynamicSizes;
+    for (const auto &extent : op->extents) {
+      if (!as_const_int(extent)) {
+        dynamicSizes.push_back(
+            this->CreateIndexCastOp(this->MakeValue(extent)));
+      }
+    }
     auto tensorEmptyOp = builder.create<mlir::tensor::EmptyOp>(
-        builder.getUnknownLoc(), shape, DTypetoMLIRType(op->dtype));
+        builder.getUnknownLoc(), shape, DTypetoMLIRType(op->dtype),
+        dynamicSizes);
 
     // Update var_map_ with the new variable
     ICHECK(GetVarValue(op->buffer_var.get()) == mlir::Value{});

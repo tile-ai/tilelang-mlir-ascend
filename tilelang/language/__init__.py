@@ -69,125 +69,125 @@ from .customize import (
     view,  # noqa: F401
 )
 from .customize_npuir import (
-    npuir_add,
-    npuir_add as vadd,
-    npuir_sub,
-    npuir_sub as vsub,
-    npuir_max,
-    npuir_max as vmax,
-    npuir_min,
-    npuir_min as vmin,
-    npuir_mul,
-    npuir_mul as vmul,
-    npuir_div,
-    npuir_div as vdiv,
-    npuir_or,
-    npuir_or as vor,  # codespell:ignore vor
-    npuir_and,
-    npuir_and as vand,
-    npuir_xor,
-    npuir_xor as vxor,
-    npuir_pow,
-    npuir_pow as vpow,
-    npuir_shl,
-    npuir_shl as vshl,
-    npuir_shr,
-    npuir_shr as vshr,
-    npuir_exp,
-    npuir_exp as vexp,
-    npuir_dot,
-    npuir_dot as gemm,
-    npuir_ln,
-    npuir_ln as vln,
-    npuir_exp2,
-    npuir_exp2 as vexp2,
-    npuir_log2,
-    npuir_log2 as vlog2,
-    npuir_load_nd2nz,
-    npuir_load_nd2nz as load_nd2nz,
-    npuir_store_nz2nd,
-    npuir_store_nz2nd as store_nz2nd,
-    npuir_store_fixpipe,
-    npuir_store_fixpipe as store_fixpipe,
-    npuir_brc,
-    npuir_brc as vbrc,
-    npuir_fill,
-    npuir_fill as fill,
-    npuir_clear,
-    npuir_clear as clear,
-    npuir_cast,
-    npuir_cast as vcast,
-    npuir_reduce,
-    npuir_reduce as reduce,
-    reduce_max,
-    reduce_min,
-    reduce_sum,
-    reduce_abssum,
-    reduce_absmax,
-    npuir_cumsum,
-    npuir_cumsum as cumsum,
-    npuir_clamp,
-    npuir_clamp as vclamp,
-    npuir_atomic_add,
-    npuir_atomic_add as atomic_add,
-    npuir_atomic_addx4,
-    npuir_atomic_addx4 as atomic_addx4,
-    npuir_relu,
-    npuir_relu as vrelu,
-    npuir_sigmoid,
-    npuir_sigmoid as vsigmoid,
-    npuir_select,
-    npuir_select as vselect,
-    npuir_cmp,
-    npuir_cmp as vcmp,
-    npuir_sqrt,
-    npuir_sqrt as vsqrt,
-    npuir_rsqrt,
-    npuir_rsqrt as vrsqrt,
-    npuir_abs,
-    npuir_abs as vabs,
-    npuir_rec,
-    npuir_rec as vrec,
-    npuir_not,
-    npuir_not as vnot,
-    npuir_gather,
-    npuir_gather as gather,
-    npuir_interleave,
-    npuir_interleave as interleave,
-    npuir_deinterleave,
-    npuir_deinterleave as deinterleave,
-    npuir_transpose,
-    npuir_transpose as transpose,
-    npuir_arange,
-    npuir_arange as arange,
-    npuir_concat,
-    npuir_concat as concat,
-    npuir_pad,
-    npuir_pad as pad,
-    npuir_flip,
-    npuir_flip as flip,
-    npuir_bitcast,
-    npuir_bitcast as vbitcast,
-    npuir_vcos,
-    npuir_vcos as vcos,
-    npuir_vsin,
-    npuir_vsin as vsin,
-    npuir_verf,
-    npuir_verf as verf,
-    npuir_vtanh,
-    npuir_vtanh as vtanh,
-    rs,
-    set_flag,
-    wait_flag,
-    pipe_barrier,
-    block_barrier,
-    subblock_barrier,
-    sync_block_set,
-    sync_block_wait,
-    Scope,
-    npuir_print as print,
-    npuir_reshape,
-    npuir_reshape as reshape,
+    npuir_add,  # noqa: F401
+    npuir_add as vadd,  # noqa: F401
+    npuir_sub,  # noqa: F401
+    npuir_sub as vsub,  # noqa: F401
+    npuir_max,  # noqa: F401
+    npuir_max as vmax,  # noqa: F401
+    npuir_min,  # noqa: F401
+    npuir_min as vmin,  # noqa: F401
+    npuir_mul,  # noqa: F401
+    npuir_mul as vmul,  # noqa: F401
+    npuir_div,  # noqa: F401
+    npuir_div as vdiv,  # noqa: F401
+    npuir_or,  # noqa: F401
+    npuir_or as vor,  # noqa: F401
+    npuir_and,  # noqa: F401
+    npuir_and as vand,  # noqa: F401
+    npuir_xor,  # noqa: F401
+    npuir_xor as vxor,  # noqa: F401
+    npuir_pow,  # noqa: F401
+    npuir_pow as vpow,  # noqa: F401
+    npuir_shl,  # noqa: F401
+    npuir_shl as vshl,  # noqa: F401
+    npuir_shr,  # noqa: F401
+    npuir_shr as vshr,  # noqa: F401
+    npuir_exp,  # noqa: F401
+    npuir_exp as vexp,  # noqa: F401
+    npuir_dot,  # noqa: F401
+    npuir_dot as gemm,  # noqa: F401
+    npuir_ln,  # noqa: F401
+    npuir_ln as vln,  # noqa: F401
+    npuir_exp2,  # noqa: F401
+    npuir_exp2 as vexp2,  # noqa: F401
+    npuir_log2,  # noqa: F401
+    npuir_log2 as vlog2,  # noqa: F401
+    npuir_load_nd2nz,  # noqa: F401
+    npuir_load_nd2nz as load_nd2nz,  # noqa: F401
+    npuir_store_nz2nd,  # noqa: F401
+    npuir_store_nz2nd as store_nz2nd,  # noqa: F401
+    npuir_store_fixpipe,  # noqa: F401
+    npuir_store_fixpipe as store_fixpipe,  # noqa: F401
+    npuir_brc,  # noqa: F401
+    npuir_brc as vbrc,  # noqa: F401
+    npuir_fill,  # noqa: F401
+    npuir_fill as fill,  # noqa: F401
+    npuir_clear,  # noqa: F401
+    npuir_clear as clear,  # noqa: F401
+    npuir_cast,  # noqa: F401
+    npuir_cast as vcast,  # noqa: F401
+    npuir_reduce,  # noqa: F401
+    npuir_reduce as reduce,  # noqa: F401, F811
+    reduce_max,  # noqa: F401, F811
+    reduce_min,  # noqa: F401, F811
+    reduce_sum,  # noqa: F401, F811
+    reduce_abssum,  # noqa: F401, F811
+    reduce_absmax,  # noqa: F401, F811
+    npuir_cumsum,  # noqa: F401
+    npuir_cumsum as cumsum,  # noqa: F401, F811
+    npuir_clamp,  # noqa: F401
+    npuir_clamp as vclamp,  # noqa: F401
+    npuir_atomic_add,  # noqa: F401
+    npuir_atomic_add as atomic_add,  # noqa: F401
+    npuir_atomic_addx4,  # noqa: F401
+    npuir_atomic_addx4 as atomic_addx4,  # noqa: F401
+    npuir_relu,  # noqa: F401
+    npuir_relu as vrelu,  # noqa: F401
+    npuir_sigmoid,  # noqa: F401
+    npuir_sigmoid as vsigmoid,  # noqa: F401
+    npuir_select,  # noqa: F401
+    npuir_select as vselect,  # noqa: F401
+    npuir_cmp,  # noqa: F401
+    npuir_cmp as vcmp,  # noqa: F401
+    npuir_sqrt,  # noqa: F401
+    npuir_sqrt as vsqrt,  # noqa: F401
+    npuir_rsqrt,  # noqa: F401
+    npuir_rsqrt as vrsqrt,  # noqa: F401
+    npuir_abs,  # noqa: F401
+    npuir_abs as vabs,  # noqa: F401
+    npuir_rec,  # noqa: F401
+    npuir_rec as vrec,  # noqa: F401
+    npuir_not,  # noqa: F401
+    npuir_not as vnot,  # noqa: F401
+    npuir_gather,  # noqa: F401
+    npuir_gather as gather,  # noqa: F401
+    npuir_interleave,  # noqa: F401
+    npuir_interleave as interleave,  # noqa: F401
+    npuir_deinterleave,  # noqa: F401
+    npuir_deinterleave as deinterleave,  # noqa: F401
+    npuir_transpose,  # noqa: F401
+    npuir_transpose as transpose,  # noqa: F401
+    npuir_arange,  # noqa: F401
+    npuir_arange as arange,  # noqa: F401
+    npuir_concat,  # noqa: F401
+    npuir_concat as concat,  # noqa: F401
+    npuir_pad,  # noqa: F401
+    npuir_pad as pad,  # noqa: F401
+    npuir_flip,  # noqa: F401
+    npuir_flip as flip,  # noqa: F401
+    npuir_bitcast,  # noqa: F401
+    npuir_bitcast as vbitcast,  # noqa: F401
+    npuir_vcos,  # noqa: F401
+    npuir_vcos as vcos,  # noqa: F401
+    npuir_vsin,  # noqa: F401
+    npuir_vsin as vsin,  # noqa: F401
+    npuir_verf,  # noqa: F401
+    npuir_verf as verf,  # noqa: F401
+    npuir_vtanh,  # noqa: F401
+    npuir_vtanh as vtanh,  # noqa: F401
+    rs,  # noqa: F401
+    set_flag,  # noqa: F401
+    wait_flag,  # noqa: F401
+    pipe_barrier,  # noqa: F401
+    block_barrier,  # noqa: F401
+    subblock_barrier,  # noqa: F401
+    sync_block_set,  # noqa: F401
+    sync_block_wait,  # noqa: F401
+    Scope,  # noqa: F401
+    npuir_print as print,  # noqa: F401
+    npuir_reshape,  # noqa: F401
+    npuir_reshape as reshape,  # noqa: F401, F811
 )
 from .logical import any_of, all_of  # noqa: F401
 from .builtin import *  # noqa: F401

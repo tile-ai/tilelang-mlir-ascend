@@ -115,7 +115,9 @@ def lighting_indexer_fwd(
                 # so do a 2-deep serial scatter; this lowers cleanly.)
                 for bn_i in T.serial(block_N):
                     for bqh in T.serial(block_Q * heads):
-                        weights_bn_bqh[bn_i, bqh] = weights_frag[bqh // heads, bqh % heads]
+                        weights_bn_bqh[bn_i, bqh] = weights_frag[
+                            bqh // heads, bqh % heads
+                        ]
 
                 # Apply head weights
                 T.vmul(scores_relu, weights_bn_bqh, scores_weighted)
@@ -169,7 +171,9 @@ def test_lighting_indexer_fwd_small():
     weights = torch.randn(SEQ, H, dtype=torch.float32, device="npu") * 0.5
 
     q_flat = q.reshape(SEQ * H, D).contiguous()
-    print(f"compile lighting_indexer_fwd(SEQ={SEQ},SKV={SKV},H={H},D={D},BN={BN},BQ={BQ}) ...")
+    print(
+        f"compile lighting_indexer_fwd(SEQ={SEQ},SKV={SKV},H={H},D={D},BN={BN},BQ={BQ}) ..."
+    )
     k = lighting_indexer_fwd(SEQ, SKV, H, D, block_N=BN, block_Q=BQ)
     print("compile OK; running ...")
     out = k(q_flat, kv.contiguous(), weights.contiguous())
@@ -178,8 +182,8 @@ def test_lighting_indexer_fwd_small():
     ref = _ref_indexer(q_flat, kv, weights)
     err = (out.cpu().float() - ref.cpu()).abs().max().item()
     print(f"max abs err: {err:.6f}")
-    print(f"out[0,:4] = {out[0,:4].cpu().tolist()}")
-    print(f"ref[0,:4] = {ref[0,:4].cpu().tolist()}")
+    print(f"out[0,:4] = {out[0, :4].cpu().tolist()}")
+    print(f"ref[0,:4] = {ref[0, :4].cpu().tolist()}")
     assert err < 1e-2, f"Numerical error too high: {err}"
     print("PASS")
 

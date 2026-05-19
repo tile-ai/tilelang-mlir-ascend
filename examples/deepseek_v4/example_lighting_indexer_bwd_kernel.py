@@ -145,11 +145,17 @@ def lighting_indexer_bwd(
             idx_shared_1xBI = T.alloc_shared([1, block_I], idx_dtype)
             for ks in T.serial(NS):
                 # Load topk indices for this block (via 2-D slice + scatter to frag)
-                T.copy(TopkIndices[bx : bx + 1, ks * block_I : (ks + 1) * block_I], idx_shared_1xBI)
+                T.copy(
+                    TopkIndices[bx : bx + 1, ks * block_I : (ks + 1) * block_I],
+                    idx_shared_1xBI,
+                )
                 for i in T.serial(block_I):
                     idx_frag[i] = idx_shared_1xBI[0, i]
                 # Load OGrad for this block
-                T.copy(OGrad[bx : bx + 1, ks * block_I : (ks + 1) * block_I], grad_shared_1xBI)
+                T.copy(
+                    OGrad[bx : bx + 1, ks * block_I : (ks + 1) * block_I],
+                    grad_shared_1xBI,
+                )
                 for i in T.serial(block_I):
                     grad_frag[i, 0] = grad_shared_1xBI[0, i]
 
@@ -159,7 +165,10 @@ def lighting_indexer_bwd(
                 T.vbrc(value_zero, k_frag)
                 for i in T.serial(block_I):
                     cur_idx = idx_frag[i]
-                    T.copy(IndexK[cur_idx : cur_idx + 1, 0:index_dim], k_shared[i : i + 1, 0:index_dim])
+                    T.copy(
+                        IndexK[cur_idx : cur_idx + 1, 0:index_dim],
+                        k_shared[i : i + 1, 0:index_dim],
+                    )
                 T.copy(k_shared, k_frag)
 
                 # scores = K @ Q^T  → [block_I, pad_heads]
@@ -238,7 +247,9 @@ def lighting_indexer_bwd(
 
             # Cast dQ and write back — rank-reduce 2D→3D-slice via scalar bx + 2 slices
             T.vcast(d_q, d_q_out_shared, round_mode="rint")
-            T.copy(d_q_out_shared[0:heads, 0:index_dim], dIndexQ[bx, 0:heads, 0:index_dim])
+            T.copy(
+                d_q_out_shared[0:heads, 0:index_dim], dIndexQ[bx, 0:heads, 0:index_dim]
+            )
 
             # Write dW — transpose [H,1] → [1,H] and tile-copy
             T.copy(d_w_acc, d_w_shared)
@@ -250,15 +261,18 @@ def lighting_indexer_bwd(
 
 
 def _smoke_bwd():
-    import torch
     torch.npu.set_device(0)
     # T33: probe per-shape stability of the bwd kernel. Standalone PASS at
     # SEQ=1,K=8,BI=8 doesn't generalize: the shim hit garbage dk values at
     # K=4,BI=4. Test K=BI=4 here to see if same garbage repros.
     SEQ, SKV, H, D, K, BI = 1, 16, 8, 32, 4, 4
 
-    print(f"compile lighting_indexer_bwd (SEQ={SEQ}, SKV={SKV}, H={H}, D={D}, topk={K}) ...")
-    bwd_k = lighting_indexer_bwd(seq_len=SEQ, seq_len_kv=SKV, heads=H, index_dim=D, topk=K, block_I=BI)
+    print(
+        f"compile lighting_indexer_bwd (SEQ={SEQ}, SKV={SKV}, H={H}, D={D}, topk={K}) ..."
+    )
+    bwd_k = lighting_indexer_bwd(
+        seq_len=SEQ, seq_len_kv=SKV, heads=H, index_dim=D, topk=K, block_I=BI
+    )
     print("compile OK; running ...")
 
     # Inputs
@@ -281,9 +295,9 @@ def _smoke_bwd():
     print(f"dQ shape: {tuple(dQ.shape)} dtype: {dQ.dtype}")
     print(f"dW shape: {tuple(dW.shape)} dtype: {dW.dtype}")
     print(f"dKV shape: {tuple(dKV.shape)} dtype: {dKV.dtype}")
-    print(f"dQ[0,0,:4]   = {dQ[0,0,:4].cpu().tolist()}")
-    print(f"dW[0,:4]     = {dW[0,:4].cpu().tolist()}")
-    print(f"dKV[0,:4]    = {dKV[0,:4].cpu().tolist()}")
+    print(f"dQ[0,0,:4]   = {dQ[0, 0, :4].cpu().tolist()}")
+    print(f"dW[0,:4]     = {dW[0, :4].cpu().tolist()}")
+    print(f"dKV[0,:4]    = {dKV[0, :4].cpu().tolist()}")
 
     # Reference via PyTorch autograd
     q_ref = q.detach().float().requires_grad_(True)
@@ -305,7 +319,9 @@ def _smoke_bwd():
     err_q = (dQ.cpu().float() - dQ_ref.cpu()).abs().max().item()
     err_kv = (dKV.cpu().float() - dKV_ref.cpu()).abs().max().item()
     err_w = (dW.cpu().float() - dW_ref.cpu()).abs().max().item()
-    print(f"max abs err vs autograd ref:  dQ={err_q:.5f}  dKV={err_kv:.5f}  dW={err_w:.5f}")
+    print(
+        f"max abs err vs autograd ref:  dQ={err_q:.5f}  dKV={err_kv:.5f}  dW={err_w:.5f}"
+    )
     # Diagnose dKV mismatch — find WHICH rows are nan
     dKV_cpu = dKV.cpu().float()
     nan_rows = torch.isnan(dKV_cpu).any(dim=-1)
@@ -319,11 +335,15 @@ def _smoke_bwd():
             if 0 <= kv_idx < SKV:
                 idx_counts[kv_idx] += 1
     print(f"idx_counts per kv pos: {idx_counts.tolist()}")
-    print(f"nan rows correlate with high idx_counts? Counts at nan rows: {[idx_counts[r].item() for r in nan_row_idx]}")
-    print(f"nan rows correlate with high idx_counts? Counts at non-nan rows: {[idx_counts[r].item() for r in range(SKV) if r not in nan_row_idx]}")
-    print(f"dQ_ref[0,0,:4] = {dQ_ref[0,0,:4].cpu().tolist()}")
-    print(f"dW_ref[0,:4]   = {dW_ref[0,:4].cpu().tolist()}")
-    print(f"dKV_ref[0,:4]  = {dKV_ref[0,:4].cpu().tolist()}")
+    print(
+        f"nan rows correlate with high idx_counts? Counts at nan rows: {[idx_counts[r].item() for r in nan_row_idx]}"
+    )
+    print(
+        f"nan rows correlate with high idx_counts? Counts at non-nan rows: {[idx_counts[r].item() for r in range(SKV) if r not in nan_row_idx]}"
+    )
+    print(f"dQ_ref[0,0,:4] = {dQ_ref[0, 0, :4].cpu().tolist()}")
+    print(f"dW_ref[0,:4]   = {dW_ref[0, :4].cpu().tolist()}")
+    print(f"dKV_ref[0,:4]  = {dKV_ref[0, :4].cpu().tolist()}")
 
 
 if __name__ == "__main__":

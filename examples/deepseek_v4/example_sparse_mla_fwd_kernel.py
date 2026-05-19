@@ -61,7 +61,12 @@ def sparse_mla_fwd(
     kv_shape = [batch, seq_len_kv, 1, D + DT]
     o_shape = [batch, seq_len, heads, D]
     idx_shape = [batch, seq_len, 1, topk]
-    lse_shape = [batch, seq_len, heads, 1]  # trailing 1 keeps rank parity with [BM,1] fragment
+    lse_shape = [
+        batch,
+        seq_len,
+        heads,
+        1,
+    ]  # trailing 1 keeps rank parity with [BM,1] fragment
 
     @T.prim_func
     def main(
@@ -113,7 +118,9 @@ def sparse_mla_fwd(
                     T.copy(KV[b_i, cur_idx, 0, D : D + DT], K_tail_shared[bi_i, 0:DT])
 
                 T.gemm(Q_shared, KV_shared, scores, initC=True, b_transpose=True)
-                T.gemm(Q_tail_shared, K_tail_shared, scores, initC=False, b_transpose=True)
+                T.gemm(
+                    Q_tail_shared, K_tail_shared, scores, initC=False, b_transpose=True
+                )
 
                 T.vmul(scores, scales, scores)
                 T.reduce_max(scores, local_max, dim=1)
@@ -162,7 +169,9 @@ def _ref_torch(q, kv, indices, sm_scale=None):
     if sm_scale is None:
         sm_scale = (1.0 / DQK) ** 0.5
     k_full = kvf  # (B, SKV, 1, DQK)
-    v = kvf[..., : DQK - (DQK - q.shape[-1])]  # ignore tail for value (we use D below in caller)
+    v = kvf[
+        ..., : DQK - (DQK - q.shape[-1])
+    ]  # ignore tail for value (we use D below in caller)
     out = torch.zeros(B, S, H, q.shape[-1], dtype=torch.float32, device=q.device)
     for b in range(B):
         for s in range(S):
@@ -194,7 +203,9 @@ def test_sparse_mla_fwd_small():
             perm = torch.cat([perm, torch.zeros(topk - len(perm), dtype=torch.long)])
         indices[0, s, 0, :] = perm.to(torch.int32)
 
-    print(f"compile sparse_mla_fwd(B={B},S={S},SKV={SKV},H={H},D={D},DT={DT},topk={topk}) ...")
+    print(
+        f"compile sparse_mla_fwd(B={B},S={S},SKV={SKV},H={H},D={D},DT={DT},topk={topk}) ..."
+    )
     kernel = sparse_mla_fwd(B, S, SKV, H, D, DT, topk, block_M=BM, block_N=BN)
     print("compile OK; running on NPU ...")
     out, lse = kernel(q, kv, indices)

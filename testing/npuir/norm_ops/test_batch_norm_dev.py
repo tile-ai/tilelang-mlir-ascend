@@ -76,9 +76,7 @@ def batch_norm_kernel_dev(C, L, block_c, eps, dtype):
 
             # Variance: use separate sq_f32 to keep x_f32 intact
             for i, j in T.Parallel(block_c, L):
-                sq_f32[i, j] = (x_f32[i, j] - mean[i, 0]) * (
-                    x_f32[i, j] - mean[i, 0]
-                )
+                sq_f32[i, j] = (x_f32[i, j] - mean[i, 0]) * (x_f32[i, j] - mean[i, 0])
             T.reduce_sum(sq_f32, acc, dim=1)
             for i in T.Parallel(block_c):
                 rstd[i, 0] = acc[i, 0] / float(L) + eps
@@ -147,15 +145,18 @@ def _run_test(
     compiled(X, Weight, Bias, Y)
 
     torch.testing.assert_close(
-        Y.cpu().float(), ref.float(), rtol=rtol, atol=atol,
+        Y.cpu().float(),
+        ref.float(),
+        rtol=rtol,
+        atol=atol,
     )
 
 
 @pytest.mark.parametrize("dtype", DTYPES)
 def test_batch_norm_dev_basic(dtype):
     _run_test(
-        C=8,     # channels
-        L=32,    # batch * spatial_size
+        C=8,  # channels
+        L=32,  # batch * spatial_size
         block_c=4,
         eps=EPS,
         dtype=dtype,

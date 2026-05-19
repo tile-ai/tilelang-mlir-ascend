@@ -77,9 +77,7 @@ def group_norm_kernel_dev(M, N, block_m, eps, dtype):
 
             # Variance: use separate sq_f32 to keep x_f32 intact
             for i, j in T.Parallel(block_m, N):
-                sq_f32[i, j] = (x_f32[i, j] - mean[i, 0]) * (
-                    x_f32[i, j] - mean[i, 0]
-                )
+                sq_f32[i, j] = (x_f32[i, j] - mean[i, 0]) * (x_f32[i, j] - mean[i, 0])
             T.reduce_sum(sq_f32, acc, dim=1)
             for i in T.Parallel(block_m):
                 rstd[i, 0] = acc[i, 0] / float(N) + eps
@@ -151,15 +149,18 @@ def _run_test(
     compiled(X, Weight, Bias, Y)
 
     torch.testing.assert_close(
-        Y.cpu().float(), ref.float(), rtol=rtol, atol=atol,
+        Y.cpu().float(),
+        ref.float(),
+        rtol=rtol,
+        atol=atol,
     )
 
 
 @pytest.mark.parametrize("dtype", DTYPES)
 def test_group_norm_dev_basic(dtype):
     _run_test(
-        M=8,         # batch * num_groups
-        N=16,        # C // num_groups
+        M=8,  # batch * num_groups
+        N=16,  # C // num_groups
         num_groups=4,
         block_m=4,
         eps=EPS,

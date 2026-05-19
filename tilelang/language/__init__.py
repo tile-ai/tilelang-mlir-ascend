@@ -27,7 +27,6 @@ from .proxy import (
 from .parallel import Parallel  # noqa: F401
 from .pipeline import Pipelined  # noqa: F401
 from .frame import has_let_value, get_let_value  # noqa: F401
-from .symbolics import dynamic, symbolic  # noqa: F401
 from .kernel import (
     Kernel,  # noqa: F401
     KernelLaunchFrame,  # noqa: F401
@@ -83,7 +82,7 @@ from .customize_npuir import (
     npuir_div,
     npuir_div as vdiv,
     npuir_or,
-    npuir_or as vor,
+    npuir_or as vor,  # codespell:ignore vor
     npuir_and,
     npuir_and as vand,
     npuir_xor,
@@ -198,6 +197,24 @@ from .memscope import *  # noqa: F401
 
 def symbolic(name: str, dtype: str = "int32"):
     return tir.Var(name, dtype)
+
+
+def dynamic(name: str, dtype: str = "int32"):
+    """Alias for `symbolic` matching upstream tile-ai/tilelang's API name.
+
+    Accepts comma- or whitespace-separated names to declare several vars
+    at once: `B, M, N = T.dynamic("B, M, N")`. Forwards each name to
+    `symbolic()` which returns a `tir.Var`.
+    """
+    import re
+
+    if "," in name:
+        names = re.split(r"\s*,\s*", name)
+        return tuple(symbolic(n, dtype) for n in names)
+    if " " in name:
+        names = re.split(r"\s+", name)
+        return tuple(symbolic(n, dtype) for n in names)
+    return symbolic(name, dtype)
 
 
 def use_swizzle(panel_size: int, order: str = "row", enable: bool = True):

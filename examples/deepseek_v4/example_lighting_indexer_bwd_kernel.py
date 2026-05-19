@@ -84,15 +84,12 @@ def lighting_indexer_bwd(
     ):
         with T.Kernel(seq_len, is_npu=True) as (bx, _):
             q_shared = T.alloc_shared([pad_heads, index_dim], dtype)
-            q_shared_3d = T.alloc_shared([1, pad_heads, index_dim], dtype)
-            w_shared = T.alloc_shared([pad_heads, 1], accum_dtype)
             w_shared_flat = T.alloc_shared([pad_heads], accum_dtype)
             w_frag = T.alloc_fragment([pad_heads, 1], accum_dtype)
             k_shared = T.alloc_shared([block_I, index_dim], dtype)
             k_frag = T.alloc_fragment([block_I, index_dim], accum_dtype)
             idx_frag = T.alloc_fragment([block_I], idx_dtype)
             grad_frag = T.alloc_fragment([block_I, 1], accum_dtype)
-            grad_shared_loader = T.alloc_shared([block_I, 1], accum_dtype)
             grad_shared_1xBI = T.alloc_shared([1, block_I], accum_dtype)
 
             scores = T.alloc_fragment([block_I, pad_heads], accum_dtype)
@@ -105,7 +102,6 @@ def lighting_indexer_bwd(
             zeros_BIxD = T.alloc_fragment([block_I, index_dim], accum_dtype)
 
             d_q = T.alloc_fragment([pad_heads, index_dim], accum_dtype)
-            d_q_shared = T.alloc_shared([pad_heads, index_dim], accum_dtype)
             d_q_out_shared = T.alloc_shared([pad_heads, index_dim], dtype)
             d_w_acc = T.alloc_fragment([pad_heads, 1], accum_dtype)
             d_w_shared = T.alloc_shared([pad_heads, 1], accum_dtype)
@@ -119,7 +115,6 @@ def lighting_indexer_bwd(
             value_zero = 0
             # hoist all shared/fragment allocs outside the inner loop
             gated_shared = T.alloc_shared([block_I, pad_heads], dtype)
-            d_q_3d = T.alloc_shared([1, pad_heads, index_dim], dtype)
             d_w_shared_1xH = T.alloc_shared([1, pad_heads], accum_dtype)
             T.vbrc(value_zero, zeros_BIxH)
             T.vbrc(value_zero, zeros_HxD)

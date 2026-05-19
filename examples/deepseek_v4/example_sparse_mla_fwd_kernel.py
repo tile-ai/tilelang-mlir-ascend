@@ -163,15 +163,10 @@ def _ref_torch(q, kv, indices, sm_scale=None):
     _, SKV, G, _ = kv.shape  # G == 1 here
     assert G == 1
     _, _, _, topk = indices.shape
-    DV = qf.shape[-1] - (qf.shape[-1] - kvf.shape[-1])  # placeholder
-    DV = kvf.shape[-1]  # in our test kv has full DQK; output truncates to D
     # We follow upstream convention: q has dim_qk = D + DT, output uses first D.
     if sm_scale is None:
         sm_scale = (1.0 / DQK) ** 0.5
     k_full = kvf  # (B, SKV, 1, DQK)
-    v = kvf[
-        ..., : DQK - (DQK - q.shape[-1])
-    ]  # ignore tail for value (we use D below in caller)
     out = torch.zeros(B, S, H, q.shape[-1], dtype=torch.float32, device=q.device)
     for b in range(B):
         for s in range(S):

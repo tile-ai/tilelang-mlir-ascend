@@ -7,6 +7,10 @@ on:
         description: 'CANN version'
         type: string
         default: '8.5.0'
+      checkout-ref:
+        description: 'Git ref to checkout'
+        type: string
+        default: ''
     secrets:
       QUAY_USERNAME:
         required: true
@@ -34,7 +38,9 @@ jobs:
         chip: [910b, a3]
     steps:
       - uses: actions/checkout@v4
-        with: { submodules: recursive }
+        with:
+          ref: ${{ inputs.checkout-ref || '' }}
+          submodules: recursive
 
       - name: Read version from VERSION
         id: version
@@ -71,7 +77,9 @@ jobs:
         chip: [910b, a3]
     steps:
       - uses: actions/checkout@v4
-        with: { submodules: recursive }
+        with:
+          ref: ${{ inputs.checkout-ref || '' }}
+          submodules: recursive
 
       - name: Read version from VERSION
         id: version

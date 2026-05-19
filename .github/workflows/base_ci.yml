@@ -33,12 +33,16 @@ jobs:
   # ============================================================
   prebuild-npuir:
     uses: ./.github/workflows/build_ascend_npuir.yml
+    with:
+      checkout-ref: ${{ github.ref }}
 
   # ============================================================
   # Prebuild: TVM (x64 + arm64)
   # ============================================================
   prebuild-tvm:
     uses: ./.github/workflows/build-tvm.yml
+    with:
+      checkout-ref: ${{ github.ref }}
 
   # ============================================================
   # Build wheel (x64 + arm64)
@@ -125,5 +129,6 @@ jobs:
     uses: ./.github/workflows/build_docker.yml
     with:
       cann_version: '8.5.0'
+      checkout-ref: ${{ github.ref }}
     secrets: inherit
 

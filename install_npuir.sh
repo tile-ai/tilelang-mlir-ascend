@@ -129,7 +129,7 @@ fi
 # Step 9: Clone and build TVM
 echo "Cloning TVM repository and initializing submodules..."
 # clone and build tvm
-git submodule update --init --recursive 3rdparty/catlass 3rdparty/composable_kernel 3rdparty/cutlass 3rdparty/tvm
+git submodule update --init --recursive 3rdparty/tvm
 
 if [ -z "$BISHENGIR_PATH" ]; then
     echo "warring: no --bishengir-path set, bishengir path will be found in environment variable PATH"

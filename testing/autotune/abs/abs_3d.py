@@ -7,7 +7,7 @@ import torch
 import tilelang
 import tilelang.language as T
 from tilelang import carver
-from tilelang.carver.arch.ascend import Ascend
+from tilelang.utils.npu_arch import AscendArch
 
 os.environ["TILELANG_ASCEND_MODE"] = "Developer"
 
@@ -48,7 +48,7 @@ def run_single_shape(shape, log_dir: Path):
             # config search
             # ------------------------
             def get_config():
-                arch = Ascend()
+                arch = AscendArch()
 
                 carver_template = carver.ElementwiseTemplate(
                     shape=[B, M, N],

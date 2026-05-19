@@ -2,9 +2,8 @@
 # Licensed under the MIT License.
 
 from dataclasses import dataclass
-from .base import BaseTemplate
+from .base import BaseTemplate, AscendArch
 from tvm import te
-from ..arch import TileDevice
 from ..roller import Hint
 from typing import List
 from ..utils import get_roller_hints_from_func
@@ -41,26 +40,30 @@ class MatmulTemplate(BaseTemplate):
     accum_dtype: str = "float16"  # Data type for accumulation
     with_bias: bool = False  # Whether to add a bias term
 
-    def get_hardware_aware_configs(self, arch: TileDevice = None, topk: int = 10) -> List[Hint]:
+    def get_hardware_aware_configs(
+        self, arch: AscendArch = None, topk: int = 10
+    ) -> List[Hint]:
         """
         Retrieves optimized hardware-aware configurations.
 
         Args:
-            arch (TileDevice, optional): The target hardware architecture.
+            arch (AscendArch, optional): The target hardware architecture.
             topk (int, optional): Number of top configurations to consider.
 
         Returns:
             List[Hint]: A list of optimization hints for hardware acceleration.
         """
-        roller_hints = get_roller_hints_from_func(self._func, arch=arch, topk=topk, allow_gemv=True)
+        roller_hints = get_roller_hints_from_func(
+            self._func, arch=arch, topk=topk, allow_gemv=True
+        )
         return roller_hints
 
     def initialize_function(self) -> None:
         """
         Defines and initializes the matrix multiplication computation.
 
-        This method sets up placeholders for input matrices, computes 
-        the matrix multiplication using TVM's compute API, 
+        This method sets up placeholders for input matrices, computes
+        the matrix multiplication using TVM's compute API,
         and optionally applies bias and type casting.
 
         Raises:
@@ -69,13 +72,18 @@ class MatmulTemplate(BaseTemplate):
         M, N, K = self.M, self.N, self.K
 
         # Ensure M, N, K are valid positive integers
-        assert (isinstance(M, int) and isinstance(N, int) and
-                isinstance(K, int)), "Only Support Integer M, N, K"
-        assert (M > 0 and N > 0 and K > 0), "M, N, K should be positive"
+        assert isinstance(M, int) and isinstance(N, int) and isinstance(K, int), (
+            "Only Support Integer M, N, K"
+        )
+        assert M > 0 and N > 0 and K > 0, "M, N, K should be positive"
 
         # Load configuration parameters
         trans_A, trans_B = self.trans_A, self.trans_B
-        in_dtype, out_dtype, accum_dtype = self.in_dtype, self.out_dtype, self.accum_dtype
+        in_dtype, out_dtype, accum_dtype = (
+            self.in_dtype,
+            self.out_dtype,
+            self.accum_dtype,
+        )
         with_bias = self.with_bias
 
         # Define tensor shapes based on transpose flags
@@ -103,11 +111,17 @@ class MatmulTemplate(BaseTemplate):
             Returns:
                 Computed value for C[i, j] as a sum over the reduction axis.
             """
-            A_indices = [i, k] if not trans_A else [k, i]  # Adjust indexing if A is transposed
-            B_indices = [k, j] if not trans_B else [j, k]  # Adjust indexing if B is transposed
+            A_indices = (
+                [i, k] if not trans_A else [k, i]
+            )  # Adjust indexing if A is transposed
+            B_indices = (
+                [k, j] if not trans_B else [j, k]
+            )  # Adjust indexing if B is transposed
             return te.sum(
-                A[tuple(A_indices)].astype(accum_dtype) * B[tuple(B_indices)].astype(accum_dtype),
-                axis=k)
+                A[tuple(A_indices)].astype(accum_dtype)
+                * B[tuple(B_indices)].astype(accum_dtype),
+                axis=k,
+            )
 
         # Compute matrix multiplication result
         C = te.compute(

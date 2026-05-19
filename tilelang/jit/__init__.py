@@ -1,9 +1,8 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 """
-This module provides an auto-tuning infrastructure for TileLang (tl) programs.
-It includes functionality to JIT-compile TileLang programs into a runnable
-kernel adapter using TVM.
+This module provides JIT compilation infrastructure for TileLang (tl) programs,
+compiling TileLang programs into runnable NPU kernel wrappers.
 """
 
 from typing import (
@@ -21,8 +20,7 @@ from tilelang import tvm as tvm
 from tvm.tir import PrimFunc
 from tvm.target import Target
 
-from tilelang.jit.kernel import JITKernel
-from tilelang.cache import cached, cached_npu
+from tilelang.cache import cached_npu
 from os import path, makedirs
 from logging import getLogger
 import functools
@@ -35,19 +33,18 @@ logger = getLogger(__name__)
 def compile(
     func: PrimFunc = None,
     out_idx: Union[List[int], int, None] = None,
-    execution_backend: Literal["dlpack", "ctypes", "cython"] = "cython",
-    target: Union[str, Target] = "auto",
+    execution_backend: Literal["cython"] = "cython",
+    target: Union[str, Target] = "npuir",
     target_host: Union[str, Target] = None,
     verbose: bool = False,
     pass_configs: Optional[Dict[str, Any]] = None,
-) -> JITKernel:
+):
     """
-    Compile the given TileLang PrimFunc with TVM and build a JITKernel.
+    Compile the given TileLang PrimFunc for NPU and return a JitKernel_NPU.
 
-    When ``target == 'npuir'`` the result is cached on disk (and in memory)
-    using the same ``KernelCache`` infrastructure as the autotune path.  A
-    subsequent call with identical arguments will skip compilation entirely and
-    return the restored ``JitKernel_NPU`` directly.
+    The result is cached on disk (and in memory) using the ``KernelCache``
+    infrastructure.  A subsequent call with identical arguments will skip
+    compilation entirely and return the restored ``JitKernel_NPU`` directly.
 
     Parameters
     ----------
@@ -55,10 +52,10 @@ def compile(
         The TileLang TIR function to compile and wrap.
     out_idx : Union[List[int], int], optional
         Index(es) of the output tensors to return (default: None).
-    execution_backend : Literal["dlpack", "ctypes", "cython"], optional
-        Execution backend to use for kernel execution (default: "cython").
+    execution_backend : Literal["cython"], optional
+        Execution backend (default: "cython").
     target : Union[str, Target], optional
-        Compilation target (default: "auto").
+        Compilation target (default: "npuir").
     target_host : Union[str, Target], optional
         Target host for cross-compilation (default: None).
     verbose : bool, optional
@@ -66,19 +63,7 @@ def compile(
     pass_configs : dict, optional
         Additional keyword arguments to pass to the Compiler PassContext.
     """
-    if target == "npuir":
-        return cached_npu(
-            func=func,
-            out_idx=out_idx,
-            execution_backend="None",
-            target=target,
-            target_host=target_host,
-            verbose=True,
-            pass_configs=pass_configs,
-        )
-
-    # --- GPU / other targets ------------------------------------------
-    return cached(
+    return cached_npu(
         func=func,
         out_idx=out_idx,
         execution_backend=execution_backend,
@@ -93,7 +78,7 @@ class _JitImplementation:
     out_idx: Any
     target: Union[str, Target]
     target_host: Union[str, Target]
-    execution_backend: Literal["dlpack", "ctypes", "cython"]
+    execution_backend: Literal["cython"]
     verbose: bool
     pass_configs: Optional[Dict[str, Any]]
     debug_root_path: Optional[str]
@@ -104,9 +89,9 @@ class _JitImplementation:
     def __init__(
         self,
         out_idx: Any = None,
-        target: Union[str, Target] = "auto",
+        target: Union[str, Target] = "npuir",
         target_host: Union[str, Target] = None,
-        execution_backend: Literal["dlpack", "ctypes", "cython"] = "cython",
+        execution_backend: Literal["cython"] = "cython",
         verbose: bool = False,
         pass_configs: Optional[Dict[str, Any]] = None,
         debug_root_path: Optional[str] = None,
@@ -175,11 +160,11 @@ class _JitImplementation:
 
                 if self.debug_root_path:
                     func_name = getattr(func, "__name__", "jit_kernel")
-                    kernel_file = f"tilelang_jit_kernel_{func_name}.c"
+                    kernel_file = f"tilelang_jit_kernel_{func_name}.mlir"
                     program_file = f"tilelang_jit_program_{func_name}.py"
                     makedirs(self.debug_root_path, exist_ok=True)
-                    with open(path.join(self.debug_root_path, kernel_file), "w") as f:
-                        print(kernel_result.get_kernel_source(), file=f)
+                    with open(path.join(self.debug_root_path, kernel_file), "wb") as f:
+                        f.write(kernel_result.get_kernel_source())
                     with open(path.join(self.debug_root_path, program_file), "w") as f:
                         print(program_result.script(), file=f)
 
@@ -196,15 +181,15 @@ def jit(
     func: Union[Callable[_P, _RProg], PrimFunc, None] = None,
     *,
     out_idx: Any = None,
-    target: Union[str, Target] = "auto",
+    target: Union[str, Target] = "npuir",
     target_host: Union[str, Target] = None,
-    execution_backend: Literal["dlpack", "ctypes", "cython"] = "cython",
+    execution_backend: Literal["cython"] = "cython",
     verbose: bool = False,
     pass_configs: Optional[Dict[str, Any]] = None,
     debug_root_path: Optional[str] = None,
 ):
     """
-    Just-In-Time (JIT) compiler decorator for TileLang functions.
+    Just-In-Time (JIT) compiler decorator for TileLang functions targeting NPU.
     """
     if callable(func):
         default_decorator = _JitImplementation(

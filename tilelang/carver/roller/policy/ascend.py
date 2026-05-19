@@ -20,7 +20,7 @@ from queue import PriorityQueue
 
 from ..hint import Hint, Stride, TileDict, IntrinInfo
 from ..node import PrimFuncNode
-from ...arch import TileDevice
+from tilelang.utils.npu_arch import AscendArch
 from .default import DefaultPolicy
 from .common import coalesced_factor, get_all_factors
 from ..rasterization import NoRasterization
@@ -49,7 +49,7 @@ class AscendDefaultPolicy(DefaultPolicy):
     4. coalesced access -> DMA aligned access
     """
 
-    def __init__(self, arch: TileDevice, tags: dict | None = None) -> None:
+    def __init__(self, arch: AscendArch, tags: dict | None = None) -> None:
         assert arch.platform == "ascend", (
             "AscendDefaultPolicy requires Ascend architecture."
         )

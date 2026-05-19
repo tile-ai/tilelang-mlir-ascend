@@ -10,7 +10,7 @@ from typing import Iterable, Dict, List, Optional
 import numpy as np
 import tvm
 
-from ...arch import TileDevice
+from tilelang.utils.npu_arch import AscendArch
 from ..bestfit import BestFit
 from ..hint import Hint, Stride, TileDict
 from .common import coalesced_factor, coalesced_tensor_shape, factorize, get_all_factors
@@ -26,10 +26,10 @@ class DefaultPolicy:
 
     func: tvm.tir.PrimFunc
     nodes: List[PrimFuncNode] = []
-    arch: TileDevice
+    arch: AscendArch
     tags: Dict
 
-    def __init__(self, arch: TileDevice, tags: Optional[Dict] = None) -> None:
+    def __init__(self, arch: AscendArch, tags: Optional[Dict] = None) -> None:
         if tags is None:
             tags = {}
 
@@ -41,7 +41,7 @@ class DefaultPolicy:
     def from_prim_func(
         cls,
         func: tvm.tir.PrimFunc,
-        arch: TileDevice,
+        arch: AscendArch,
         tags: Optional[Dict] = None,
         name: str = "PrimFuncNode",
         custom_mem_mul: float = 1,
@@ -50,7 +50,7 @@ class DefaultPolicy:
 
     @classmethod
     def from_output_nodes(
-        cls, nodes: List[OutputNode], arch: TileDevice, tags: Optional[Dict] = None
+        cls, nodes: List[OutputNode], arch: AscendArch, tags: Optional[Dict] = None
     ):
         return cls(arch, tags)._init_with_output_nodes(nodes)
 

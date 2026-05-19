@@ -21,6 +21,10 @@ EXPR_CASES = [
     pytest.param(512, 16, 8, id="cast_expr_512_16_8"),
 ]
 
+RANK_MISMATCH_CASES = [
+    pytest.param(2, 1024, 4, id="cast_rank_mismatch_2x1024_4"),
+]
+
 
 def kernel_parallel_cast_direct(numel, block):
     @T.prim_func
@@ -49,6 +53,36 @@ def kernel_parallel_cast_expr(numel, threads, npt):
     return main
 
 
+def kernel_parallel_cast_rank_mismatch(heads, width, block):
+    @T.prim_func
+    def main(
+        go_smem: T.Tensor((heads, width), "float16"),
+        out: T.Tensor((block,), "float32"),
+    ):
+        with T.Kernel(1, is_npu=True):
+            go_x_local = T.alloc_shared((block,), "float32")
+            head_id = 0
+            tile_id = 0
+            i_sub = 0
+            sub_warp_id = 0
+            lane_id = 0
+            for i_k_split in T.Parallel(block):
+                go_x_local[i_k_split] = T.Cast(
+                    "float32",
+                    go_smem[
+                        head_id,
+                        tile_id * 1024
+                        + i_sub * 256
+                        + sub_warp_id * 128
+                        + lane_id * 4
+                        + i_k_split,
+                    ],
+                )
+            T.copy(go_x_local, out)
+
+    return main
+
+
 @pytest.mark.parametrize("numel, block", DIRECT_CASES)
 def test_parallel_cast_direct(numel, block):
     kernel = tilelang.compile(kernel_parallel_cast_direct(numel, block), target="npuir")
@@ -59,6 +93,20 @@ def test_parallel_cast_direct(numel, block):
     kernel(x, y)
 
     torch.testing.assert_close(y, ref, rtol=1e-3, atol=1e-3)
+
+
+@pytest.mark.parametrize("heads, width, block", RANK_MISMATCH_CASES)
+def test_parallel_cast_rank_mismatch(heads, width, block):
+    kernel = tilelang.compile(
+        kernel_parallel_cast_rank_mismatch(heads, width, block), target="npuir"
+    )
+    go_smem = torch.randn((heads, width), dtype=torch.float16, device="npu")
+    out = torch.zeros((block,), dtype=torch.float32, device="npu")
+    ref = go_smem[0, :block].to(torch.float32)
+
+    kernel(go_smem, out)
+
+    torch.testing.assert_close(out, ref, rtol=1e-3, atol=1e-3)
 
 
 @pytest.mark.parametrize("numel, threads, npt", EXPR_CASES)

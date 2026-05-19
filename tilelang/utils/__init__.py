@@ -27,6 +27,9 @@ from .npu_utils import (
     safe_copy,  # noqa: F401
 )
 from .npu_arch import (
+    AscendArch,  # noqa: F401
+    is_ascend_arch,  # noqa: F401
+    is_cube_supported_precision,  # noqa: F401
     get_ascend_device_name,  # noqa: F401
     supports_native_bf16,  # noqa: F401
     get_arch_obj,  # noqa: F401

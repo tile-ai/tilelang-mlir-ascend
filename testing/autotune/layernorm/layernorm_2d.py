@@ -7,7 +7,7 @@ import torch
 import tilelang
 import tilelang.language as T
 from tilelang import carver
-from tilelang.carver.arch.ascend import Ascend
+from tilelang.utils.npu_arch import AscendArch
 
 torch.npu.set_device(10)
 os.environ["TILELANG_ASCEND_MODE"] = "Developer"
@@ -73,7 +73,7 @@ def run_single_shape(shape, log_dir: Path):
             # -----------------------------
             def get_config():
 
-                arch = Ascend()
+                arch = AscendArch()
 
                 carver_template = carver.ElementwiseTemplate(
                     shape=[M, N],
@@ -145,6 +145,7 @@ def run_single_shape(shape, log_dir: Path):
                         row_mean = T.alloc_shared((block_M, 1), "float32")
                         row_var = T.alloc_shared((block_M, 1), "float32")
                         row_rstd = T.alloc_shared((block_M, 1), "float32")
+                        row_reshape = T.alloc_shared((block_M,), "float32")
 
                         T.clear(row_mean)
                         T.clear(row_var)
@@ -156,15 +157,9 @@ def run_single_shape(shape, log_dir: Path):
 
                             T.reduce(X_shared, local_reduce, dims=1, reduce_mode="sum")
 
-                            for i in T.serial(block_M):
-                                row = bx * block_M + i
-                                if row < M:
-                                    row_mean[i, 0] = row_mean[i, 0] + local_reduce[i, 0]
+                            T.vadd(row_mean, local_reduce, row_mean)
 
-                        for i in T.serial(block_M):
-                            row = bx * block_M + i
-                            if row < M:
-                                row_mean[i, 0] = row_mean[i, 0] / N
+                        T.vdiv(row_mean, N, row_mean)
 
                         for ko in T.serial(T.ceildiv(N, block_N)):
                             col_base = ko * block_N
@@ -175,24 +170,16 @@ def run_single_shape(shape, log_dir: Path):
                             T.vmul(X_shared, X_shared, X_shared)
 
                             T.reduce(X_shared, local_reduce, dims=1, reduce_mode="sum")
+                            T.vadd(row_var, local_reduce, row_var)
 
-                            for i in T.serial(block_M):
-                                row_var[i, 0] = row_var[i, 0] - (-local_reduce[i, 0])
+                        T.vdiv(row_var, N, row_var)
+                        T.vadd(row_var, eps, row_var)
+                        T.vrsqrt(row_var, row_rstd)
 
-                        for i in T.serial(block_M):
-                            row = bx * block_M + i
-                            if row < M:
-                                row_var[i, 0] = row_var[i, 0] - row_var[i, 0] * (
-                                    1.0 - 1.0 / N
-                                )
-                                row_var[i, 0] = row_var[i, 0] + eps
-                                T.vrsqrt(row_var[i, 0], row_rstd[i, 0])
-
-                        for i in T.serial(block_M):
-                            row = bx * block_M + i
-                            if row < M:
-                                Mean[row] = row_mean[i, 0]
-                                Rstd[row] = row_rstd[i, 0]
+                        T.reshape(row_mean, row_reshape)
+                        T.copy(row_reshape, Mean[bx * block_M])
+                        T.reshape(row_rstd, row_reshape)
+                        T.copy(row_reshape, Rstd[bx * block_M])
 
                         for ko in T.serial(T.ceildiv(N, block_N)):
                             col_base = ko * block_N

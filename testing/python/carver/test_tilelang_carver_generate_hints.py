@@ -3,7 +3,7 @@
 import tilelang.testing
 from tilelang import carver
 from tilelang.carver.roller import PrimFuncNode, OutputNode, Edge
-from tilelang.carver.arch import auto_infer_current_arch
+from tilelang.carver.template.base import auto_infer_current_arch
 from tvm import te
 
 
@@ -11,16 +11,19 @@ def run_general_matmul_emit_configs(M, N, K, topk: int = 20):
     arch = auto_infer_current_arch()
 
     def gemm(M, N, K):
-        A = te.placeholder((M, K), name='A', dtype='float16')
-        B = te.placeholder((N, K), name='B', dtype='float16')
+        A = te.placeholder((M, K), name="A", dtype="float16")
+        B = te.placeholder((N, K), name="B", dtype="float16")
 
         # Describe the matrix multiplication in TE
-        k = te.reduce_axis((0, K), name='k')
+        k = te.reduce_axis((0, K), name="k")
 
         C = te.compute(
             (M, N),
-            lambda i, j: te.sum(A[i, k].astype('float16') * B[j, k].astype('float16'), axis=[k]),
-            name='C')
+            lambda i, j: te.sum(
+                A[i, k].astype("float16") * B[j, k].astype("float16"), axis=[k]
+            ),
+            name="C",
+        )
 
         return A, B, C
 
@@ -32,7 +35,8 @@ def run_general_matmul_emit_configs(M, N, K, topk: int = 20):
     tensorized_func, tags = carver.utils.get_tensorized_func_and_tags(func, arch.target)
     print(tags)
     policy = carver.TensorCorePolicy.from_prim_func(
-        func=tensorized_func, arch=arch, tags=tags, name="matmul_0")
+        func=tensorized_func, arch=arch, tags=tags, name="matmul_0"
+    )
 
     hints = policy.emit_config(topk=topk)
 
@@ -43,7 +47,9 @@ def run_general_matmul_emit_configs(M, N, K, topk: int = 20):
 
     prim_func_node = PrimFuncNode(tensorized_func, name="matmul_1")
     output_nodes = [OutputNode(prim_func_node)]
-    policy = carver.TensorCorePolicy.from_output_nodes(output_nodes, arch=arch, tags=tags)
+    policy = carver.TensorCorePolicy.from_output_nodes(
+        output_nodes, arch=arch, tags=tags
+    )
 
     hints = policy.emit_config(topk=10)
 
@@ -61,16 +67,19 @@ def run_general_matmul_matmul_emit_configs(M, N, K, topk: int = 20):
     arch = auto_infer_current_arch()
 
     def gemm(M, N, K):
-        A = te.placeholder((M, K), name='A', dtype='float16')
-        B = te.placeholder((N, K), name='B', dtype='float16')
+        A = te.placeholder((M, K), name="A", dtype="float16")
+        B = te.placeholder((N, K), name="B", dtype="float16")
 
         # Describe the matrix multiplication in TE
-        k = te.reduce_axis((0, K), name='k')
+        k = te.reduce_axis((0, K), name="k")
 
         C = te.compute(
             (M, N),
-            lambda i, j: te.sum(A[i, k].astype('float16') * B[j, k].astype('float16'), axis=[k]),
-            name='C')
+            lambda i, j: te.sum(
+                A[i, k].astype("float16") * B[j, k].astype("float16"), axis=[k]
+            ),
+            name="C",
+        )
 
         return A, B, C
 
@@ -90,7 +99,9 @@ def run_general_matmul_matmul_emit_configs(M, N, K, topk: int = 20):
     node_1.set_inputs(0, edge)
 
     output_nodes = [OutputNode(node_1)]
-    policy = carver.TensorCorePolicy.from_output_nodes(output_nodes, arch=arch, tags=tags)
+    policy = carver.TensorCorePolicy.from_output_nodes(
+        output_nodes, arch=arch, tags=tags
+    )
 
     hints = policy.emit_config(topk=topk)
 

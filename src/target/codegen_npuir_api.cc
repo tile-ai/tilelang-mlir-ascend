@@ -1861,22 +1861,52 @@ void CodeGenTileLangNPUIRAPI::DotCodegen(const CallNode *op) {
   //                 outs(%alloc_9 : memref<128x64xf32,
   //                      #hivm.address_space<cc>>)
   tvm::tl::NpuirDot npuirop(op->args, this->vmap);
-  Array<PrimExpr> a_region_shape, b_region_shape;
-  for (int i = 0; i < npuirop.src0_range.size(); i++) {
-    a_region_shape.push_back(npuirop.src0_range[i].get()->extent);
-    b_region_shape.push_back(npuirop.src1_range[i].get()->extent);
-  }
+  auto extract_region_shape =
+      [](const Array<Range> &ranges) -> Array<PrimExpr> {
+    Array<PrimExpr> region_shape;
+    for (int i = ranges.size() - 2; i < ranges.size(); ++i) {
+      region_shape.push_back(ranges[i].get()->extent);
+    }
+    return region_shape;
+  };
+  auto a_region_shape = extract_region_shape(npuirop.src0_range);
+  auto b_region_shape = extract_region_shape(npuirop.src1_range);
 
   mlir::Location unknown_loc = builder.getUnknownLoc();
   mlir::IndexType idx_ty = builder.getIndexType();
-  mlir::Value a = GetVarValue(npuirop.src0->data.get());
-  mlir::Value b = GetVarValue(npuirop.src1->data.get());
-  mlir::Value c = GetVarValue(npuirop.dst->data.get());
+  mlir::Value a, b, c;
+  if (npuirop.src0_range.size() > 2) {
+    a = GenRankReducedSubviewFromRegion(npuirop.src0, npuirop.src0_range, 2);
+  } else {
+    a = GetVarValue(npuirop.src0->data.get());
+  }
+  if (npuirop.src1_range.size() > 2) {
+    b = GenRankReducedSubviewFromRegion(npuirop.src1, npuirop.src1_range, 2);
+  } else {
+    b = GetVarValue(npuirop.src1->data.get());
+  }
+  if (npuirop.dst_range.size() > 2) {
+    c = GenRankReducedSubviewFromRegion(npuirop.dst, npuirop.dst_range, 2);
+  } else {
+    c = GetVarValue(npuirop.dst->data.get());
+  }
   mlir::TypeRange result_tensors = {};
   mlir::Value init_condition = MakeValue(npuirop.initC);
-  mlir::Value real_m = CreateIndexCastOp(MakeValue(a_region_shape[0]));
-  mlir::Value real_k = CreateIndexCastOp(MakeValue(b_region_shape[0]));
-  mlir::Value real_n = CreateIndexCastOp(MakeValue(b_region_shape[1]));
+
+  int m_idx = npuirop.a_transpose ? 1 : 0;
+  int k_a_idx = npuirop.a_transpose ? 0 : 1;
+  int k_b_idx = npuirop.b_transpose ? 1 : 0;
+  int n_idx = npuirop.b_transpose ? 0 : 1;
+  ICHECK(analyzer_->CanProveEqual(a_region_shape[k_a_idx],
+                                  b_region_shape[k_b_idx]))
+      << "matmul inner dimension mismatch: "
+      << "a" << (npuirop.a_transpose ? ".T" : "")
+      << " K = " << a_region_shape[k_a_idx] << ", b"
+      << (npuirop.b_transpose ? ".T" : "")
+      << " K = " << b_region_shape[k_b_idx];
+  mlir::Value real_m = CreateIndexCastOp(MakeValue(a_region_shape[m_idx]));
+  mlir::Value real_k = CreateIndexCastOp(MakeValue(a_region_shape[k_a_idx]));
+  mlir::Value real_n = CreateIndexCastOp(MakeValue(b_region_shape[n_idx]));
   mlir::Value per_channel_bias = mlir::Value{};
   mlir::UnitAttr a_transpose =
       npuirop.a_transpose ? builder.getUnitAttr() : mlir::UnitAttr();

@@ -54,14 +54,14 @@ def _get_real_idx(idx, use_idx, other_idx):
 
 def _get_mem_caps(mem_caps, arch=None):
     if arch is None:
-        default_arch = AscendArch(get_ascend_device_name())
+        arch = AscendArch(get_ascend_device_name())
 
     _mem_caps = []
     for cap in mem_caps:
-        if cap in default_arch.mem_cap:
-            _mem_caps.append(default_arch.mem_cap[cap])
+        if cap in arch.mem_cap:
+            _mem_caps.append(arch.mem_cap[cap])
         else:
-            raise ValueError("Unsupported mem_caps!")
+            raise ValueError(f"Unsupported mem_caps: {cap}")
 
     return _mem_caps
 
@@ -350,6 +350,8 @@ class AnnealTemplate:
 
         if arch is None:
             self.arch = AscendArch(get_ascend_device_name())
+        else:
+            self.arch = arch
 
         self.shape = shape
         self.n = len(shape)
@@ -398,7 +400,7 @@ class AnnealTemplate:
         annel_carver = AnnealCarver(
             self.policy,
             self.custom_kernel,
-            _get_mem_caps(self.mem_caps),
+            _get_mem_caps(self.mem_caps, self.arch),
             self.annealparam,
         )
 
@@ -454,7 +456,10 @@ class AnnealTemplate:
         ]
 
         annel_carver = AnnealCarver(
-            policy, custom_kernel, _get_mem_caps(self.mem_caps), self.annealparam
+            policy,
+            custom_kernel,
+            _get_mem_caps(self.mem_caps, self.arch),
+            self.annealparam,
         )
 
         return annel_carver.get_configs_from_anneal()
@@ -501,7 +506,10 @@ class AnnealTemplate:
             ),  # matmul 1
         ]
         annel_carver = AnnealCarver(
-            policy, custom_kernel, _get_mem_caps(self.mem_caps), self.annealparam
+            policy,
+            custom_kernel,
+            _get_mem_caps(self.mem_caps, self.arch),
+            self.annealparam,
         )
 
         return annel_carver.get_configs_from_anneal()
@@ -609,7 +617,10 @@ class AnnealTemplate:
         ]
 
         annel_carver = AnnealCarver(
-            policy, custom_kernel, _get_mem_caps(self.mem_caps), self.annealparam
+            policy,
+            custom_kernel,
+            _get_mem_caps(self.mem_caps, self.arch),
+            self.annealparam,
         )
 
         return annel_carver.get_configs_from_anneal()

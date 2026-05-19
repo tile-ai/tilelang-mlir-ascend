@@ -3,10 +3,12 @@
 # TODO: Add more documentation for each pass config
 
 from enum import Enum
+from typing import Any
 
 
 class PassConfigKey(str, Enum):
     """Pass configuration keys for TileLang compiler."""
+
     # TileLang specific configs
     TL_SIMPLIFY = "tl.Simplify"
     """Enable/disable TileLang simplification passes. Default: True"""
@@ -29,8 +31,21 @@ class PassConfigKey(str, Enum):
     TL_DISABLE_SAFE_MEMORY_ACCESS = "tl.disable_safe_memory_legalize"
     """Disable safe memory access optimization. Default: False"""
 
-    TL_DEBUG_MERGE_SHARED_MEMORY_ALLOCATIONS = "tl.debug_merge_shared_memory_allocations"
+    TL_DEBUG_MERGE_SHARED_MEMORY_ALLOCATIONS = (
+        "tl.debug_merge_shared_memory_allocations"
+    )
     """Enable debug information for merge shared memory allocations. Default: False"""
+
+    NPUIR_ENABLE_AUTO_MULTI_BUFFER = "npuir.enable_auto_multi_buffer"
+    """Enable automatic multi-buffer optimization for hiding memory latency. Default: True"""
+
+    NPUIR_DISABLE_HIVM_AUTO_INJECT_SYNC = "npuir.disable_hivm_auto_inject_sync"
+    """Disable automatic inner core synchronization injection. Default: False"""
+
+    TL_ENABLE_PLAN_AND_UPDATE_BUFFER_ALLOCATION = (
+        "tl.enable_plan_and_update_buffer_allocation"
+    )
+    """Enable advanced buffer allocation planning to optimize memory usage. Default: True"""
 
     # TIR related configs
     TIR_ENABLE_EQUIV_TERMS_IN_CSE = "tir.enable_equiv_terms_in_cse_tir"
@@ -65,3 +80,23 @@ class PassConfigKey(str, Enum):
 
     CUDA_KERNELS_OUTPUT_DIR = "cuda.kernels_output_dir"
     """Output directory for generated CUDA kernels. Default: empty string"""
+
+
+def normalize_pass_configs(pass_configs: dict[str, Any] | None) -> dict[str, Any]:
+    """Canonicalize known pass-config keys and emit compatibility warnings."""
+    if pass_configs is None:
+        return {}
+
+    normalized: dict[str, Any] = {}
+
+    for key, value in pass_configs.items():
+        normalized_key = key
+        if isinstance(key, str):
+            try:
+                normalized_key = PassConfigKey(key)
+            except ValueError:
+                normalized_key = key
+
+        normalized[normalized_key] = value
+
+    return normalized

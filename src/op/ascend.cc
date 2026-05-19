@@ -19,6 +19,10 @@
 namespace tvm {
 namespace tl {
 
+TVM_REGISTER_PASS_CONFIG_OPTION(kEnableAutoMultiBuffer, Bool);
+TVM_REGISTER_PASS_CONFIG_OPTION(kDisableHivmAutoInjectSync, Bool);
+TVM_REGISTER_PASS_CONFIG_OPTION(kEnablePlanAndUpdateBufferAllocation, Bool);
+
 using namespace tir;
 
 NpuirOperand NpuirOperand::FromExpr(const PrimExpr &expr,

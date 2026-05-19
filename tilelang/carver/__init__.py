@@ -30,7 +30,6 @@ from .common_schedules import (
     try_inline_contiguous_spatial,
 )  # noqa: F401
 from .roller import *
-from .arch import CUDA, CDNA  # noqa: F401
 from .template import (
     MatmulTemplate,
     GEMVTemplate,

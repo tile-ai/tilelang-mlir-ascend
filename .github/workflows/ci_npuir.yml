@@ -141,6 +141,12 @@ jobs:
           examples/sparse_mla_fwd_dynamic_shape.py
           examples/deepseek_v4/engram/engram_gate_kernel_bwd.py
           examples/deepseek_v4/engram/engram_gate_kernel_fwd.py
+          examples/deepseek_v4/example_act_quant_kernel.py
+          examples/deepseek_v4/example_hc_split_sinkhorn_kernel.py
+          examples/deepseek_v4/example_mhc_post.py
+          examples/deepseek_v4/example_sparse_attn_kernel_highperf.py
+          examples/deepseek_v4/example_sparse_attn_kernel.py
+          examples/deepseek_v4/example_sparse_attn_bwd_kernel.py
           examples/norm/layer_norm.py
         )
 
@@ -164,7 +170,7 @@ jobs:
       env:
         TILELANG_CLEAR_CACHE: "1"
       run: |
-        python -m pytest -v testing/npuir/*_ops \
+        python -m pytest -v testing/npuir/*_ops -n 2\
           --html=testing/npuir/output/report.html --self-contained-html \
           --junitxml=testing/npuir/output/junit.xml
 

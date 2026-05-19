@@ -12,6 +12,7 @@
 #include <tvm/tir/transform.h>
 
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -40,6 +41,8 @@ private:
   struct PreparedRegion {
     PrimExpr region;
     Array<Stmt> prefix;
+    Buffer temp_fp32;
+    bool needs_cast_back = false;
   };
 
   struct CachedSourceCast {
@@ -49,6 +52,13 @@ private:
     Buffer temp_f32;
   };
 
+  // Map: real_bf16_buffer -> temp_fp32_buffer
+  std::unordered_map<Buffer, Buffer, ObjectPtrHash, ObjectPtrEqual>
+      bf16_to_fp32_alias_;
+
+  std::vector<std::vector<Buffer>> block_temp_buffers_;
+  std::vector<std::vector<CachedSourceCast>> block_source_cast_cache_;
+
   bool IsBF16(const Buffer &buffer) const {
     return buffer.defined() && buffer->dtype == DataType::BFloat(16);
   }
@@ -57,9 +67,9 @@ private:
     if (call == nullptr) {
       return false;
     }
-    std::vector<std::string> binary_ops = {"tl.npuir_add", "tl.npuir_mul",
-                                           "tl.npuir_max", "tl.npuir_min",
-                                           "tl.npuir_div", "tl.npuir_sub"};
+    std::vector<std::string> binary_ops = {
+        "tl.npuir_add", "tl.npuir_mul", "tl.npuir_max", "tl.npuir_min",
+        "tl.npuir_div", "tl.npuir_sub", "tl.npuir_cmp"};
     return std::any_of(binary_ops.begin(), binary_ops.end(),
                        [&](const std::string &op_name) {
                          return call->op.same_as(Op::Get(op_name));
@@ -71,8 +81,9 @@ private:
       return false;
     }
     std::vector<std::string> unary_ops = {
-        "tl.npuir_exp",  "tl.npuir_relu",  "tl.npuir_sigmoid", "tl.npuir_ln",
-        "tl.npuir_sqrt", "tl.npuir_rsqrt", "tl.npuir_abs",     "tl.npuir_rec"};
+        "tl.npuir_exp", "tl.npuir_relu", "tl.npuir_sigmoid",
+        "tl.npuir_ln",  "tl.npuir_sqrt", "tl.npuir_rsqrt",
+        "tl.npuir_abs", "tl.npuir_rec",  "tl.npuir_reduce"};
     return std::any_of(unary_ops.begin(), unary_ops.end(),
                        [&](const std::string &op_name) {
                          return call->op.same_as(Op::Get(op_name));
@@ -119,6 +130,16 @@ private:
   }
 
   PreparedRegion PrepareSourceRegion(const RegionOp &src, const String &scope) {
+    const Buffer &src_buf = src.GetBuffer();
+    // If this buffer is currently aliased to a temp FP32 buffer, use it
+    // directly
+    auto it = bf16_to_fp32_alias_.find(src_buf);
+    if (it != bf16_to_fp32_alias_.end()) {
+      PreparedRegion prepared{
+          CreateRegion(it->second, src.GetRanges(), /*access_mask=*/1), {}};
+      return prepared;
+    }
+
     PreparedRegion prepared{
         CreateRegion(src.GetBuffer(), src.GetRanges(), /*access_mask=*/1), {}};
     if (!IsBF16(src.GetBuffer())) {
@@ -149,19 +170,29 @@ private:
   }
 
   PreparedRegion PrepareDestinationRegion(const RegionOp &dst) {
-    PreparedRegion prepared{
-        CreateRegion(dst.GetBuffer(), dst.GetRanges(), /*access_mask=*/2), {}};
+    const Buffer &dst_buf = dst.GetBuffer();
     if (!IsBF16(dst.GetBuffer())) {
-      return prepared;
+      return {CreateRegion(dst_buf, dst.GetRanges(), /*access_mask=*/2),
+              {},
+              Buffer(),
+              false};
     }
-
+    // Reuse temp_fp32 if already exists (in-place update)
+    auto it = bf16_to_fp32_alias_.find(dst_buf);
+    if (it != bf16_to_fp32_alias_.end()) {
+      // No need to create a new temp, and no cast-back needed
+      return {CreateRegion(it->second, dst.GetRanges(), /*access_mask=*/2),
+              {},
+              it->second,
+              true};
+    }
+    // Otherwise, allocate a new temp FP32 buffer for the destination, and cast
+    // back after the op
     Buffer temp = CreateTempBuffer(dst.GetRanges(), DataType::Float(32),
                                    dst.GetBuffer().scope(), "bf16_dst_f32");
-    PrimExpr temp_src_region =
-        CreateRegion(temp, dst.GetRanges(), /*access_mask=*/1);
-    prepared.prefix.push_back(CreateCastStmt(temp_src_region, prepared.region));
-    prepared.region = CreateRegion(temp, dst.GetRanges(), /*access_mask=*/2);
-    return prepared;
+    bf16_to_fp32_alias_[dst_buf] = temp;
+    return {
+        CreateRegion(temp, dst.GetRanges(), /*access_mask=*/2), {}, temp, true};
   }
 
   Stmt VisitStmt_(const BlockNode *op) final {
@@ -180,7 +211,7 @@ private:
     if (new_allocs.same_as(new_block->alloc_buffers)) {
       return new_block;
     }
-
+    bf16_to_fp32_alias_.clear();
     new_block.CopyOnWrite()->alloc_buffers = std::move(new_allocs);
     return new_block;
   }
@@ -190,37 +221,67 @@ private:
     const auto *src0_call = call->args[0].as<CallNode>();
     const auto *src1_call = call->args[1].as<CallNode>();
     const auto *dst_call = call->args[2].as<CallNode>();
-    if (src0_call == nullptr || src1_call == nullptr || dst_call == nullptr ||
+    // Consider the vector-scalar case
+    if (src0_call == nullptr || dst_call == nullptr ||
         !src0_call->op.same_as(Op::Get("tl.region")) ||
-        !src1_call->op.same_as(Op::Get("tl.region")) ||
         !dst_call->op.same_as(Op::Get("tl.region"))) {
       return Evaluate(new_value);
     }
 
     RegionOp src0_region(src0_call->args, BufferMap{});
-    RegionOp src1_region(src1_call->args, BufferMap{});
+    bool src1_not_bf16 =
+        (src1_call == nullptr) || !src1_call->op.same_as(Op::Get("tl.region"));
+    if (!src1_not_bf16) {
+      RegionOp src1_region(src1_call->args, BufferMap{});
+      src1_not_bf16 = !IsBF16(src1_region.GetBuffer());
+    }
     RegionOp dst_region(dst_call->args, BufferMap{});
-    if (!IsBF16(src0_region.GetBuffer()) && !IsBF16(src1_region.GetBuffer()) &&
+    if (!IsBF16(src0_region.GetBuffer()) && src1_not_bf16 &&
         !IsBF16(dst_region.GetBuffer())) {
       return Evaluate(new_value);
     }
 
     String compute_scope = dst_region.GetBuffer().scope();
     PreparedRegion src0 = PrepareSourceRegion(src0_region, compute_scope);
-    PreparedRegion src1 = PrepareSourceRegion(src1_region, compute_scope);
+
     PreparedRegion dst = PrepareDestinationRegion(dst_region);
 
     Array<Stmt> seq;
     for (const Stmt &stmt : src0.prefix) {
       seq.push_back(stmt);
     }
-    for (const Stmt &stmt : src1.prefix) {
-      seq.push_back(stmt);
+
+    PrimExpr src1_expr = call->args[1];
+    // no need to process src1 if it's scalar or not bf16
+    if (!src1_not_bf16) {
+      RegionOp src1_region(src1_call->args, BufferMap{});
+      PreparedRegion src1 = PrepareSourceRegion(src1_region, compute_scope);
+      for (const Stmt &stmt : src1.prefix) {
+        seq.push_back(stmt);
+      }
+      src1_expr = src1.region;
     }
-    Array<PrimExpr> op_args{src0.region, src1.region, dst.region};
+
+    Array<PrimExpr> op_args{src0.region, src1_expr, dst.region};
+    if (call->args.size() > 3) {
+      // Pass through additional arguments (e.g., for cmp)
+      for (size_t i = 3; i < call->args.size(); ++i) {
+        op_args.push_back(call->args[i]);
+      }
+    }
     seq.push_back(Evaluate(Call(DataType::Void(), call->op, op_args)));
     for (const Stmt &stmt : dst.prefix) {
       seq.push_back(stmt);
+    }
+
+    // Insert cast-back for the destination if needed
+    if (dst.needs_cast_back) {
+      PrimExpr temp_src_region =
+          CreateRegion(dst.temp_fp32, dst_region.GetRanges(),
+                       /*access_mask=*/1);
+      PrimExpr real_dst_region = CreateRegion(
+          dst_region.GetBuffer(), dst_region.GetRanges(), /*access_mask=*/2);
+      seq.push_back(CreateCastStmt(temp_src_region, real_dst_region));
     }
     return SeqStmt::Flatten(seq);
   }
@@ -249,10 +310,27 @@ private:
     for (const Stmt &stmt : src.prefix) {
       seq.push_back(stmt);
     }
+
     Array<PrimExpr> op_args{src.region, dst.region};
+    if (call->args.size() > 2) {
+      // Pass through additional arguments (e.g., for reduce)
+      for (size_t i = 2; i < call->args.size(); ++i) {
+        op_args.push_back(call->args[i]);
+      }
+    }
     seq.push_back(Evaluate(Call(DataType::Void(), call->op, op_args)));
     for (const Stmt &stmt : dst.prefix) {
       seq.push_back(stmt);
+    }
+
+    // Insert cast-back for the destination if needed
+    if (dst.needs_cast_back) {
+      PrimExpr temp_src_region =
+          CreateRegion(dst.temp_fp32, dst_region.GetRanges(),
+                       /*access_mask=*/1);
+      PrimExpr real_dst_region = CreateRegion(
+          dst_region.GetBuffer(), dst_region.GetRanges(), /*access_mask=*/2);
+      seq.push_back(CreateCastStmt(temp_src_region, real_dst_region));
     }
     return SeqStmt::Flatten(seq);
   }
@@ -275,8 +353,6 @@ private:
   }
 
   int temp_buffer_id_{0};
-  std::vector<std::vector<Buffer>> block_temp_buffers_;
-  std::vector<std::vector<CachedSourceCast>> block_source_cast_cache_;
 };
 
 namespace transform {

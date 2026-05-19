@@ -21,7 +21,7 @@
 # THE SOFTWARE.
 
 import torch
-from tilelang.carver.arch.ascend import Ascend
+from tilelang.utils.npu_arch import AscendArch
 
 _cached_params = None
 
@@ -32,14 +32,14 @@ def _init_npu_params():
     if _cached_params is not None:
         return _cached_params
 
-    arch = Ascend()
+    arch = AscendArch()
 
     target = {"arch": [arch.chip_name]}
     device = []
     prop = {"num_aicore": arch.compute_max_core}
 
-    num_cube_core = prop["num_aicore"]
-    num_vector_core = prop["num_aicore"]
+    num_cube_core = arch.aicube_core_num
+    num_vector_core = arch.aivector_core_num
     ub_size_in_kbytes = arch.ub_cap
     rf_size_in_kbytes = None
 

@@ -1,5 +1,4 @@
 import argparse
-import itertools
 
 import tilelang
 import tilelang.language as T
@@ -7,7 +6,7 @@ import torch
 import os
 
 from tilelang import carver
-from tilelang.carver.arch.ascend import Ascend
+from tilelang.utils.npu_arch import AscendArch
 
 tilelang.cache.clear_cache()
 
@@ -19,11 +18,12 @@ args = parser.parse_args()
 N = args.n
 K = args.k
 
+
 def get_config() -> list[dict]:
-    arch = Ascend()
+    arch = AscendArch()
     carver_template = carver.GEMVTemplate(
-        N = N,
-        K = K,
+        N=N,
+        K=K,
         in_dtype="float16",
         accum_dtype="float16",
         out_dtype="float16",
@@ -34,26 +34,33 @@ def get_config() -> list[dict]:
     for hint in hints:
         print(hint)
         config = {
-            #"BLOCK_M": hint.block[0] = 16
+            # "BLOCK_M": hint.block[0] = 16
             "BLOCK_N": hint.block[1],
             "BLOCK_K": hint.rstep[0],
         }
         configs.append(config)
-    
+
     return configs
+
 
 def ref_prog(A, B):
     return A @ B.T
 
+
 def supply_prog(params):
     torch.manual_seed(0)
     return [
-        torch.randn(K,).half().npu(),
+        torch.randn(
+            K,
+        )
+        .half()
+        .npu(),
         torch.randn(N, K).half().npu(),
     ]
 
+
 @tilelang.autotune(
-    configs=get_config(), # get_config_combination is also ok
+    configs=get_config(),  # get_config_combination is also ok
     ref_prog=ref_prog,
     supply_prog=supply_prog,
     atol=1e-2,
@@ -66,7 +73,7 @@ def naive_gemv(
     BLOCK_N: int,
     BLOCK_K: int,
     dtype: str = "float16",
-    accum_dtype: str = "float32"
+    accum_dtype: str = "float32",
 ):
     @T.prim_func
     def main(
@@ -85,12 +92,15 @@ def naive_gemv(
                         A_shared[tk] = A[bk * BLOCK_K + tk]
                         B_shared[tn, tk] = B[bn * BLOCK_N + tn, bk * BLOCK_K + tk]
                     for tk in T.serial(BLOCK_K):
-                        C_reg[0] += A_shared[tk].astype(accum_dtype) * B_shared[tn, tk].astype(accum_dtype)
+                        C_reg[0] += A_shared[tk].astype(accum_dtype) * B_shared[
+                            tn, tk
+                        ].astype(accum_dtype)
                 C[bn * BLOCK_N + tn] = C_reg[0]
 
     return main
 
-os.environ['TILELANG_ASCEND_MODE'] = 'Developer'
+
+os.environ["TILELANG_ASCEND_MODE"] = "Developer"
 
 # To trigger auto-tuning, we should not provide the tunable parameters (block_M, block_N, K_L1)
 # If provided, the auto-tuner will skip the tuning process and use the provided values.

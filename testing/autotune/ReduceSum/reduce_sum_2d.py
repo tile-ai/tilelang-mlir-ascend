@@ -7,7 +7,7 @@ import torch
 import tilelang
 import tilelang.language as T
 from tilelang import carver
-from tilelang.carver.arch.ascend import Ascend
+from tilelang.utils.npu_arch import AscendArch
 
 os.environ["TILELANG_ASCEND_MODE"] = "Developer"
 SHAPES = [
@@ -55,7 +55,7 @@ def run_single_shape(shape, log_dir: Path):
                 return torch.sum(x, dim=1, keepdim=True)
 
             def get_config():
-                arch = Ascend()
+                arch = AscendArch()
                 carver_template = carver.GeneralReductionTemplate(
                     structure="SR",
                     shape=[M, N],

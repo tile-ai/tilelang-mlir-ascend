@@ -4,7 +4,7 @@
 from typing import List, Optional, Union
 from tvm import tir, IRModule
 from tvm.tir import PrimFunc
-from .arch import TileDevice
+from tilelang.utils.npu_arch import AscendArch
 from .roller.policy import (
     TensorCorePolicy,
     DefaultPolicy,
@@ -172,7 +172,7 @@ def get_rasterization_code(pannel_width: int = 8) -> str:
 
 def get_roller_hints_from_func(
     func_or_module: Union[tir.PrimFunc, IRModule],
-    arch: TileDevice,
+    arch: AscendArch,
     topk: int = 10,
     tensorcore_only: bool = False,
     allow_gemv: bool = False,
@@ -265,7 +265,7 @@ def get_roller_hints_from_func(
 
 def get_roller_hints_from_output_nodes(
     output_nodes: List[OutputNode],
-    arch: TileDevice,
+    arch: AscendArch,
     topk: int = 10,
     extra_tags: Optional[List[str]] = None,
 ) -> Optional[List[Hint]]:

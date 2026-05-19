@@ -1,6 +1,17 @@
-name: Build and Push Docker Image
+name: Build Docker
 
 on:
+  workflow_call:
+    inputs:
+      cann_version:
+        description: 'CANN version'
+        type: string
+        default: '8.5.0'
+    secrets:
+      QUAY_USERNAME:
+        required: true
+      QUAY_PASSWORD:
+        required: true
   workflow_dispatch:
     inputs:
       cann_version:

@@ -1,8 +1,16 @@
-name: Build TileLang-Ascend (NPUIR)
+name: Build TileLang Wheel
 
 on:
   workflow_call:
     inputs:
+      npuir-commit:
+        description: "AscendNPU-IR commit hash (from prebuild)"
+        type: string
+        required: true
+      tvm-commit:
+        description: "TVM submodule commit hash (from prebuild)"
+        type: string
+        required: true
       checkout-ref:
         description: "Git ref to checkout"
         type: string
@@ -23,18 +31,7 @@ env:
   TVM_INSTALL_DIR: tvm-prebuild
 
 jobs:
-  prebuild-npuir:
-    uses: ./.github/workflows/build-npuir.yml
-    with:
-      checkout-ref: ${{ inputs.checkout-ref }}
-
-  prebuild-tvm:
-    uses: ./.github/workflows/build-tvm.yml
-    with:
-      checkout-ref: ${{ inputs.checkout-ref }}
-
   build-wheel:
-    needs: [prebuild-npuir, prebuild-tvm]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -63,14 +60,14 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: ${{ env.NPUIR_INSTALL_DIR }}
-        key: npuir-prebuild-rtti-${{ matrix.arch }}-${{ needs.prebuild-npuir.outputs.npuir-commit }}
+        key: npuir-prebuild-rtti-${{ matrix.arch }}-${{ inputs.npuir-commit }}
         fail-on-cache-miss: true
 
     - name: Restore TVM prebuild from cache
       uses: actions/cache/restore@v4
       with:
         path: ${{ env.TVM_INSTALL_DIR }}
-        key: tvm-prebuild-${{ matrix.arch }}-${{ needs.prebuild-tvm.outputs.tvm-commit }}
+        key: tvm-prebuild-${{ matrix.arch }}-${{ inputs.tvm-commit }}
         fail-on-cache-miss: true
 
     - name: Set up Python ${{ env.PYTHON_VERSION }}

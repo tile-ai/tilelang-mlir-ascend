@@ -126,3 +126,4 @@ jobs:
     with:
       cann_version: '8.5.0'
     secrets: inherit
+

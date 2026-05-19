@@ -38,7 +38,7 @@ jobs:
   # Prebuild: TVM (x64 + arm64)
   # ============================================================
   prebuild-tvm:
-    uses: ./.github/workflows/build_tvm.yml
+    uses: ./.github/workflows/build-tvm.yml
 
   # ============================================================
   # Build wheel (x64 + arm64)

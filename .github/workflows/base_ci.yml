@@ -19,14 +19,28 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # need history to diff against base
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     - name: Install pre-commit
       run: pip install pre-commit
-    - name: Run format check
-      run: python -m pre_commit run --all-files
+    - name: Get PR changed files
+      run: |
+        git diff --name-only --diff-filter=ACMR \
+          '${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}' \
+          > /tmp/changed_files.txt
+        echo "Files to check:"
+        cat /tmp/changed_files.txt
+    - name: Run format check (incremental)
+      run: |
+        if [ ! -s /tmp/changed_files.txt ]; then
+          echo "No source files changed, skipping format check"
+          exit 0
+        fi
+        python -m pre_commit run --files $(tr '\n' ' ' < /tmp/changed_files.txt)
 
   # ============================================================
   # Prebuild: AscendNPU-IR (x64 + arm64)

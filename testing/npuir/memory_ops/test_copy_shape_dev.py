@@ -16,6 +16,8 @@ pytestmark = [
 DTYPES = ["float16", "float32"]
 COPY_SHAPE_2D_CASES = [(256, 1024, 32, 32)]
 COPY_SHAPE_3D_CASES = [(256, 1024, 32, 32)]
+COPY_SHAPE_SINGLETON_CASES = [(256, 32)]
+COPY_SHAPE_DYNAMIC_TILE_CASES = [(77, 88, 32, 32, 64, 64)]
 
 
 def copy_shape_1d_2d(M, N, block_M, block_N, dtype):
@@ -62,6 +64,38 @@ def copy_shape_2d_3d(M, N, block_M, block_N, dtype):
     return copyShapeDev2D3D
 
 
+def copy_shape_1d_2d_trailing_singleton(M, block_M, dtype):
+    @T.prim_func
+    def copyShapeDevTrailingSingleton(
+        A: T.Tensor((M,), dtype),
+        B: T.Tensor((M,), dtype),
+    ):
+        with T.Kernel(T.ceildiv(M, block_M), is_npu=True) as (bx, _):
+            UB = T.alloc_shared((block_M, 1), dtype)
+            T.copy(A[bx * block_M], UB)
+            T.copy(UB, B[bx * block_M])
+
+    return copyShapeDevTrailingSingleton
+
+
+def copy_shape_dynamic_2d_tile(M, N, block_M, block_N, dtype):
+    @T.prim_func
+    def copyShapeDevDynamic2DTile(
+        A: T.Tensor((M, N), dtype),
+        B: T.Tensor((M, N), dtype),
+        bx: T.int32,
+        by: T.int32,
+        remain_m: T.int32,
+        remain_n: T.int32,
+    ):
+        with T.Kernel(1, is_npu=True):
+            UB = T.alloc_shared((block_M, block_N), dtype)
+            T.copy(A[bx:bx + remain_m, by:by + remain_n], UB)
+            T.copy(UB, B[bx:bx + remain_m, by:by + remain_n])
+
+    return copyShapeDevDynamic2DTile
+
+
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("M, N, block_M, block_N", COPY_SHAPE_2D_CASES)
 def test_copy_shape_1d_2d_dev(dtype, M, N, block_M, block_N):
@@ -86,5 +120,35 @@ def test_copy_shape_2d_3d_dev(dtype, M, N, block_M, block_N):
     v2 = gen_tensor((1, M, N), dtype, kind="randn")
     v_ref = v1.clone()
     compiled_kernel(v1, v2)
+
+    assert_close(v2.cpu(), v_ref.cpu(), dtype=dtype, rtol=1e-2, atol=1e-2)
+
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("M, block_M", COPY_SHAPE_SINGLETON_CASES)
+def test_copy_shape_1d_2d_trailing_singleton_dev(dtype, M, block_M):
+    func = copy_shape_1d_2d_trailing_singleton(M, block_M, dtype)
+    compiled_kernel = tilelang.compile(func, target="npuir")
+
+    v1 = gen_tensor((M,), dtype, kind="randn")
+    v2 = gen_tensor((M,), dtype, kind="zeros")
+    v_ref = v1.clone()
+    compiled_kernel(v1, v2)
+
+    assert_close(v2.cpu(), v_ref.cpu(), dtype=dtype, rtol=1e-2, atol=1e-2)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("M, N, block_M, block_N, bx, by", COPY_SHAPE_DYNAMIC_TILE_CASES)
+def test_copy_shape_dynamic_2d_tile_dev(dtype, M, N, block_M, block_N, bx, by):
+    func = copy_shape_dynamic_2d_tile(M, N, block_M, block_N, dtype)
+    compiled_kernel = tilelang.compile(func, target="npuir")
+
+    remain_m = M - bx
+    remain_n = N - by
+    v1 = gen_tensor((M, N), dtype, kind="randn")
+    v2 = gen_tensor((M, N), dtype, kind="zeros")
+    v_ref = torch.zeros_like(v2)
+    v_ref[bx:bx + remain_m, by:by + remain_n] = v1[bx:bx + remain_m, by:by + remain_n]
+    compiled_kernel(v1, v2, bx, by, remain_m, remain_n)
 
     assert_close(v2.cpu(), v_ref.cpu(), dtype=dtype, rtol=1e-2, atol=1e-2)

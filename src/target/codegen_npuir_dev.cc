@@ -2638,7 +2638,7 @@ void CodeGenTileLangNPUIRDEV::VcumsumCodegen(const CallNode *op) {
   }
   auto booleanAttr = mlir::BoolAttr::get(builder.getContext(), false);
   auto newCumsumOp = builder.create<mlir::hfusion::CumsumOp>(
-      loc, result_tensors, src, dst,
+      loc, result_tensors, src,
       builder.getDenseI64ArrayAttr(npuirop.cum_dims), booleanAttr);
   SetVarValue(npuirop.dst, newCumsumOp->getResult(0));
 }
@@ -3019,7 +3019,7 @@ void CodeGenTileLangNPUIRDEV::VflipCodegen(const CallNode *op) {
   tvm::tl::NpuirFlip npuirop(op->args, this->vmap);
   Value src = GetVarValue(npuirop.src);
   Value dst = GetVarValue(npuirop.dst);
-  ICHECK(npuirop.axis >= 0)
+  ICHECK(npuirop.axis >= 0);
   auto loc = builder.getUnknownLoc();
   auto srcTy = src.getType().cast<RankedTensorType>();
 

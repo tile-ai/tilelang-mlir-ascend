@@ -117,10 +117,6 @@ jobs:
       if: steps.cache.outputs.cache-hit != 'true'
       working-directory: 3rdparty/AscendNPU-IR
       run: |
-        # Build MLIRPythonModules first to generate all tablegen Python
-        # sources. BiShengIRPythonModules reuses MLIRPythonSources but
-        # can't see the tablegen custom commands (CMake directory scoping),
-        # causing "No rule to make target" errors under parallel builds.
         cmake --build build --target MLIRPythonModules -j$(nproc)
         cmake --build build -j$(nproc)
 

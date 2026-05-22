@@ -757,14 +757,20 @@ def sparse_attn_torch(
     mask_acc_s = mask_acc_s.to(device=q.device, dtype=torch.float32)
     ref_output = (
         softmax_with_sink(
-            ((q @ kv_sparse.transpose(-2, -1)).to(attn_sink.dtype) + mask_acc_s)
+            (
+                (
+                    q.to(attn_sink.dtype)
+                    @ kv_sparse.to(attn_sink.dtype).transpose(-2, -1)
+                )
+                + mask_acc_s
+            )
             * softmax_scale,
             attn_sink,
             head_dim=-2,
             dim=-1,
-        ).to(q.dtype)
-        @ kv_sparse
-    )
+        )
+        @ kv_sparse.to(attn_sink.dtype)
+    ).to(q.dtype)
 
     return ref_output
 

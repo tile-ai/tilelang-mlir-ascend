@@ -1,0 +1,163 @@
+name: Base CI
+
+on:
+  pull_request:
+    branches: [main]
+  release:
+    types: [published, prereleased]
+
+permissions:
+  contents: read
+
+# Prevent duplicate runs for the same release tag when GitHub
+# fires both 'published' and 'prereleased' events concurrently.
+# PRs use the PR number as the concurrency key so each PR is
+# independent; releases use the git ref (tag).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================
+  # Format check (PR only, runs in parallel with no dependencies)
+  # ============================================================
+  format:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # need history to diff against base
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install pre-commit
+      run: pip install pre-commit
+    - name: Get PR changed files
+      run: |
+        git diff --name-only --diff-filter=ACMR \
+          '${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}' \
+          > /tmp/changed_files.txt
+        echo "Files to check:"
+        cat /tmp/changed_files.txt
+    - name: Run format check (incremental)
+      run: |
+        if [ ! -s /tmp/changed_files.txt ]; then
+          echo "No source files changed, skipping format check"
+          exit 0
+        fi
+        python -m pre_commit run --files $(tr '\n' ' ' < /tmp/changed_files.txt)
+
+  # ============================================================
+  # Doc link check (PR only, after format passes)
+  # ============================================================
+  doc-link-check:
+    if: github.event_name == 'pull_request' && needs.format.result == 'success'
+    needs: format
+    uses: ./.github/workflows/doc-link-check.yml
+
+  # ============================================================
+  # Prebuild: AscendNPU-IR (x64 + arm64)
+  # ============================================================
+  prebuild-npuir:
+    uses: ./.github/workflows/build_ascend_npuir.yml
+    with:
+      checkout-ref: ${{ github.ref }}
+
+  # ============================================================
+  # Prebuild: TVM (x64 + arm64)
+  # ============================================================
+  prebuild-tvm:
+    uses: ./.github/workflows/build-tvm.yml
+    with:
+      checkout-ref: ${{ github.ref }}
+
+  # ============================================================
+  # Build wheel (x64 + arm64)
+  # ============================================================
+  build-wheel:
+    needs: [prebuild-npuir, prebuild-tvm]
+    uses: ./.github/workflows/build_tilelang_wheel.yml
+    with:
+      npuir-commit: ${{ needs.prebuild-npuir.outputs.npuir-commit }}
+      tvm-commit: ${{ needs.prebuild-tvm.outputs.tvm-commit }}
+      checkout-ref: ${{ github.ref }}
+
+  # ============================================================
+  # Test on NPU hardware (shared by all scenarios)
+  # ============================================================
+  test:
+    needs: build-wheel
+    uses: ./.github/workflows/test_npuir_wheel.yml
+    with:
+      checkout-ref: ${{ github.ref }}
+      report-name: ${{ github.event_name == 'pull_request' && 'npuir-test-report' || 'npuir-release-test-report' }}
+
+  # ============================================================
+  # Scenario 2: Pre-release — upload wheel assets after test
+  # ============================================================
+  upload-prerelease-assets:
+    if: github.event_name == 'release' && github.event.release.prerelease
+    needs: test
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download x64 wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: tilelang-npuir-py3.11-x64
+          path: release-wheels
+      - name: Download arm64 wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: tilelang-npuir-py3.11-arm64
+          path: release-wheels
+      - name: Upload to Pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-wheels/*.whl
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================
+  # Scenario 3: Release — upload wheel assets after test
+  # ============================================================
+  upload-release-assets:
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    needs: test
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download x64 wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: tilelang-npuir-py3.11-x64
+          path: release-wheels
+      - name: Download arm64 wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: tilelang-npuir-py3.11-arm64
+          path: release-wheels
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-wheels/*.whl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================
+  # Scenario 3: Release — Docker build & push after test
+  # ============================================================
+  docker-build:
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    needs: test
+    uses: ./.github/workflows/build_docker.yml
+    with:
+      cann_version: '8.5.0'
+      checkout-ref: ${{ github.ref }}
+    secrets: inherit

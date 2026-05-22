@@ -1,0 +1,31 @@
+name: doc-link-check
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lychee
+        run: |
+          curl -sSL https://github.com/lycheeverse/lychee/releases/download/v0.15.0/lychee-v0.15.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          sudo mv lychee /usr/local/bin/
+          lychee --version
+
+      - name: Check links in markdown files
+        run: |
+          lychee \
+            --verbose \
+            --include '\.md$' \
+            --exclude 'node_modules|\.git|_build|\.cache' \
+            --accept 200,204,301,302,304,429 \
+            --timeout 10 \
+            --max-concurrency 16 \
+            .

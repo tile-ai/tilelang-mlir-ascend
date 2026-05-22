@@ -140,7 +140,7 @@ If you need to access Ascend NPU computing resources for development or testing,
 ## OP Implementation Examples
 **tile-lang** provides the building blocks to implement a wide variety of operators. Some examples include:
 
-- [Vector Add](./examples/vec_add_1d.py)
+- [Vector Add](./examples/elementwise/vec_add_1d.py)
 - [Flash Attention](./examples/flash_attn_npuir.py)
 
 Within the `examples` directory, you will also find additional complex kernels—such as convolutions, forward/backward passes for FlashAttention, more operators will continuously be added.

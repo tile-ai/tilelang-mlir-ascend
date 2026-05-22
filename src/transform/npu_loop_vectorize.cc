@@ -36,6 +36,7 @@
 #include <tvm/tir/stmt_functor.h>
 #include <tvm/tir/transform.h>
 
+#include <optional>
 #include <sstream>
 
 #include "arith/scalable_expression.h"
@@ -85,26 +86,28 @@ private:
   };
 
   // ============================================================
-  // RAII depth management: prevents forgetting to reset depth to 0 on return.
+  // RAII depth management: restores the caller's nesting depth on return.
   // ============================================================
 
   struct DepthGuard {
     int &depth;
+    int saved_depth;
     bool committed = false;
 
-    explicit DepthGuard(int &d) : depth(d) { depth++; }
+    explicit DepthGuard(int &d) : depth(d), saved_depth(d) { depth++; }
 
     // Call when the operation completes successfully; decrements depth.
     void commit() {
-      depth--;
+      depth = saved_depth;
       committed = true;
     }
 
-    // If commit() was never called (i.e. an early failure occurred), reset
-    // depth to 0.
+    // If commit() was never called (i.e. an early failure occurred), restore
+    // the caller's depth. Nested fallback attempts must not make the caller
+    // look like a top-level expression.
     ~DepthGuard() {
       if (!committed)
-        depth = 0;
+        depth = saved_depth;
     }
   };
 
@@ -134,6 +137,15 @@ private:
       return IsNpuirDivDtypeSupported(result_dtype);
     }
     return true;
+  }
+
+  DataType PromoteFloatComputeDType(DataType current,
+                                    const DataType &candidate) {
+    if (candidate.is_float() &&
+        (!current.is_float() || candidate.bits() > current.bits())) {
+      return candidate;
+    }
+    return current;
   }
 
   bool IsScalar(const PrimExpr &expr) {
@@ -345,15 +357,37 @@ private:
 
   // Create a temporary buffer with the same shape / scope as the reference
   // BufferAccessInfo and register it in tmp_buffers.
-  BufferAccessInfo CreateTempBuffer(const BufferAccessInfo &ref,
-                                    const std::string &op_name = "npuir_add") {
+  BufferAccessInfo
+  CreateTempBuffer(const BufferAccessInfo &ref,
+                   const std::string &op_name = "npuir_add",
+                   std::optional<DataType> dtype_override = std::nullopt) {
     const Buffer &ref_buf = ref.buffer;
-    DataType dtype = IsCmpOp(op_name) ? DataType::Bool() : ref_buf->dtype;
+    DataType dtype = IsCmpOp(op_name) ? DataType::Bool()
+                                      : dtype_override.value_or(ref_buf->dtype);
     std::string name = NextTempBufferName();
     Buffer buf(Var(name, PointerType(PrimType(dtype), ref_buf.scope())), dtype,
                ref_buf->shape, {}, PrimExpr(0), name, 0, 0, kDefault);
     tmp_buffers.push_back(buf);
     return {buf, ref.indices, true};
+  }
+
+  DataType
+  InferBinaryComputeDType(const std::string &op_name,
+                          const DataType &result_dtype,
+                          const std::optional<BufferAccessInfo> &resolved_a,
+                          const std::optional<BufferAccessInfo> &resolved_b,
+                          const Array<PrimExpr> &operands) {
+    if (IsCmpOp(op_name))
+      return DataType::Bool();
+
+    DataType dtype = result_dtype;
+    if (resolved_a)
+      dtype = PromoteFloatComputeDType(dtype, resolved_a->buffer->dtype);
+    if (resolved_b)
+      dtype = PromoteFloatComputeDType(dtype, resolved_b->buffer->dtype);
+    for (const auto &operand : operands)
+      dtype = PromoteFloatComputeDType(dtype, operand.dtype());
+    return dtype;
   }
 
   // ============================================================
@@ -749,10 +783,12 @@ private:
       operand = cast->value;
 
       if (auto load = operand.as<BufferLoadNode>()) {
-        if (load->indices.size() != output_ref.indices.size()) {
-          // Keep rank-mismatched Cast expressions on the scalar fallback path.
+        if (load->indices.size() > output_ref.indices.size()) {
+          // Keep rank-reducing Cast expressions on the scalar fallback path.
           // Vector VCast requires UB regions with compatible rank/alignment;
-          // short slices such as [1, 4] -> [4] can fault at runtime.
+          // short slices such as [1, 4] -> [4] can fault at runtime. Rank
+          // expansion, e.g. weight[j] -> [M, N], is handled below by first
+          // reshape+broadcasting the source load and then casting the result.
           return false;
         }
       }
@@ -826,6 +862,8 @@ private:
     PrimExpr region_b =
         resolved_b ? BuildRegionCall(*resolved_b, 1, 1) : operands[1];
     std::string binary_op_name = resolve_op_name;
+    DataType compute_dtype = InferBinaryComputeDType(
+        binary_op_name, result_dtype, resolved_a, resolved_b, operands);
 
     if (!resolved_a) {
       if (binary_op_name == "Add" || binary_op_name == "Mul" ||
@@ -842,7 +880,8 @@ private:
         } else {
           // BufferLoad or compound expression: broadcast to tmp buffer.
           const BufferAccessInfo &ref = *resolved_b;
-          auto scalar_buf = CreateTempBuffer(ref, binary_op_name);
+          auto scalar_buf =
+              CreateTempBuffer(ref, binary_op_name, compute_dtype);
           tmp_bufs->push_back(scalar_buf);
           stmts->push_back(BuildNpuirCall(
               "Broadcast", {operands[0], BuildRegionCall(scalar_buf, 2, 1)}));
@@ -857,7 +896,7 @@ private:
       } else {
         // BufferLoad or compound expression: broadcast to tmp buffer.
         const BufferAccessInfo &ref = *resolved_a;
-        auto scalar_buf = CreateTempBuffer(ref, binary_op_name);
+        auto scalar_buf = CreateTempBuffer(ref, binary_op_name, compute_dtype);
         tmp_bufs->push_back(scalar_buf);
         stmts->push_back(BuildNpuirCall(
             "Broadcast", {operands[1], BuildRegionCall(scalar_buf, 2, 1)}));
@@ -868,18 +907,18 @@ private:
     const BufferAccessInfo &ref = resolved_a ? *resolved_a : *resolved_b;
 
     if (op_name == "FloorMod") {
-      auto quotient = CreateTempBuffer(ref, "Div");
+      auto quotient = CreateTempBuffer(ref, "Div", compute_dtype);
       tmp_bufs->push_back(quotient);
       stmts->push_back(BuildBinaryStmt("Div", region_a, region_b, quotient));
 
-      auto product = CreateTempBuffer(ref, "Mul");
+      auto product = CreateTempBuffer(ref, "Mul", compute_dtype);
       tmp_bufs->push_back(product);
       stmts->push_back(BuildBinaryStmt("Mul", BuildRegionCall(quotient, 1, 1),
                                        region_b, product));
 
       BufferAccessInfo output = output_ref;
       if (depth > 1) {
-        output = CreateTempBuffer(ref, "Sub");
+        output = CreateTempBuffer(ref, "Sub", compute_dtype);
         tmp_bufs->push_back(output);
       }
       stmts->push_back(BuildBinaryStmt("Sub", region_a,
@@ -890,7 +929,7 @@ private:
 
     BufferAccessInfo output = output_ref;
     if (depth > 1) {
-      output = CreateTempBuffer(ref, binary_op_name);
+      output = CreateTempBuffer(ref, binary_op_name, compute_dtype);
       tmp_bufs->push_back(output);
     }
     stmts->push_back(

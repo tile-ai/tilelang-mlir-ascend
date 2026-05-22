@@ -116,6 +116,9 @@ echo "Cloning TVM repository and initializing submodules..."
 # clone and build tvm
 git submodule update --init --recursive 3rdparty/catlass 3rdparty/composable_kernel 3rdparty/cutlass 3rdparty/tvm
 
+CORES=$(nproc)
+MAKE_JOBS=$(( CORES * 75 / 100 ))
+
 if [ -z "$BISHENGIR_PATH" ]; then
     echo "warring: no --bishengir-path set, bishengir path will be found in environment variable PATH"
     # build bishengir in 3rdparty
@@ -125,7 +128,7 @@ if [ -z "$BISHENGIR_PATH" ]; then
     rm -rf ./build
     mkdir build
     ./build-tools/build.sh --c-compiler clang --cxx-compiler clang++ \
-    --add-cmake-options="-DCMAKE_LINKER=lld -DLLVM_ENABLE_LLD=ON -DLLVM_ENABLE_RTTI=ON" --build-type Release -j 96 --enable-assertion \
+    --add-cmake-options="-DCMAKE_LINKER=lld -DLLVM_ENABLE_LLD=ON -DLLVM_ENABLE_RTTI=ON" --build-type Release -j${MAKE_JOBS} --enable-assertion \
     --disable-werror --disable-mlir-werror --disable-bishengir-werror --build-triton \
     --build ./build   --apply-patches
     BISHENGIR_PATH="./3rdparty/AscendNPU-IR-Dev/build/install"
@@ -155,8 +158,6 @@ echo "Building TileLang with make..."
 # Calculate 75% of available CPU cores
 # Other wise, make will use all available cores
 # and it may cause the system to be unresponsive
-CORES=$(nproc)
-MAKE_JOBS=$(( CORES * 75 / 100 ))
 make -j${MAKE_JOBS}
 
 if [ $? -ne 0 ]; then

@@ -2899,6 +2899,26 @@ void CodeGenTileLangNPUIRDEV::VinterleaveCodegen(const CallNode *op) {
   SetVarValue(npuirop.dst, result);
 }
 
+void CodeGenTileLangNPUIRDEV::VdeinterleaveCodegen(const CallNode *op) {
+  tvm::tl::NpuirDeinterleave npuirop(op->args, this->vmap);
+  Value src = GenSubviewFromRegion(npuirop.src, npuirop.src_range);
+  llvm::SmallVector<Value> dsts;
+  size_t n_dsts = npuirop.dsts.size();
+  for (size_t i = 0; i < n_dsts; i++) {
+    Value dst = GenSubviewFromRegion(npuirop.dsts[i], npuirop.dsts_range[i]);
+    dsts.push_back(dst);
+  }
+  mlir::ValueRange dsts_vr(dsts);
+  auto channel_nums = mlir::IntegerAttr::get(
+      builder.getI64Type(), static_cast<int64_t>(npuirop.channel_nums));
+  mlir::hivm::DeinterleaveModeAttr index_mode =
+      mlir::hivm::DeinterleaveModeAttr::get(
+          &context, NPUIR_STR_DEINTERLEAVEMODE[npuirop.index_mode]);
+  builder.create<mlir::hivm::VDeinterleaveOp>(builder.getUnknownLoc(),
+                                              TypeRange{}, src, dsts_vr,
+                                              channel_nums, index_mode);
+}
+
 /// Generate hivm.hir.varange for tl.npuir_arange.
 /// before:
 ///    T.npuir_arange(A, s, o)

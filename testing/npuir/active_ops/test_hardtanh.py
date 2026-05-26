@@ -1,5 +1,5 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025.
-"""HardTanh activation test for npuir target (Developer mode).
+"""HardTanh activation test(Developer mode).
 y = clamp(x, min_val, max_val)
 Reference: ``torch.nn.functional.hardtanh``.
 """

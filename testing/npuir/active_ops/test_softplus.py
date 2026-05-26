@@ -1,5 +1,5 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025.
-"""Softplus activation test for npuir target (Developer mode).
+"""Softplus activation test(Developer mode).
 y = ln(1 + exp(x))
 Reference: ``torch.nn.functional.softplus``.
 """

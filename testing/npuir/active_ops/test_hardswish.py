@@ -1,5 +1,5 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025.
-"""Hardswish activation test for npuir target (Developer mode).
+"""Hardswish activation test(Developer mode).
 y = x * clamp(x + 3, 0, 6) / 6
 Reference: ``torch.nn.functional.hardswish``.
 """
@@ -23,14 +23,12 @@ def hardswish_kernel_dev(M, N, block_m, block_n, dtype):
             bx = (cid // T.ceildiv(N, block_n)) * block_m
             by = (cid % T.ceildiv(N, block_n)) * block_n
             x_sh = T.alloc_shared((block_m, block_n), dtype)
-            t1 = T.alloc_shared((block_m, block_n), dtype)
-            t2 = T.alloc_shared((block_m, block_n), dtype)
             y_sh = T.alloc_shared((block_m, block_n), dtype)
             T.copy(X[bx:bx+block_m, by:by+block_n], x_sh)
-            T.vadd(x_sh, 3.0, t1)
-            T.vclamp(t1, t1, 0.0, 6.0)
-            T.vmul(x_sh, t1, t2)
-            T.vdiv(t2, 6.0, y_sh)
+            T.vadd(x_sh, 3.0, y_sh)
+            T.vclamp(y_sh, y_sh, 0.0, 6.0)
+            T.vmul(x_sh, y_sh, y_sh)
+            T.vmul(y_sh, 1.0 / 6.0, y_sh)
             T.copy(y_sh, Y[bx:bx+block_m, by:by+block_n])
     return hardswish_dev
 

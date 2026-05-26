@@ -1,5 +1,5 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025.
-"""Mish activation test for npuir target (Developer mode).
+"""Mish activation test(Developer mode).
 y = x * tanh(ln(1 + exp(x)))
 Reference: ``torch.nn.functional.mish``.
 """
@@ -23,15 +23,13 @@ def mish_kernel_dev(M, N, block_m, block_n, dtype):
             bx = (cid // T.ceildiv(N, block_n)) * block_m
             by = (cid % T.ceildiv(N, block_n)) * block_n
             x_sh = T.alloc_shared((block_m, block_n), dtype)
-            sp = T.alloc_shared((block_m, block_n), dtype)
-            th = T.alloc_shared((block_m, block_n), dtype)
             y_sh = T.alloc_shared((block_m, block_n), dtype)
             T.copy(X[bx:bx+block_m, by:by+block_n], x_sh)
-            T.vexp(x_sh, sp)
-            T.vadd(sp, 1.0, sp)
-            T.vln(sp, sp)
-            T.vtanh(sp, th)
-            T.vmul(x_sh, th, y_sh)
+            T.vexp(x_sh, y_sh)
+            T.vadd(y_sh, 1.0, y_sh)
+            T.vln(y_sh, y_sh)
+            T.vtanh(y_sh, y_sh)
+            T.vmul(x_sh, y_sh, y_sh)
             T.copy(y_sh, Y[bx:bx+block_m, by:by+block_n])
     return mish_dev
 

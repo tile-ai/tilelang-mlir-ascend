@@ -1,5 +1,5 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025.
-"""Leaky ReLU activation test for npuir target (Developer mode).
+"""Leaky ReLU activation test(Developer mode).
 y = max(x, 0) + negative_slope * min(x, 0)
 Reference: ``torch.nn.functional.leaky_relu``.
 """
@@ -24,14 +24,12 @@ def leaky_relu_kernel_dev(M, N, block_m, block_n, dtype, negative_slope):
             bx = (cid // T.ceildiv(N, block_n)) * block_m
             by = (cid % T.ceildiv(N, block_n)) * block_n
             x_sh = T.alloc_shared((block_m, block_n), dtype)
-            pos = T.alloc_shared((block_m, block_n), dtype)
-            neg = T.alloc_shared((block_m, block_n), dtype)
             y_sh = T.alloc_shared((block_m, block_n), dtype)
             T.copy(X[bx:bx+block_m, by:by+block_n], x_sh)
-            T.vmax(x_sh, 0.0, pos)
-            T.vmin(x_sh, 0.0, neg)
-            T.vmul(neg, negative_slope, neg)
-            T.vadd(pos, neg, y_sh)
+            T.vmax(x_sh, 0.0, y_sh)
+            T.vmin(x_sh, 0.0, x_sh)
+            T.vmul(x_sh, negative_slope, x_sh)
+            T.vadd(y_sh, x_sh, y_sh)
             T.copy(y_sh, Y[bx:bx+block_m, by:by+block_n])
     return leaky_relu_dev
 

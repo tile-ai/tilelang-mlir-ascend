@@ -32,9 +32,11 @@ NpuirOperand NpuirOperand::FromExpr(const PrimExpr &expr,
     auto region = RegionOp(call->args, vmap);
     return NpuirOperand::Tensor(region.GetBuffer(), region.GetRanges());
   }
-  if (expr.as<IntImm>() || expr.as<FloatImm>() || expr.as<tir::VarNode>()) {
-    // If there are other types of nodes that need to be treated as scalars,
-    // please add them here.
+  if (expr.as<IntImm>() || expr.as<FloatImm>() || expr.as<tir::VarNode>() ||
+      expr.as<tir::BufferLoadNode>()) {
+    // BufferLoad is accepted as scalar when the upstream pass
+    // (npu_loop_vectorize) detects a loop-invariant scalar load and keeps
+    // it as PrimExpr instead of broadcasting to a tmp buffer.
     return NpuirOperand::Scalar(expr);
   }
   LOG(FATAL) << "NpuirOperand::FromExpr cannot handle the expr with type of \""

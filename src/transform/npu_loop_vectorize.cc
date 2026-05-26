@@ -891,7 +891,14 @@ private:
     }
 
     if (!resolved_b) {
-      if (IsScalar(operands[1]) || operands[1].as<VarNode>()) {
+      // loop-invariant BufferLoad is a runtime-scalar — keep it as
+      // the PrimExpr (don't broadcast). The codegen Scalar branch handles
+      // runtime BufferLoad via MakeValue→memref.load.
+      bool is_loop_invariant_bufload =
+          operands[1].as<BufferLoadNode>() &&
+          IsLoopInvariantExpr(operands[1], loop_vars);
+      if (IsScalar(operands[1]) || operands[1].as<VarNode>() ||
+          is_loop_invariant_bufload) {
         region_b = operands[1];
       } else {
         // BufferLoad or compound expression: broadcast to tmp buffer.

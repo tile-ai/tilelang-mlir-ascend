@@ -6,7 +6,7 @@ from tilelang.tladapter.utils import pass_fn
 
 insert_workspace = pass_fn("tilelangir-insert-workspace", "func.func")
 mark_multibuffer = pass_fn("tilelangir-mark-multibuffer", "func.func")
-cv_split = pass_fn("tilelangir-cv-split", "func.func")
+insert_cross_core_scope = pass_fn("tilelangir-insert-cross-core-scope", "func.func")
 infer_mem_scope = pass_fn("tilelangir-infer-mem-scope", "func.func")
 plan_workspace_memory = pass_fn("tilelangir-plan-workspace-memory", "func.func")
 merge_copy_chains = pass_fn("tilelangir-merge-copy-chains", "func.func")

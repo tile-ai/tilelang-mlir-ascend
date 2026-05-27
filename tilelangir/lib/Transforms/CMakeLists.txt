@@ -1,7 +1,7 @@
 add_library(tilelangir_transforms STATIC
   InsertWorkspace.cpp
   MarkMultiBuffer.cpp
-  CVSplit.cpp
+  InsertCrossCoreScope.cpp
   InferMemScope.cpp
   MergeCopyChains.cpp
   PlanWorkspaceMemory.cpp

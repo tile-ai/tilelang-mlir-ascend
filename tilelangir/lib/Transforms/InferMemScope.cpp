@@ -17,6 +17,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 
@@ -133,29 +134,164 @@ static LogicalResult setAllocScope(Value rootVal,
   return propagator.run(rootVal, spaceAttr);
 }
 
-/// Infer and set UB scope for all memref operands of a VECTOR-core op.
-static LogicalResult handleVectorOp(Operation *op) {
-  for (OpOperand &operand : op->getOpOperands()) {
-    Value val = operand.get();
-    if (!isa<BaseMemRefType>(val.getType()))
-      continue;
+struct AllocScopeConstraints {
+  // Strong constraints come from role-specific users: VECTOR ops require UB,
+  // and MmadL1 operands require L1/L0C according to A/B/C/bias roles.
+  bool needUB = false;
+  bool needL1 = false;
+  bool needL0C = false;
+  // A generic CUBE-scope use is only a fallback. For example, a copy after
+  // MmadL1 still consumes the CC output buffer inside a CUBE scope.
+  bool weakL1 = false;
+};
 
-    auto rootAlloc = utils::tracebackMemRefToAlloc(val);
-    if (!rootAlloc.has_value())
-      continue;
+using ConstraintMap = llvm::DenseMap<Operation *, AllocScopeConstraints>;
 
-    if (failed(setAllocScope(*rootAlloc, hivm::AddressSpace::UB))) {
-      return op->emitOpError(
-          "Failed to infer/propagate UB scope for VECTOR operand");
-    }
+static bool hasMemScope(Value value) {
+  auto memRefType = dyn_cast<BaseMemRefType>(value.getType());
+  return memRefType && memRefType.getMemorySpace();
+}
+
+static void addConstraint(ConstraintMap &constraints, Value value,
+                          hivm::AddressSpace space, bool strong) {
+  if (!isa<BaseMemRefType>(value.getType()))
+    return;
+
+  auto rootAlloc = utils::tracebackMemRefToAlloc(value);
+  if (!rootAlloc.has_value())
+    return;
+
+  if (hasMemScope(rootAlloc->getMemref()))
+    return;
+
+  auto &constraint = constraints[rootAlloc->getOperation()];
+  if (!strong) {
+    if (space == hivm::AddressSpace::L1)
+      constraint.weakL1 = true;
+    return;
+  }
+
+  if (space == hivm::AddressSpace::UB) {
+    constraint.needUB = true;
+  } else if (space == hivm::AddressSpace::L1) {
+    constraint.needL1 = true;
+  } else if (space == hivm::AddressSpace::L0C) {
+    constraint.needL0C = true;
+  }
+}
+
+static LogicalResult addMmadConstraint(ConstraintMap &constraints,
+                                       hivm::MmadL1Op op, Value value,
+                                       hivm::AddressSpace space,
+                                       llvm::StringRef operandName) {
+  auto rootAlloc = utils::tracebackMemRefToAlloc(value);
+  if (!rootAlloc.has_value()) {
+    emitError(op.getLoc()) << "Cannot find root memref.alloc for "
+                           << operandName << " of this op.";
+    return failure();
+  }
+
+  if (hasMemScope(rootAlloc->getMemref()))
+    return success();
+
+  auto &constraint = constraints[rootAlloc->getOperation()];
+  if (space == hivm::AddressSpace::L1) {
+    constraint.needL1 = true;
+  } else if (space == hivm::AddressSpace::L0C) {
+    constraint.needL0C = true;
+  } else if (space == hivm::AddressSpace::UB) {
+    constraint.needUB = true;
   }
   return success();
 }
 
-/// Determine the default address space for a remaining memref.alloc, based
-/// on the enclosing scope.scope's tcore_type or the function's core type.
+static std::optional<hivm::TCoreType>
+getUseSiteCoreType(Operation *op, func::FuncOp funcOp) {
+  if (auto coreIface = dyn_cast<hivm::CoreTypeInterface>(op)) {
+    auto coreType = coreIface.getCoreType();
+    if (coreType.has_value())
+      return *coreType;
+  }
+
+  Operation *parent = op->getParentOp();
+  while (parent && parent != funcOp.getOperation()) {
+    if (auto scopeOp = dyn_cast<scope::ScopeOp>(parent)) {
+      if (auto attr = scopeOp->getAttrOfType<hivm::TCoreTypeAttr>(
+              hivm::TCoreTypeAttr::name))
+        return attr.getTcoretype();
+    }
+    parent = parent->getParentOp();
+  }
+
+  return std::nullopt;
+}
+
+static LogicalResult collectMmadConstraints(func::FuncOp funcOp,
+                                            ConstraintMap &constraints) {
+  auto result = funcOp.walk([&](hivm::MmadL1Op op) -> WalkResult {
+    if (!op.hasPureBufferSemantics()) {
+      op->emitOpError("Run infer memory scope after bufferization.");
+      return WalkResult::interrupt();
+    }
+
+    auto *mA = op.getDpsInputOperand(0);
+    auto *mB = op.getDpsInputOperand(1);
+    auto *mC = op.getDpsInitOperand(0);
+
+    if (failed(addMmadConstraint(constraints, op, mA->get(),
+                                 hivm::AddressSpace::L1, "mA")) ||
+        failed(addMmadConstraint(constraints, op, mB->get(),
+                                 hivm::AddressSpace::L1, "mB")) ||
+        failed(addMmadConstraint(constraints, op, mC->get(),
+                                 hivm::AddressSpace::L0C, "mC")))
+      return WalkResult::interrupt();
+
+    if (auto bias = op.getPerChannelBias()) {
+      if (failed(addMmadConstraint(constraints, op, bias,
+                                   hivm::AddressSpace::L1, "bias")))
+        return WalkResult::interrupt();
+    }
+
+    return WalkResult::advance();
+  });
+
+  return failure(result.wasInterrupted());
+}
+
+static void collectUseSiteConstraints(func::FuncOp funcOp,
+                                      ConstraintMap &constraints) {
+  funcOp.walk([&](Operation *op) {
+    // Mmad has per-operand roles: A/B are L1, C is L0C. Treating it as a
+    // generic CUBE use would lose that distinction, so it is handled above.
+    if (isa<hivm::MmadL1Op>(op))
+      return;
+
+    auto coreType = getUseSiteCoreType(op, funcOp);
+    if (!coreType.has_value())
+      return;
+
+    std::optional<hivm::AddressSpace> space;
+    bool strong = true;
+    if (*coreType == hivm::TCoreType::VECTOR) {
+      space = hivm::AddressSpace::UB;
+    } else if (*coreType == hivm::TCoreType::CUBE) {
+      // Generic CUBE uses are only a fallback. Mmad outputs, for example, are
+      // CC even though the following copy is still inside a CUBE scope.
+      space = hivm::AddressSpace::L1;
+      strong = false;
+    }
+
+    if (!space.has_value())
+      return;
+
+    for (OpOperand &operand : op->getOpOperands())
+      addConstraint(constraints, operand.get(), *space, strong);
+  });
+}
+
+/// Final fallback for allocs that have no real use-site constraint.
 static std::optional<hivm::AddressSpace>
-getDefaultScope(memref::AllocOp allocOp, func::FuncOp funcOp) {
+getFallbackScope(memref::AllocOp allocOp, func::FuncOp funcOp) {
   if (allocOp.getType().getMemorySpace())
     return std::nullopt;
 
@@ -185,6 +321,40 @@ getDefaultScope(memref::AllocOp allocOp, func::FuncOp funcOp) {
   return std::nullopt;
 }
 
+static std::optional<hivm::AddressSpace>
+resolveScope(memref::AllocOp allocOp, const AllocScopeConstraints *constraint,
+             func::FuncOp funcOp, bool &failed) {
+  failed = false;
+  if (!constraint)
+    return getFallbackScope(allocOp, funcOp);
+
+  if (constraint->needUB &&
+      (constraint->needL1 || constraint->needL0C || constraint->weakL1)) {
+    allocOp.emitOpError(
+        "conflicting memory scope constraints: VECTOR/UB use and CUBE use")
+        << " for the same local buffer";
+    failed = true;
+    return std::nullopt;
+  }
+  if (constraint->needL1 && constraint->needL0C) {
+    allocOp.emitOpError("conflicting memory scope constraints: L1 and L0C")
+        << " for the same local buffer";
+    failed = true;
+    return std::nullopt;
+  }
+
+  if (constraint->needUB)
+    return hivm::AddressSpace::UB;
+  if (constraint->needL0C)
+    return hivm::AddressSpace::L0C;
+  if (constraint->needL1)
+    return hivm::AddressSpace::L1;
+  if (constraint->weakL1)
+    return hivm::AddressSpace::L1;
+
+  return getFallbackScope(allocOp, funcOp);
+}
+
 struct TileLangIRInferMemScope
     : impl::TileLangIRInferMemScopeBase<TileLangIRInferMemScope> {
 
@@ -193,48 +363,36 @@ struct TileLangIRInferMemScope
     LLVM_DEBUG(DBGS() << "processing function: " << funcOp.getSymName()
                       << "\n");
 
-    // Phase 1: memref_ext.alloc_workspace → GM.
+    // Phase 1: workspace buffers are global memory by definition.
     funcOp.walk([&](bishengir::memref_ext::AllocWorkspaceOp op) {
       LLVM_DEBUG(DBGS() << "Phase 1 workspace: " << *op << "\n");
       if (failed(setAllocScope(op.getMemref(), hivm::AddressSpace::GM)))
         return signalPassFailure();
     });
 
-    // Phase 2: hivm.hir.mmadL1 → mA/mB → L1, mC → L0C.
-    funcOp.walk([&](hivm::MmadL1Op op) {
-      LLVM_DEBUG(DBGS() << "Phase 2 mmadL1: " << *op << "\n");
-      if (failed(hivm::inferAndPropagateMemScopeForMmadL1(op)))
-        return signalPassFailure();
-    });
-
-    // Phase 3: VECTOR-core HIVM ops → all memref operands → UB.
-    auto vectorResult = funcOp.walk([&](Operation *op) -> WalkResult {
-      auto ctIface = dyn_cast<hivm::CoreTypeInterface>(op);
-      if (!ctIface)
-        return WalkResult::advance();
-      auto ct = ctIface.getCoreType();
-      if (!ct || *ct != hivm::TCoreType::VECTOR)
-        return WalkResult::advance();
-
-      LLVM_DEBUG(DBGS() << "Phase 3 VECTOR op: " << *op << "\n");
-      if (failed(handleVectorOp(op)))
-        return WalkResult::interrupt();
-      return WalkResult::advance();
-    });
-    if (vectorResult.wasInterrupted())
-      return signalPassFailure();
-
-    // Phase 4: Function arguments → GM; update function type.
-    LLVM_DEBUG(DBGS() << "Phase 4 func args → GM\n");
+    // Phase 2: function arguments are external GM buffers.
+    LLVM_DEBUG(DBGS() << "Phase 2 func args -> GM\n");
     if (failed(hivm::inferAndPropagateMemScopeForFunc(funcOp)))
       return signalPassFailure();
 
-    // Phase 5: Remaining memref.alloc → default scope.
+    // Phase 3: collect all local-buffer constraints before mutating types.
+    ConstraintMap constraints;
+    if (failed(collectMmadConstraints(funcOp, constraints)))
+      return signalPassFailure();
+    collectUseSiteConstraints(funcOp, constraints);
+
+    // Phase 4: resolve each local memref.alloc from its actual use sites.
     funcOp.walk([&](memref::AllocOp op) {
-      auto scope = getDefaultScope(op, funcOp);
+      bool failedResolve = false;
+      auto iter = constraints.find(op.getOperation());
+      const AllocScopeConstraints *constraint =
+          iter == constraints.end() ? nullptr : &iter->second;
+      auto scope = resolveScope(op, constraint, funcOp, failedResolve);
+      if (failedResolve)
+        return signalPassFailure();
       if (!scope.has_value())
         return;
-      LLVM_DEBUG(DBGS() << "Phase 5 remaining alloc → "
+      LLVM_DEBUG(DBGS() << "Phase 4 local alloc -> "
                         << hivm::stringifyAddressSpace(*scope) << ": " << *op
                         << "\n");
       if (failed(setAllocScope(op, *scope)))

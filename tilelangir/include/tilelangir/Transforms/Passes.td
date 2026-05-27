@@ -3,7 +3,7 @@
 
 /*!
  * \file tilelangir/include/tilelangir/Transforms/Passes.td
- * \brief TileLangIR pass TableGen definitions (CV split, vectorize).
+ * \brief TileLangIR pass TableGen definitions.
  *
  */
 
@@ -12,10 +12,10 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TileLangIRCVSplit : Pass<"tilelangir-cv-split", "func::FuncOp"> {
-  let summary = "TileLangIR CV split pass";
+def TileLangIRInsertCrossCoreScope : Pass<"tilelangir-insert-cross-core-scope", "func::FuncOp"> {
+  let summary = "TileLangIR insert cross-core scope pass";
   let description = [{
-    This pass is grouping ops in each `scf::ForOp` according to loads and stores connected to workspaces. Each group of ops is wrapped into a `scope::ScopeOp` identifying the `hivm::TCoreType` of the scope along with its results. The pass is applied on `scf::ForOp`s in a post-order manner and it looks at the operations from the current nesting level only.
+    This pass inserts `scope::ScopeOp` regions around mixed Cube/Vector pipeline stages. Cube stages are anchored from GEMM/mmad operations and include their workspace/GM boundary copies; remaining stage-local operations are grouped as Vector scopes in source order.
   }];
   let dependentDialects = [
     "scope::ScopeDialect",

@@ -1,0 +1,6 @@
+torch>=2.10.0
+transformers>=5.0.0
+safetensors>=0.7.0
+scipy
+fast_hadamard_transform
+tilelang==0.1.8

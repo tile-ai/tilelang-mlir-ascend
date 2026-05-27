@@ -4,7 +4,7 @@
 TileLangIR transforms: transformation passes by dialect.
 
 - mlir: canonicalize, cse, sccp
-- tilelangir: cv_split, vectorize
+- tilelangir: insert_cross_core_scope, vectorize
 - bishengir: adapt_triton_kernel
 """
 

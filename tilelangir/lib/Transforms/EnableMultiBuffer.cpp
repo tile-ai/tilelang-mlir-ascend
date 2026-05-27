@@ -322,29 +322,51 @@ public:
       op->moveBefore(terminator);
     }
     
-    // 在内层循环体开头生成 newOuterExpr = outerIV * numStage + innerIV
+    // Generate newOuterExpr = outerIV * numStage + innerIV at the beginning of inner loop body
     OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPoint(newBody, newBody->begin());
     Value constNumStage = builder.create<arith::ConstantOp>(loc, builder.getI32Type(), builder.getI32IntegerAttr(numStage_));
     Value mul = builder.create<arith::MulIOp>(loc, outerIV_, constNumStage);
-    Value addI32 = builder.create<arith::AddIOp>(loc, mul, innerIV);   // i32 类型
-    Value addIdx = builder.create<arith::IndexCastOp>(loc, builder.getIndexType(), addI32); // index 类型
+    Value addI32 = builder.create<arith::AddIOp>(loc, mul, innerIV);   // i32 type
+    Value addIdx = builder.create<arith::IndexCastOp>(loc, builder.getIndexType(), addI32); // index type
     
-    // 调整操作，确保新操作插入在 addIdx 定义之后
+    // Adjust operations, ensure new ops inserted after addIdx definition
     adjustOperationsInLoop(newFor, addI32, addIdx, numStage_);
     
-    // 处理外层循环体中定义的、被内层循环体使用的比较操作
+    // Handle comparison operations defined in outer body and used in inner body
     handleOuterCmpOps(newFor, newBody, addI32, builder, loc);
     
-    // 替换新循环体内所有对 outerIV_ 的使用为 addIdx，但跳过我们刚刚创建的操作本身
+    // Replace all direct uses of outerIV_ in the new loop body.
+    // outerIV_ is i32, so we must match the expected type of each use.
     Operation *mulOp = mul.getDefiningOp();
     Operation *addOp = addI32.getDefiningOp();
     Operation *idxCastOp = addIdx.getDefiningOp();
+
     for (Operation &op : llvm::make_early_inc_range(*newBody)) {
-      if (&op == mulOp || &op == addOp || &op == idxCastOp) continue;
+      if (&op == mulOp || &op == addOp || &op == idxCastOp) {
+        continue;
+      }
+
       for (unsigned i = 0; i < op.getNumOperands(); ++i) {
-        if (op.getOperand(i) == outerIV_) {
+        if (op.getOperand(i) != outerIV_) {
+          continue;
+        }
+
+        Type expectedType = op.getOperand(i).getType();
+
+        if (expectedType == addI32.getType()) {
+          op.setOperand(i, addI32);
+        } else if (expectedType == addIdx.getType()) {
           op.setOperand(i, addIdx);
+        } else {
+          llvm::errs() << "WARNING: skip replacing outerIV due to type mismatch. "
+                      << "Expected type: ";
+          expectedType.print(llvm::errs());
+          llvm::errs() << ", addI32 type: ";
+          addI32.getType().print(llvm::errs());
+          llvm::errs() << ", addIdx type: ";
+          addIdx.getType().print(llvm::errs());
+          llvm::errs() << "\n";
         }
       }
     }
@@ -354,48 +376,40 @@ public:
   }
   
 private:
-  // 递归查找一个值是否由 baseI32 乘以某个常数得到，返回该常数
+  // Recursively determine if a value can be expressed as baseI32 * constant.
+  // Returns the constant multiplier if found, otherwise nullopt.
   std::optional<int64_t> getIndexFactor(Value val, Value baseI32) {
-    llvm::errs() << "  [getIndexFactor] Checking value: ";
-    val.print(llvm::errs());
-    llvm::errs() << "\n";
-    
     if (val == baseI32) {
-      llvm::errs() << "  [getIndexFactor] Found direct match (factor=1)\n";
       return 1;
     }
     
-    // 处理 arith::IndexCastOp
+    // Handle arith::IndexCastOp
     if (auto indexCast = val.getDefiningOp<arith::IndexCastOp>()) {
-      llvm::errs() << "  [getIndexFactor] Following IndexCastOp\n";
       return getIndexFactor(indexCast.getIn(), baseI32);
     }
     
-    // 处理 arith::MulIOp
+    // Handle arith::MulIOp
     if (auto mulOp = val.getDefiningOp<arith::MulIOp>()) {
       auto lhs = mulOp.getLhs();
       auto rhs = mulOp.getRhs();
-      // 尝试 lhs 是常数，rhs 可递归到 baseI32
+      // Try lhs is constant, rhs can be reduced to baseI32
       if (auto constOp = lhs.getDefiningOp<arith::ConstantOp>()) {
         if (auto factor = constOp.getValue().dyn_cast<IntegerAttr>()) {
           if (auto subFactor = getIndexFactor(rhs, baseI32)) {
-            llvm::errs() << "  [getIndexFactor] Found mul: " << factor.getInt() << " * " << *subFactor << " = " << (factor.getInt() * *subFactor) << "\n";
             return factor.getInt() * (*subFactor);
           }
         }
       }
-      // 尝试 rhs 是常数，lhs 可递归到 baseI32
+      // Try rhs is constant, lhs can be reduced to baseI32
       if (auto constOp = rhs.getDefiningOp<arith::ConstantOp>()) {
         if (auto factor = constOp.getValue().dyn_cast<IntegerAttr>()) {
           if (auto subFactor = getIndexFactor(lhs, baseI32)) {
-            llvm::errs() << "  [getIndexFactor] Found mul: " << factor.getInt() << " * " << *subFactor << " = " << (factor.getInt() * *subFactor) << "\n";
             return factor.getInt() * (*subFactor);
           }
         }
       }
     }
     
-    llvm::errs() << "  [getIndexFactor] No match\n";
     return std::nullopt;
   }
   
@@ -426,7 +440,7 @@ private:
       }
     }
     
-    // 设置插入点为 addI32 定义之后
+    // Set insertion point after addI32 definition
     builder.setInsertionPoint(innerBody, ++addI32.getDefiningOp()->getIterator());
     
     for (auto cmpOp : cmpsToClone) {
@@ -459,7 +473,7 @@ private:
   void adjustOperationsInLoop(scf::ForOp forOp, Value addI32, Value addIdx, int32_t numStage) {
     Block *body = forOp.getBody();
     
-    // 将 builder 的插入点设置为 addIdx 定义之后（即 addI32 和 addIdx 都已定义）
+    // Set insertion point after addIdx definition
     OpBuilder builder(body, ++(addIdx.getDefiningOp()->getIterator()));
     Location loc = forOp.getLoc();
     
@@ -469,7 +483,7 @@ private:
       indexIv = builder.create<arith::IndexCastOp>(loc, builder.getIndexType(), inductionVar);
     }
     
-    // 收集所有需要转换的 subview 和 copy
+    // Collect all subviews and copies that need transformation
     SmallVector<memref::SubViewOp> workspaceSubviews;
     SmallVector<memref::CopyOp> copiesToAdjust;
     for (Operation &op : llvm::make_early_inc_range(*body)) {
@@ -483,7 +497,7 @@ private:
           }
         }
         if (!isWorkspace) {
-          // 非 workspace 的 subview，可能需要替换偏移量
+          // Non-workspace subview, may need offset replacement
           adjustGlobalSubviewOffset(subview, addI32, builder);
         }
       }
@@ -497,89 +511,93 @@ private:
       }
     }
     
-    // 处理 workspace 的 subview（需要添加 stage 维度并 collapse shape）
+    // Process workspace subviews (add stage dimension and collapse)
     for (auto subview : workspaceSubviews) {
       adjustWorkspaceSubviewOp(subview, indexIv, builder, addI32, numStage);
     }
-    // 处理 copy 操作（涉及 workspace 的）
+    // Process copy operations involving workspace
     for (auto copyOp : copiesToAdjust) {
-      adjustCopyOp(copyOp, indexIv, builder, copyOp.getSource() == workspaceValues_[0] /* simplified */, copyOp.getTarget() == workspaceValues_[0], addI32, numStage);
+      adjustCopyOp(copyOp, indexIv, builder, copyOp.getSource() == workspaceValues_[0], copyOp.getTarget() == workspaceValues_[0], addI32, numStage);
     }
   }
   
-  void adjustWorkspaceSubviewOp(memref::SubViewOp subview, Value indexIv, OpBuilder &builder,
-                                Value addI32, int32_t numStage) {
+  void adjustWorkspaceSubviewOp(memref::SubViewOp subview, Value indexIv,
+                              OpBuilder &unusedBuilder,
+                              Value addI32, int32_t numStage) {
     Location loc = subview.getLoc();
+
+    // Insert at the location of the old subview to maintain dominance
+    OpBuilder builder(subview);
+
     Value source = subview.getSource();
     auto currentSourceType = source.getType().cast<MemRefType>();
-    
+
     auto origOffsets = subview.getMixedOffsets();
     auto origSizes = subview.getMixedSizes();
     auto origStrides = subview.getMixedStrides();
-    
+
     SmallVector<OpFoldResult> newOffsets;
+
     for (size_t i = 0; i < origOffsets.size(); ++i) {
       auto ofr = origOffsets[i];
-      llvm::errs() << "  [adjustWorkspaceSubviewOp] Processing offset[" << i << "]: ";
-      if (auto attr = ofr.dyn_cast<Attribute>()) {
-        if (auto intAttr = attr.dyn_cast<IntegerAttr>()) {
-          llvm::errs() << "constant " << intAttr.getInt();
-        } else {
-          llvm::errs() << "attribute ";
-        }
-      } else if (auto val = ofr.dyn_cast<Value>()) {
-        val.print(llvm::errs());
-      }
-      llvm::errs() << "\n";
-      
       if (auto val = ofr.dyn_cast<Value>()) {
         auto factor = getIndexFactor(val, outerIV_);
         if (factor.has_value()) {
-          llvm::errs() << "  [adjustWorkspaceSubviewOp] Found factor " << *factor << " for this offset\n";
-          // 在 i32 上进行乘法，然后转换为 index
-          Value constFactor = builder.create<arith::ConstantOp>(loc, builder.getI32Type(), builder.getI32IntegerAttr(*factor));
-          Value newI32 = builder.create<arith::MulIOp>(loc, addI32, constFactor);
-          Value newIdx = builder.create<arith::IndexCastOp>(loc, builder.getIndexType(), newI32);
+          Value constFactor = builder.create<arith::ConstantOp>(
+              loc, builder.getI32Type(), builder.getI32IntegerAttr(*factor));
+          Value newI32 = builder.create<arith::MulIOp>(
+              loc, addI32, constFactor);
+          Value newIdx = builder.create<arith::IndexCastOp>(
+              loc, builder.getIndexType(), newI32);
           newOffsets.push_back(newIdx);
-          llvm::errs() << "  [adjustWorkspaceSubviewOp] Replaced with new index: ";
-          newIdx.print(llvm::errs());
-          llvm::errs() << "\n";
           continue;
-        } else {
-          llvm::errs() << "  [adjustWorkspaceSubviewOp] No factor found, keeping original\n";
         }
       }
       newOffsets.push_back(ofr);
     }
-    
-    LLVM_DEBUG(DBGS() << "  Calling createStageSubview with Rank " << currentSourceType.getRank() << "\n");
-    
+
     Value newResult = createStageSubview(
         builder, loc, source, currentSourceType, indexIv,
         newOffsets, origSizes, origStrides);
-    
+
     subview.replaceAllUsesWith(newResult);
     subview.erase();
+
+    ++g_subviewProcessedCount;
   }
   
-  void adjustGlobalSubviewOffset(memref::SubViewOp subview, Value addI32, OpBuilder &builder) {
+  void adjustGlobalSubviewOffset(memref::SubViewOp subview, Value addI32,
+                               OpBuilder &unusedBuilder) {
     Location loc = subview.getLoc();
+
+    // Insert at the location of the old subview to maintain dominance
+    OpBuilder builder(subview);
+
     auto origOffsets = subview.getMixedOffsets();
     auto origSizes = subview.getMixedSizes();
     auto origStrides = subview.getMixedStrides();
-    
+    auto resultType = subview.getResult().getType().cast<MemRefType>();
+
     SmallVector<OpFoldResult> newOffsets;
+    bool changed = false;
+
     for (size_t i = 0; i < origOffsets.size(); ++i) {
-      auto ofr = origOffsets[i];
-      if (auto val = ofr.dyn_cast<Value>()) {
+      OpFoldResult ofr = origOffsets[i];
+      if (auto val = dyn_cast<Value>(ofr)) {
         auto factor = getIndexFactor(val, outerIV_);
         if (factor.has_value()) {
+          changed = true;
           if (*factor == 1) {
-            newOffsets.push_back(addI32);
+            // Must convert addI32 to index for subview offset
+            Value idx = builder.create<arith::IndexCastOp>(
+                loc, builder.getIndexType(), addI32);
+            newOffsets.push_back(idx);
           } else {
-            Value constFactor = builder.create<arith::ConstantOp>(loc, builder.getI32Type(), builder.getI32IntegerAttr(*factor));
+            Value constFactor = builder.create<arith::ConstantOp>(
+                loc, builder.getI32Type(), builder.getI32IntegerAttr(*factor));
             Value newI32 = builder.create<arith::MulIOp>(loc, addI32, constFactor);
-            Value newIdx = builder.create<arith::IndexCastOp>(loc, builder.getIndexType(), newI32);
+            Value newIdx = builder.create<arith::IndexCastOp>(
+                loc, builder.getIndexType(), newI32);
             newOffsets.push_back(newIdx);
           }
           continue;
@@ -587,10 +605,13 @@ private:
       }
       newOffsets.push_back(ofr);
     }
-    
-    // 创建新的 subview，结果类型由 MLIR 自动推导
+
+    if (!changed) return;
+
+    // Build new subview with the same result type to preserve collapsed dims
     auto newSubview = builder.create<memref::SubViewOp>(
-        loc, subview.getSource(), newOffsets, origSizes, origStrides);
+        loc, resultType, subview.getSource(), newOffsets, origSizes, origStrides);
+
     subview.replaceAllUsesWith(newSubview.getResult());
     subview.erase();
   }
@@ -681,7 +702,7 @@ public:
     LLVM_DEBUG(DBGS() << "Processing pipeline loop with tilelangir.num_stages=" << numStage 
                       << ", workspace count=" << workspaceValues_.size() << "\n");
     
-    // 修改外层循环上界：new_upper = old_upper / numStage
+    // Modify upper bound: new_upper = old_upper / numStage
     Value oldUpper = pipelineLoop_.getUpperBound();
     OpBuilder builder(pipelineLoop_);
     Location loc = pipelineLoop_.getLoc();
@@ -776,10 +797,6 @@ void TileLangIREnableMultiBuffer::runOnOperation() {
   }
   
   LLVM_DEBUG(DBGS() << "Total SubViews processed: " << g_subviewProcessedCount << "\n");
-  if (g_subviewProcessedCount != 6) {
-    llvm::errs() << "WARNING: Expected 6 subviews to be processed, but got " << g_subviewProcessedCount << ".\n";
-    llvm::errs() << "This implies some subviews were skipped or the pass crashed early.\n";
-  }
 }
 
 } // namespace tilelangir

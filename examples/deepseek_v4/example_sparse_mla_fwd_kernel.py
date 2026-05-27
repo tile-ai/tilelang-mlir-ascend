@@ -216,6 +216,9 @@ def test_sparse_mla_fwd_small():
     print("ref_out[0,0,0,:4] =", ref_out_cpu[0, 0, 0, :4].tolist())
     abs_err = (out.cpu().float() - ref_out_cpu[..., :D]).abs().max().item()
     print(f"max abs err vs cpu ref: {abs_err:.4f}")
+    # tolerance from manual NPU runs: max abs err ~5e-4 vs fp32 cpu ref
+    assert abs_err < 5e-3, f"sparse_mla_fwd accuracy regressed: {abs_err}"
+    print("sparse_mla_fwd PASS")
 
 
 if __name__ == "__main__":

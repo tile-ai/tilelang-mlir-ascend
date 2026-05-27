@@ -113,6 +113,9 @@ jobs:
           examples/deepseek_v4/example_sparse_attn_kernel_highperf.py
           examples/deepseek_v4/example_sparse_attn_kernel.py
           examples/deepseek_v4/example_sparse_attn_bwd_kernel.py
+          examples/deepseek_v4/example_sparse_mla_fwd_kernel.py
+          examples/deepseek_v4/example_lighting_indexer_fwd_kernel.py
+          examples/deepseek_v4/example_lighting_indexer_bwd_kernel.py
           examples/norm/layer_norm.py
         )
 

@@ -584,7 +584,7 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     rtTaskCfgInfo_t cfgInfo = {{}};
     cfgInfo.localMemorySize = {shared_mem_dynamic_size};
     ret = rtKernelLaunchWithFlagV2(func, blockNum, &argsInfo, NULL, stream, 0, &cfgInfo);
-    ''' if compile_on_910_95 and force_simt_only else 'ret = rtKernelLaunch(func, blockNum, static_cast<void*>(&args), sizeof(args), NULL, stream);'}
+    ''' if compile_on_910_95 else 'ret = rtKernelLaunch(func, blockNum, static_cast<void*>(&args), sizeof(args), NULL, stream);'}
     void *&stream_ref = const_cast<void*&>(stream);
     cce::internal::DebugTunnel::Close(DTData, stream_ref);
     {cpp_msprof_call_after_launch}
@@ -1159,6 +1159,7 @@ class compiler_npu:
         self._parse_npuir_metadata()
         self.metadata["kernel_src"] = self._npuir_to_bin_enable_npu_compile()
         self.header_path = get_npu_launcher_header()
+        shared_mem_dynamic_size = self.metadata.get("shared_mem_dynamic_size", 221184)
         self.wrapper_src = generate_npu_wrapper_src(
             self.constants,
             self.signature,
@@ -1168,7 +1169,7 @@ class compiler_npu:
             self.lock_ini_val,
             self.need_debug,
             self.metadata.get("force_simt_only", False),
-            self.metadata.get("shared_mem_dynamic_size", 0),
+            shared_mem_dynamic_size,
             self.metadata.get("compile_on_910_95", True),
             self.metadata.get("target_support_ffts", not self.metadata.get("compile_on_910_95", True)),
         )

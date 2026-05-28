@@ -64,6 +64,16 @@ void CheckRank1Region(const Array<Range> &range, const char *name) {
       << " to be a 1D region, got rank " << range.size();
 }
 
+void CheckRank1Or2Region(const Array<Range> &range, const char *name) {
+  ICHECK(range.size() == 1U || range.size() == 2U)
+      << kA5IndirectLoadFeature << ": expected " << name
+      << " to be a 1D or 2D region, got rank " << range.size();
+}
+
+bool IsGlobalOrSharedScope(const Buffer &buffer) {
+  return buffer.scope() == "global" || IsSharedScope(buffer);
+}
+
 } // namespace
 
 AscendCopy::AscendCopy(Array<PrimExpr> args, BufferMap vmap) : args_(args) {
@@ -479,7 +489,11 @@ NpuirIndirectLoad::NpuirIndirectLoad(Array<PrimExpr> args, BufferMap vmap) {
     auto region = RegionOp(call->args, vmap);
     rgs[i] = region.GetRanges();
     bf[i] = region.GetBuffer();
-    CheckRank1Region(rgs[i], kArgNames[i]);
+    if (i == 2) {
+      CheckRank1Region(rgs[i], kArgNames[i]);
+    } else {
+      CheckRank1Or2Region(rgs[i], kArgNames[i]);
+    }
   }
 
   std::tie(this->src, this->indices_ub, this->dst_ub) =
@@ -490,14 +504,14 @@ NpuirIndirectLoad::NpuirIndirectLoad(Array<PrimExpr> args, BufferMap vmap) {
 
   ICHECK(this->valid_extent.defined())
       << kA5IndirectLoadFeature << ": valid_extent must be defined";
-  ICHECK(this->src.scope() == "global")
-      << kA5IndirectLoadFeature << ": expected src buffer in global scope, got "
-      << this->src.scope();
-  ICHECK(IsSharedScope(this->indices_ub))
+  ICHECK(IsGlobalOrSharedScope(this->src))
       << kA5IndirectLoadFeature
-      << ": expected indices buffer in shared/shared.dyn scope, got "
-      << this->indices_ub.scope()
-      << ". Use T.copy to stage indices into alloc_shared before T.Parallel.";
+      << ": expected src buffer in global/shared/shared.dyn scope, got "
+      << this->src.scope();
+  ICHECK(IsGlobalOrSharedScope(this->indices_ub))
+      << kA5IndirectLoadFeature
+      << ": expected indices buffer in global/shared/shared.dyn scope, got "
+      << this->indices_ub.scope();
   ICHECK(IsSharedScope(this->dst_ub))
       << kA5IndirectLoadFeature
       << ": expected dst buffer in shared/shared.dyn scope, got "
@@ -866,6 +880,5 @@ TIR_REGISTER_TL_OP(NpuirReshape, npuir_reshape)
                                Integer(CallEffectKind::kOpaque));
 } // namespace tl
 } // namespace tvm
-
 
 

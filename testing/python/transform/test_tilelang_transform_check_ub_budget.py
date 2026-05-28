@@ -17,21 +17,26 @@ import pytest
 
 from tilelang import tvm as tvm
 from tvm import IRModule, tir
-from tvm.script import tir as T
 
 from tilelang.transform import CheckUBBudget
 
 
-def _allocate_module(name: str, shape, dtype: str, scope: str = "local.fragment") -> IRModule:
+def _allocate_module(
+    name: str, shape, dtype: str, scope: str = "local.fragment"
+) -> IRModule:
     """Build a tiny PrimFunc that allocates one buffer of `shape` with `scope`.
 
     We assemble the PrimFunc by hand (rather than via `tilelang.language`)
     so the test doesn't depend on NPU availability or the JIT pipeline.
     """
-    elem_offset = tir.Var("elem_offset", "int32")  # unused but required by Buffer
     buf_var = tir.Var(name, tvm.ir.PointerType(tvm.ir.PrimType(dtype), scope))
-    body = tir.Allocate(buf_var, dtype, [tvm.runtime.convert(d) for d in shape],
-                        tvm.tir.const(1, "bool"), tir.Evaluate(0))
+    body = tir.Allocate(
+        buf_var,
+        dtype,
+        [tvm.runtime.convert(d) for d in shape],
+        tvm.tir.const(1, "bool"),
+        tir.Evaluate(0),
+    )
     func = tir.PrimFunc(params=[], body=body)
     return IRModule({"main": func})
 
@@ -63,10 +68,16 @@ def test_large_alloc_fails():
 def test_dynamic_shape_does_not_crash():
     """Dynamic-extent allocations should be reported as size-unknown, not crash."""
     n = tir.Var("n", "int32")
-    buf_var = tir.Var("dyn_buf",
-                      tvm.ir.PointerType(tvm.ir.PrimType("float32"), "local.fragment"))
-    body = tir.Allocate(buf_var, "float32", [n, tvm.runtime.convert(64)],
-                        tvm.tir.const(1, "bool"), tir.Evaluate(0))
+    buf_var = tir.Var(
+        "dyn_buf", tvm.ir.PointerType(tvm.ir.PrimType("float32"), "local.fragment")
+    )
+    body = tir.Allocate(
+        buf_var,
+        "float32",
+        [n, tvm.runtime.convert(64)],
+        tvm.tir.const(1, "bool"),
+        tir.Evaluate(0),
+    )
     func = tir.PrimFunc(params=[], body=body)
     mod = IRModule({"main": func})
     # Dynamic alloc with no static total triggers the "has_dynamic" branch
@@ -78,8 +89,9 @@ def test_dynamic_shape_does_not_crash():
 
 def test_global_scope_buffers_ignored():
     """Global-scope buffers (kernel args) don't live in UB and must not be counted."""
-    big_global = _allocate_module("global_kv", shape=[2048, 576], dtype="float16",
-                                  scope="global")
+    big_global = _allocate_module(
+        "global_kv", shape=[2048, 576], dtype="float16", scope="global"
+    )
     # 2048*576*2 = 2.4 MB — would overflow if counted. The pass must skip it.
     out = CheckUBBudget()(big_global)
     assert out is not None
@@ -89,16 +101,26 @@ def test_diagnostic_breakdown_sorted():
     """The error message must list allocations largest-first so the user
     immediately sees which fragment to shrink."""
     # Mix small + big — the big one must appear first.
-    small_var = tir.Var("small",
-                        tvm.ir.PointerType(tvm.ir.PrimType("float32"), "local.fragment"))
-    big_var = tir.Var("huge",
-                      tvm.ir.PointerType(tvm.ir.PrimType("float32"), "local.fragment"))
-    small_alloc = tir.Allocate(small_var, "float32",
-                               [tvm.runtime.convert(16), tvm.runtime.convert(16)],
-                               tvm.tir.const(1, "bool"), tir.Evaluate(0))
-    big_alloc = tir.Allocate(big_var, "float32",
-                             [tvm.runtime.convert(256), tvm.runtime.convert(512)],
-                             tvm.tir.const(1, "bool"), small_alloc)
+    small_var = tir.Var(
+        "small", tvm.ir.PointerType(tvm.ir.PrimType("float32"), "local.fragment")
+    )
+    big_var = tir.Var(
+        "huge", tvm.ir.PointerType(tvm.ir.PrimType("float32"), "local.fragment")
+    )
+    small_alloc = tir.Allocate(
+        small_var,
+        "float32",
+        [tvm.runtime.convert(16), tvm.runtime.convert(16)],
+        tvm.tir.const(1, "bool"),
+        tir.Evaluate(0),
+    )
+    big_alloc = tir.Allocate(
+        big_var,
+        "float32",
+        [tvm.runtime.convert(256), tvm.runtime.convert(512)],
+        tvm.tir.const(1, "bool"),
+        small_alloc,
+    )
     func = tir.PrimFunc(params=[], body=big_alloc)
     mod = IRModule({"main": func})
 

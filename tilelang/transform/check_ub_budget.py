@@ -26,6 +26,7 @@ hard part (auto-tiling oversized fragments) is intentionally out of
 scope for this first pass; the diagnostic alone removes most of the
 debugging cost.
 """
+
 from __future__ import annotations
 
 import math
@@ -40,7 +41,10 @@ from tvm.tir import PrimFunc
 #   - older: AscendArch(chip_name).mem_cap["UB"]
 # Probe both so this pass works against either.
 try:
-    from tilelang.utils.npu_arch import CHIP_SPECS as _CHIP_SPECS, DEFAULT_CHIP as _DEFAULT_CHIP
+    from tilelang.utils.npu_arch import (
+        CHIP_SPECS as _CHIP_SPECS,
+        DEFAULT_CHIP as _DEFAULT_CHIP,
+    )
 except ImportError:
     _CHIP_SPECS = None
     _DEFAULT_CHIP = "Ascend910B"
@@ -109,7 +113,9 @@ def _shape_elems(shape) -> Optional[int]:
     return total
 
 
-def _collect_ub_allocs(prim_func: PrimFunc) -> List[Tuple[str, str, Optional[int], int]]:
+def _collect_ub_allocs(
+    prim_func: PrimFunc,
+) -> List[Tuple[str, str, Optional[int], int]]:
     """Walk the PrimFunc and collect (name, dtype, num_elems, bytes_or_neg1).
 
     For dynamic-shape allocations num_elems is None and bytes is -1.
@@ -133,20 +139,21 @@ def _collect_ub_allocs(prim_func: PrimFunc) -> List[Tuple[str, str, Optional[int
 def _suggest_block_M(allocs, ub_cap: int) -> Optional[int]:
     """Heuristic: find the largest [BLOCK, _] allocation and suggest a
     block_M that would let it fit at most half the UB budget (leaving
-    room for the other live fragments)."""
+    room for the other live fragments).
+
+    Returns ``(suggested_block_M, biggest_name, biggest_block_M_guess)``
+    or ``None`` if no static-size leading allocation could be identified.
+    """
     biggest_name = None
     biggest_nbytes = 0
     biggest_per_row_bytes = 0
+    biggest_block_M_guess = None
     for name, dtype, elems, nbytes in allocs:
         if nbytes <= 0:
             continue
         if nbytes > biggest_nbytes:
             biggest_nbytes = nbytes
             biggest_name = name
-            # We don't have the shape decomposition here, so divide nbytes
-            # by an assumed leading block_M (we have no way to know it
-            # without re-reading the Allocate's extents, but we have elems
-            # and dtype_bytes — caller can refine).
             db = _dtype_bytes(dtype)
             # Assume per-row bytes = nbytes / leading_dim guess. For most
             # NPU kernels leading_dim is a power-of-2 in {16, 32, 64} —
@@ -160,13 +167,16 @@ def _suggest_block_M(allocs, ub_cap: int) -> Optional[int]:
         return None
     # Suggest block_M = floor(ub_cap / 2 / per_row_bytes)
     suggested = max(1, (ub_cap // 2) // biggest_per_row_bytes)
-    # Round down to nearest power of 2.
     if suggested <= 0:
         return None
-    return 1 << int(math.log2(suggested))
+    # Round down to nearest power of 2.
+    suggested_pow2 = 1 << int(math.log2(suggested))
+    return suggested_pow2, biggest_name, biggest_block_M_guess
 
 
-def _check_one(prim_func: PrimFunc, ub_cap: int, chip_name: str, func_name: str) -> None:
+def _check_one(
+    prim_func: PrimFunc, ub_cap: int, chip_name: str, func_name: str
+) -> None:
     allocs = _collect_ub_allocs(prim_func)
     if not allocs:
         return
@@ -192,29 +202,43 @@ def _check_one(prim_func: PrimFunc, ub_cap: int, chip_name: str, func_name: str)
         "",
         "Per-allocation breakdown (largest first):",
     ]
-    for name, dtype, elems, nbytes in sorted(allocs, key=lambda x: -(x[3] if x[3] > 0 else 0)):
+    for name, dtype, elems, nbytes in sorted(
+        allocs, key=lambda x: -(x[3] if x[3] > 0 else 0)
+    ):
         if nbytes > 0:
-            lines.append(f"  {nbytes:>10} B  {name}  shape elems={elems}  dtype={dtype}")
+            lines.append(
+                f"  {nbytes:>10} B  {name}  shape elems={elems}  dtype={dtype}"
+            )
         else:
             lines.append(f"  {'?':>10}    {name}  shape=<dynamic>  dtype={dtype}")
     suggestion = _suggest_block_M(allocs, ub_cap)
     if suggestion is not None:
+        suggested_block_M, biggest_name, biggest_block_M_guess = suggestion
         lines.append("")
-        lines.append(
+        suggestion_line = (
             f"Suggested fix: reduce the leading block-M dimension so that "
-            f"the largest fragment fits ~half the UB. A safe upper bound "
-            f"on most kernels is `block_M <= {suggestion}`. If the kernel "
-            f"is from a model with H={suggestion * 4} heads, consider "
-            f"using a multi-grid pattern where each grid block handles "
-            f"`block_M` heads (rather than the full H) and stitching the "
-            f"results afterwards."
+            f"the largest fragment ('{biggest_name}', leading dim ~"
+            f"{biggest_block_M_guess}) fits ~half the UB. A safe upper "
+            f"bound on most kernels is `block_M <= {suggested_block_M}`."
         )
+        if (
+            biggest_block_M_guess is not None
+            and biggest_block_M_guess > suggested_block_M
+        ):
+            suggestion_line += (
+                f" If the kernel is from a model with H={biggest_block_M_guess} "
+                f"heads, consider a multi-grid pattern where each grid block "
+                f"handles `block_M = {suggested_block_M}` heads (rather than "
+                f"the full H) and stitch the results afterwards."
+            )
+        lines.append(suggestion_line)
     raise RuntimeError("\n".join(lines))
 
 
 @tir.transform.prim_func_pass(opt_level=0)
 def _CheckUBBudgetPass(prim_func: PrimFunc, mod: IRModule, ctx) -> PrimFunc:
     import os
+
     target = mod.attrs.get("target") if hasattr(mod, "attrs") else None
     # Determine chip; fall back to default if target lookup fails.
     chip_name = _DEFAULT_CHIP
@@ -223,10 +247,16 @@ def _CheckUBBudgetPass(prim_func: PrimFunc, mod: IRModule, ctx) -> PrimFunc:
         if attrs is not None and "device_name" in attrs:
             chip_name = str(attrs["device_name"])
     chip_name, ub_cap = _resolve_chip_ub(chip_name)
-    func_name = prim_func.attrs.get("global_symbol", "<anonymous>") if prim_func.attrs else "<anonymous>"
+    func_name = (
+        prim_func.attrs.get("global_symbol", "<anonymous>")
+        if prim_func.attrs
+        else "<anonymous>"
+    )
     if os.environ.get("TILELANG_DEBUG_UB_CHECK", ""):
         allocs_dbg = _collect_ub_allocs(prim_func)
-        print(f"[CheckUBBudget] func={func_name} chip={chip_name} ub_cap={ub_cap} n_allocs={len(allocs_dbg)}")
+        print(
+            f"[CheckUBBudget] func={func_name} chip={chip_name} ub_cap={ub_cap} n_allocs={len(allocs_dbg)}"
+        )
     _check_one(prim_func, ub_cap, chip_name, str(func_name))
     return prim_func
 

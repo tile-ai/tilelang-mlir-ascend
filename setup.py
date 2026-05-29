@@ -488,8 +488,13 @@ class TileLangBuilPydCommand(build_py):
         bundle_src = None
         if os.path.isdir(os.path.join(ROOT_DIR, "build", "tilelangir", "mlir_core")):
             bundle_src = os.path.join(ROOT_DIR, "build", "tilelangir")
-        elif os.environ.get("BISHENGIR_ROOT_PATH"):
+        if not bundle_src and os.environ.get("BISHENGIR_ROOT_PATH"):
             pp = os.path.join(os.environ["BISHENGIR_ROOT_PATH"], "python_packages")
+            if os.path.isdir(os.path.join(pp, "mlir_core")):
+                bundle_src = pp
+        # fallback: BISHENGIR_PATH (used by build_wheel.sh)
+        if not bundle_src and os.environ.get("BISHENGIR_PATH"):
+            pp = os.path.join(os.environ["BISHENGIR_PATH"], "python_packages")
             if os.path.isdir(os.path.join(pp, "mlir_core")):
                 bundle_src = pp
         if bundle_src:
@@ -522,16 +527,11 @@ class TileLangBuilPydCommand(build_py):
                 logger.info(f"INFO: {source_dir} does not exist.")
 
         TVM_PACAKGE_ITEMS = [
-            "3rdparty/tvm/src",
             "3rdparty/tvm/python",
             "3rdparty/tvm/licenses",
-            "3rdparty/tvm/conftest.py",
             "3rdparty/tvm/CONTRIBUTORS.md",
             "3rdparty/tvm/KEYS",
             "3rdparty/tvm/LICENSE",
-            "3rdparty/tvm/README.md",
-            "3rdparty/tvm/mypy.ini",
-            "3rdparty/tvm/pyproject.toml",
             "3rdparty/tvm/version.py",
         ]
         for item in TVM_PACAKGE_ITEMS:
@@ -547,7 +547,7 @@ class TileLangBuilPydCommand(build_py):
                 shutil.copy2(source_dir, target_dir)
 
         # Copy CUTLASS to the package directory
-        if CUDA_HOME:
+        if CUDA_HOME and not USE_NPUIR:
             CUTLASS_PREBUILD_ITEMS = [
                 "3rdparty/cutlass/include",
                 "3rdparty/cutlass/tools",
@@ -564,22 +564,22 @@ class TileLangBuilPydCommand(build_py):
                         os.makedirs(target_dir)
                     shutil.copy2(source_dir, target_dir)
 
-        # copy composable kernel to the package directory
-        CK_PREBUILD_ITEMS = [
-            "3rdparty/composable_kernel/include",
-            "3rdparty/composable_kernel/library",
-        ]
-        for item in CK_PREBUILD_ITEMS:
-            source_dir = os.path.join(ROOT_DIR, item)
-            target_dir = os.path.join(self.build_lib, PACKAGE_NAME, item)
-            if os.path.isdir(source_dir):
-                self.mkpath(target_dir)
-                distutils.dir_util.copy_tree(source_dir, target_dir)
-            else:
-                target_dir = os.path.dirname(target_dir)
-                if not os.path.exists(target_dir):
-                    os.makedirs(target_dir)
-                shutil.copy2(source_dir, target_dir)
+        # copy composable kernel to the package directory (ROCm only)
+        if USE_ROCM and ROCM_HOME:
+            CK_PREBUILD_ITEMS = [
+                "3rdparty/composable_kernel/include",
+                "3rdparty/composable_kernel/library",
+            ]
+            for item in CK_PREBUILD_ITEMS:
+                source_dir = os.path.join(ROOT_DIR, item)
+                target_dir = os.path.join(self.build_lib, PACKAGE_NAME, item)
+                if os.path.isdir(source_dir):
+                    self.mkpath(target_dir)
+                    distutils.dir_util.copy_tree(source_dir, target_dir)
+                else:
+                    logger.warning(
+                        f"CK item {item} not found under 3rdparty, skipping."
+                    )
 
         # copy config files to the package directory
         TL_CONFIG_ITEMS = ["CMakeLists.txt", "VERSION", "README.md", "LICENSE"]

@@ -7,6 +7,7 @@ import tilelang
 import tilelang.language as T
 
 from typing import Optional
+from tilelang.utils import NPUUtils
 
 
 @tilelang.jit(
@@ -21,7 +22,6 @@ def sparse_attn_kernel(
     heads,
     dim,
     top_k,
-    num_kernels,
     sm_scale=None,
     block=64,
     multi_ws_kv=1,
@@ -57,7 +57,7 @@ def sparse_attn_kernel(
     # ws_o: C2S -> V2L -> ...
     flag_base_C2S_V2L_o = flag_base_C1S_V1L_s + multi_ws_s
 
-    num_physical_kernels = 24
+    num_kernels = NPUUtils.get().get_aicore_num()
     num_logic_kernels = batch * seq_len
     num_top_k_blocks = (top_k - 1) // block + 1
 
@@ -413,8 +413,15 @@ def sparse_attn_kernel(
         )
 
         if block_i_id == num_top_k_blocks - 1:
-            T.vsub(ub_attn_sink, ub_var_scores_max, ub_attn_sink_tmp)
-            T.vexp(ub_attn_sink_tmp, ub_attn_sink_tmp)
+            T.vsub(
+                ub_attn_sink,
+                ub_var_scores_max,
+                ub_attn_sink_tmp[task_id % multi_ub_inner_cross, :, :],
+            )
+            T.vexp(
+                ub_attn_sink_tmp[task_id % multi_ub_inner_cross, :, :],
+                ub_attn_sink_tmp[task_id % multi_ub_inner_cross, :, :],
+            )
 
     @T.macro
     def V2L(
@@ -479,7 +486,11 @@ def sparse_attn_kernel(
 
             if block_i_id == num_top_k_blocks - 1:
                 # Normalize output by softmax denominator
-                T.vadd(ub_var_logsum, ub_attn_sink_tmp, ub_var_logsum)
+                T.vadd(
+                    ub_var_logsum,
+                    ub_attn_sink_tmp[task_id % multi_ub_inner_cross, :, :],
+                    ub_var_logsum,
+                )
                 T.vdiv(ub_acc_o, ub_var_logsum, ub_acc_o)
                 T.vcast(
                     ub_acc_o, ub_cross_kernel_16[:heads_half, :dim], round_mode="rint"
@@ -523,7 +534,7 @@ def sparse_attn_kernel(
         workspace_o: T.Tensor([num_kernels, multi_ws_o, heads, dim], accum_dtype),
     ):
         # Launch NPU kernel with specified number of parallel kernels
-        with T.Kernel(num_physical_kernels, is_npu=True) as (kernel_id, vid):
+        with T.Kernel(num_kernels, is_npu=True) as (kernel_id, vid):
             # Cube computation section (matrix operations)
             with T.Scope("Cube"):
                 # Allocate L1 buffers for cube operations
@@ -585,7 +596,9 @@ def sparse_attn_kernel(
                 )
 
                 # outer loop inner cross
-                ub_attn_sink_tmp = T.alloc_ub([heads_half, 1], accum_dtype)
+                ub_attn_sink_tmp = T.alloc_ub(
+                    [multi_ub_inner_cross, heads_half, 1], accum_dtype
+                )
 
                 ub_arrange_mask = T.alloc_ub([1, block], "int16")
                 offset_heads_sub = vid * heads_half
@@ -679,7 +692,7 @@ def sparse_attn(
     topk_idxs: torch.Tensor,
     softmax_scale: Optional[float] = None,
 ):
-    num_kernels = 24
+    num_kernels = NPUUtils.get().get_aicore_num()
     block = 64
     multi_ws_kv = 2
     multi_ws_s = 2
@@ -693,7 +706,6 @@ def sparse_attn(
         heads,
         dim,
         top_k,
-        num_kernels,
         softmax_scale,
         block,
         multi_ws_kv,
@@ -780,23 +792,33 @@ def rand_sparse_attn_input(
 ):
     """Generate legalized random inputs for Sparse Attention"""
     torch.manual_seed(seed)
+    device = "npu"
     base_dtype = torch.bfloat16
 
     # Generate inputs
-    q = torch.randn((batch_size, seq_len, num_heads, dim), dtype=base_dtype).npu()
-    kv = torch.randn((batch_size, seq_len_kv, dim), dtype=base_dtype).npu()
-    attn_sink = torch.randn((num_heads,), dtype=torch.float32).npu()
-    top_k_indices = torch.randint(
-        low=0, high=seq_len_kv, size=(batch_size, seq_len, top_k), dtype=torch.int32
-    ).npu()
-
+    q = torch.randn(
+        (batch_size, seq_len, num_heads, dim), dtype=base_dtype, device=device
+    )
+    kv = torch.randn((batch_size, seq_len_kv, dim), dtype=base_dtype, device=device)
+    attn_sink = torch.randn((num_heads,), dtype=torch.float32, device=device)
     if causal:
-        # Apply causal mask on top_k_indices
-        max_len = max(seq_len, top_k)
-        causal_mask = torch.tril(torch.ones(max_len, max_len)).to(top_k_indices.device)
-        causal_mask = causal_mask[:seq_len, :top_k]
-        causal_mask = causal_mask.unsqueeze(dim=0).bool()
-        top_k_indices = torch.where(causal_mask, top_k_indices, -1)
+        top_k_indices = torch.full(
+            (batch_size, seq_len, top_k), -1, dtype=torch.int32, device=device
+        )
+        for i in range(seq_len):
+            num_available = i + 1
+            k = min(num_available, top_k)
+            rand_scores = torch.rand(batch_size, num_available, device=device)
+            indices = torch.topk(rand_scores, k, dim=-1).indices.to(torch.int32)
+            top_k_indices[:, i, :k] = indices
+    else:
+        top_k_indices = torch.randint(
+            low=0,
+            high=seq_len_kv,
+            size=(batch_size, seq_len, top_k),
+            dtype=torch.int32,
+            device=device,
+        )
 
     scale = (1.0 / dim) ** 0.5
 
@@ -881,7 +903,6 @@ def run_test(verify_acc=True):
 if __name__ == "__main__":
     # Specifies which NPU device to use
     torch.npu.set_device(0)
-    tilelang.cache.clear_cache()
 
     # Run tests
     run_test(verify_acc=True)

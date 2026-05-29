@@ -32,7 +32,11 @@ NpuirOperand NpuirOperand::FromExpr(const PrimExpr &expr,
     auto region = RegionOp(call->args, vmap);
     return NpuirOperand::Tensor(region.GetBuffer(), region.GetRanges());
   }
-  if (expr.as<IntImm>() || expr.as<FloatImm>() || expr.as<tir::VarNode>()) {
+  if (expr.as<IntImm>() || expr.as<FloatImm>() || expr.as<tir::VarNode>() ||
+      expr.as<tir::AddNode>() || expr.as<tir::SubNode>() ||
+      expr.as<tir::MulNode>() || expr.as<tir::DivNode>() ||
+      expr.as<tir::ModNode>() || expr.as<tir::MinNode>() ||
+      expr.as<tir::MaxNode>()) {
     // If there are other types of nodes that need to be treated as scalars,
     // please add them here.
     return NpuirOperand::Scalar(expr);

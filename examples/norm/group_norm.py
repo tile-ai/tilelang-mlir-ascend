@@ -150,13 +150,23 @@ def _group_norm_kernel_high_perf(M, D, eps, dtype):
 
 
 def group_norm_ref(x, weight, bias, g, eps):
-    return F.group_norm(
-        x.float(),
-        g,
-        weight=weight.float(),
-        bias=bias.float(),
-        eps=eps,
-    ).to(x.dtype)
+    M, N = x.shape
+    batch = M // g
+    C = g * N
+    x_reshape = x.float().reshape(batch, C)
+    w_reshape = weight.float().repeat(g)
+    b_reshape = bias.float().repeat(g)
+    return (
+        F.group_norm(
+            x_reshape.float(),
+            g,
+            weight=w_reshape.float(),
+            bias=b_reshape.float(),
+            eps=eps,
+        )
+        .reshape(M, N)
+        .to(x.dtype)
+    )
 
 
 def run_test(
@@ -169,7 +179,7 @@ def run_test(
     device="npu",
     atol=1e-2,
     rtol=1e-2,
-    g=1,
+    g=16,
 ):
     d_padded = _align_up(D, ALIGNMENT)
 

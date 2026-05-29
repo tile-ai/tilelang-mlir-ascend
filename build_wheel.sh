@@ -20,6 +20,7 @@ REQUIRED_LIBS=(
     "build/libtilelang_module.so"
     "build/tvm/libtvm.so"
     "build/tvm/libtvm_runtime.so"
+    "build/libtilelangir.so"
 )
 
 MISSING=()

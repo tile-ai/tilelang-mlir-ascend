@@ -502,7 +502,7 @@ extern "C" {
 #include "npu_launcher.h"
 #define PY_SSIZE_T_CLEAN
 {"#define __CCE_ENABLE_PRINT__" if need_debug else ""}
-{extract_device_print_code_from_cann()}
+{extract_device_print_code_from_cann() if need_debug else ""}
 
 #define TENSOR_KIND_INPUT 0
 #define TENSOR_KIND_OUTPUT 1
@@ -523,7 +523,7 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
   {'auto launch_call = [=]() -> rtError_t' if enable_taskqueue else ''} {{
     uint32_t blockNum = gridX * gridY * gridZ;
     {'blockNum = std::min(blockNum, (uint32_t)' + str(num_physical_blocks) + ');' if enable_auto_map_parallel_blocks else ''}
-    cce::internal::DebugTunnelData *DTData = cce::internal::DebugTunnel::Open(blockNum);
+    {'cce::internal::DebugTunnelData *DTData = cce::internal::DebugTunnel::Open(blockNum);' if need_debug else ''}
     rtError_t ret;
     {'void *ffts_addr = NULL; uint32_t ffts_len; ret = rtGetC2cCtrlAddr((uint64_t*)&ffts_addr, &ffts_len);' if target_support_ffts else ''}
     {'if (ret != RT_ERROR_NONE) {{ return ret; }}' if (target_support_ffts and enable_taskqueue) else 'if (ret != RT_ERROR_NONE) return;' if (target_support_ffts and (not enable_taskqueue)) else ''}
@@ -532,11 +532,13 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     void *workspace_addr = NULL;
     uint16_t ModuleId = 0;
     {
-        f'''
+    f'''
     uint64_t syncBlockLockSize = {lock_num} * sizeof(int64_t);
-    ret = rtMalloc(reinterpret_cast<void **>(&syncBlockLock),
-                   syncBlockLockSize, RT_MEMORY_HBM, 0);
-    if (ret != RT_ERROR_NONE) {{
+    syncBlockLock = const_cast<void *>(
+        at_npu::native::allocate_workspace(syncBlockLockSize, stream)
+            .storage()
+            .data());
+    if (!syncBlockLock) {{
       return {'ret' if enable_taskqueue else ''};
     }}
     std::vector<int64_t> lockInitData({lock_num}, {lock_ini_val});
@@ -550,13 +552,13 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
         else ""
     }
     {
-        f'''
+    f'''
     uint64_t totalWorkSpaceSize = {workspace_size} * blockNum;
-    ret = rtMalloc(reinterpret_cast<void **>(&workspace_addr),
-                   totalWorkSpaceSize, RT_MEMORY_HBM, ModuleId);
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
+    workspace_addr = const_cast<void *>(
+        at::empty(totalWorkSpaceSize,
+                  at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte))
+            .storage()
+            .data());
     '''
         if workspace_size > 0
         else ""
@@ -567,14 +569,14 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
       {'void* workspace_addr __attribute__((aligned(8)));' if not force_simt_only else ''}
       {' '.join(f'{_ty_to_cpp(ty)} arg{i} __attribute__((aligned({4 if ty[0] != "*" and ty[-2:] != "64" else 8})));' for i, ty in signature.items() if i not in constants)}
       {' '.join(f'{_ty_to_cpp(ty)} grid{mark} __attribute__((aligned(4)));' for mark, ty in grid_info.items())}
-      void* DTData __attribute__((aligned(8)));
+      {'void* DTData __attribute__((aligned(8)));' if need_debug else ''}
     }} args = {{
       {'static_cast<void*>(ffts_addr),' if target_support_ffts else ''}
       {('static_cast<void*>(syncBlockLock),' if lock_num > 0 else 'nullptr,') if not force_simt_only else ''}
       {('static_cast<void*>(workspace_addr),' if workspace_size > 0 else 'nullptr,') if not force_simt_only else ''}
       {', '.join(f'static_cast<{_ty_to_cpp(ty)}>(arg{i})' for i, ty in signature.items() if i not in constants)},
       {', '.join(f'static_cast<{_ty_to_cpp(ty)}>(grid{mark})' for mark, ty in grid_info.items())}
-      , static_cast<void*>(DTData)
+      {', static_cast<void*>(DTData)' if need_debug else ''}
     }};
     {cpp_msprof_call_before_launch}
     {f'''
@@ -585,8 +587,8 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     cfgInfo.localMemorySize = {shared_mem_dynamic_size};
     ret = rtKernelLaunchWithFlagV2(func, blockNum, &argsInfo, NULL, stream, 0, &cfgInfo);
     ''' if compile_on_910_95 else 'ret = rtKernelLaunch(func, blockNum, static_cast<void*>(&args), sizeof(args), NULL, stream);'}
-    void *&stream_ref = const_cast<void*&>(stream);
-    cce::internal::DebugTunnel::Close(DTData, stream_ref);
+    {'void *&stream_ref = const_cast<void*&>(stream);' if need_debug else ''}
+    {'cce::internal::DebugTunnel::Close(DTData, stream_ref);' if need_debug else ''}
     {cpp_msprof_call_after_launch}
     {'return ret;' if enable_taskqueue else 'ret = rtStreamSynchronize(stream);'}
    }};
@@ -813,6 +815,17 @@ class JitKernel_NPU:
         self.out_idx = metadata["out_idx"]
         self._launch()
 
+        npu_utils = NPUUtils.get()
+        t_module, t_function, t_n_regs, t_n_spills = npu_utils.load_binary(
+            self.utils_name,
+            self.utils_kernel_src,
+            self.utils_shared,
+            self.utils_device,
+            self.mix_mode,
+        )
+        self.t_function = t_function
+
+
     @classmethod
     def from_database(
         cls,
@@ -952,20 +965,12 @@ class JitKernel_NPU:
         full_args.extend(self.extra_args)
 
         # Run kernel
-        npu_utils = NPUUtils.get()
-        t_module, t_function, t_n_regs, t_n_spills = npu_utils.load_binary(
-            self.utils_name,
-            self.utils_kernel_src,
-            self.utils_shared,
-            self.utils_device,
-            self.mix_mode,
-        )
         self.launch_npu(
             self.launch_grid[0],
             self.launch_grid[1],
             self.launch_grid[2],
             self.launch_stream,
-            t_function,
+            self.t_function,
             self.launch_packedMetadata,
             self.launch_metadata,
             self.launch_enter_hook,
@@ -1160,6 +1165,19 @@ class compiler_npu:
         self.metadata["kernel_src"] = self._npuir_to_bin_enable_npu_compile()
         self.header_path = get_npu_launcher_header()
         shared_mem_dynamic_size = self.metadata.get("shared_mem_dynamic_size", 221184)
+
+        TILELANG_ASCEND_WORKSPACE_SIZE = os.environ.get(
+            "TILELANG_ASCEND_WORKSPACE_SIZE"
+        )
+        if TILELANG_ASCEND_WORKSPACE_SIZE is not None:
+            try:
+                self.workspace_size = int(TILELANG_ASCEND_WORKSPACE_SIZE)
+            except ValueError:
+                print(
+                    f"Warning: TILELANG_ASCEND_WORKSPACE_SIZE must be integer, "
+                    f"got '{TILELANG_ASCEND_WORKSPACE_SIZE}', using default 32768"
+                )
+
         self.wrapper_src = generate_npu_wrapper_src(
             self.constants,
             self.signature,
@@ -1177,19 +1195,6 @@ class compiler_npu:
             self.metadata["kernel_name"], self.header_path, self.wrapper_src
         )
         self.metadata["so_launcher_path"] = self.so_launcher_path
-
-        TILELANG_ASCEND_WORKSPACE_SIZE = os.environ.get(
-            "TILELANG_ASCEND_WORKSPACE_SIZE"
-        )
-        if TILELANG_ASCEND_WORKSPACE_SIZE is not None:
-            try:
-                self.workspace_size = int(TILELANG_ASCEND_WORKSPACE_SIZE)
-            except ValueError:
-                print(
-                    f"Warning: TILELANG_ASCEND_WORKSPACE_SIZE must be integer, "
-                    f"got '{TILELANG_ASCEND_WORKSPACE_SIZE}', using default 32768"
-                )
-
         return JitKernel_NPU(metadata=self.metadata, out_idx=out_idx)
 
     def _extract_param_info(self, func: PrimFunc, out_idx):
@@ -1388,7 +1393,7 @@ class compiler_npu:
         arch = NPUUtils().get_arch()
         is_910_95 = "910_95" in arch or "950" in arch
         compiler_inserted_params = 2 if is_910_95 else 3
-        
+
         for param in params[compiler_inserted_params: -6]:
             # Check if the type includes the target type
             found_type = None

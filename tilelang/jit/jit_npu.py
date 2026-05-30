@@ -821,12 +821,9 @@ class JitKernel_NPU:
         kernel_launcher_path: str,
         kernel_utils_path: str,
         metadata: str,
-        out_idx: Union[List[int], int],
     ):
-        if isinstance(out_idx, int):
-            out_idx = [out_idx]
+
         metadata["so_launcher_path"] = kernel_launcher_path
-        metadata["out_idx"] = out_idx
         instance = cls(metadata)
         instance.so_launcher_path = kernel_launcher_path
         instance.so_utils_path = kernel_utils_path

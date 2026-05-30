@@ -437,7 +437,6 @@ class KernelCache:
             kernel_launcher_path=str(cache_path / AUTOTUNE_SO_LAUNCHER_PATH),
             kernel_utils_path=None,
             metadata=metadata,
-            out_idx=out_idx,
         )
 
     def _try_save(self, label: str, fn: Callable) -> None:

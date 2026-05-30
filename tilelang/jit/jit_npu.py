@@ -841,7 +841,10 @@ class JitKernel_NPU:
         # fall back to the value pickled in ``metadata`` (which is already
         # in canonical, non-negative form because the cache layer
         # normalised it before storing).
-        self.out_idx = out_idx if out_idx is not None else metadata["out_idx"]
+        self.out_idx = _normalize_out_idx(
+            out_idx if out_idx is not None else metadata["out_idx"],
+            len(self.params)
+        )
         self._launch()
 
     @classmethod

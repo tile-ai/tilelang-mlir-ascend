@@ -47,7 +47,15 @@ def _normalize_out_idx(out_idx, total_params):
         raise TypeError(
             f"out_idx must be int, list, or tuple; got {type(out_idx).__name__}"
         )
-    return [i if i >= 0 else total_params + i for i in out_idx]
+    normalized = []
+    for i in out_idx:
+        idx = i if i >= 0 else total_params + i
+        if idx < 0 or idx >= total_params:
+            raise ValueError(
+                f"out_idx {i} is out of bounds for kernel with {total_params} parameters"
+            )
+        normalized.append(idx)
+    return normalized
 
 
 class LaunchThreadExtractor:

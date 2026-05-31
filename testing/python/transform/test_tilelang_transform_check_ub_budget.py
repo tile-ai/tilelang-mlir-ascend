@@ -153,30 +153,69 @@ def test_mod_attrs_none_does_not_crash():
     assert out is not None
 
 
-def test_uses_name_hint_not_name():
-    """Reviewer #80 finding (medium-3): use ``buffer_var.name_hint`` not
-    ``.name``. The Python source has been audited via grep; this test
-    makes the contract enforceable.
+def test_uses_var_name_helper_not_raw_attribute():
+    """Reviewer #80 finding (medium-3) + CI follow-up: read the buffer
+    var's display name through the ``_var_name`` helper, which tries
+    ``.name_hint`` first then ``.name`` then ``str()``. The reviewer's
+    suggestion was to use ``.name_hint`` — which IS the canonical
+    attribute — but the FFI ``__getattr__`` on the tilelang-vendored
+    TVM raises ``AttributeError`` for ``.name_hint`` on a real
+    ``tvm.tir.expr.Var`` (see CI run 26710639114 on commit 27e5c54).
+    The helper survives both flavors.
     """
     import inspect
 
     from tilelang.transform import check_ub_budget as mod_under_test
 
     src = inspect.getsource(mod_under_test)
-    # The fragile pattern is ``node.buffer_var.name`` (without ``_hint``).
-    # ``name_hint`` is fine; ``func_name`` etc. are unrelated. Look for
-    # the specific construct in ``_collect_ub_allocs``.
+    # The fragile pattern is direct attribute access in ``_collect_ub_allocs``;
+    # both ``.name`` and ``.name_hint`` can crash on different TVM builds.
     bad_patterns = [
         "node.buffer_var.name\n",
         "node.buffer_var.name ",
         "node.buffer_var.name)",
+        "node.buffer_var.name_hint",  # reviewer's suggestion — crashes on CI
     ]
     for pat in bad_patterns:
         assert pat not in src, (
-            f"_collect_ub_allocs uses fragile pattern {pat!r}; should be "
-            f"node.buffer_var.name_hint"
+            f"_collect_ub_allocs uses fragile pattern {pat!r}; should go "
+            f"through the ``_var_name`` helper"
         )
-    assert "node.buffer_var.name_hint" in src
+    assert "_var_name(node.buffer_var)" in src
+    # The helper itself must exist and try both attribute names.
+    assert "def _var_name(" in src
+    assert '"name_hint"' in src
+    assert '"name"' in src
+
+
+def test_var_name_helper_falls_back_through_attributes():
+    """The ``_var_name`` helper must survive a Var that raises
+    ``AttributeError`` on ``.name_hint`` (the actual CI failure mode)
+    and return a usable string.
+    """
+    from tilelang.transform.check_ub_budget import _var_name
+
+    class _FakeVarOnlyName:
+        # Simulates the CI TVM where .name_hint raises AttributeError but
+        # .name is present and useful.
+        name = "fake_alloc_name"
+
+        def __getattr__(self, item):
+            if item == "name_hint":
+                raise AttributeError("simulated CI behavior")
+            raise AttributeError(item)
+
+    class _FakeVarRawRepr:
+        # Simulates a TVM build where neither .name nor .name_hint resolves;
+        # the helper must extract a usable identifier from str() output.
+        def __str__(self):
+            return "weird_buf_unknown(type, ...)"
+
+        def __getattr__(self, item):
+            raise AttributeError(item)
+
+    assert _var_name(_FakeVarOnlyName()) == "fake_alloc_name"
+    assert _var_name(_FakeVarRawRepr()).startswith("weird_buf_unknown")
 
 
 def test_scope_of_falls_back_via_name_hint():
@@ -257,7 +296,8 @@ if __name__ == "__main__":
     test_global_scope_buffers_ignored()
     test_diagnostic_breakdown_sorted()
     test_mod_attrs_none_does_not_crash()
-    test_uses_name_hint_not_name()
+    test_uses_var_name_helper_not_raw_attribute()
+    test_var_name_helper_falls_back_through_attributes()
     test_scope_of_falls_back_via_name_hint()
     test_suggest_block_M_uses_bit_length_not_log2()
     test_suggest_block_M_resets_per_row_state()

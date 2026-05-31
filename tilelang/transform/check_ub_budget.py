@@ -92,6 +92,38 @@ def _dtype_bytes(dtype: str) -> int:
     return tvm.runtime.DataType(dtype).bits * tvm.runtime.DataType(dtype).lanes // 8
 
 
+def _var_name(buffer_var) -> str:
+    """Best-effort name read from a TVM tir.Var across binding flavors.
+
+    ``tvm.tir.Var`` exposes its display name as ``.name_hint`` on most
+    builds, but the FFI ``__getattr__`` mechanism on some installs (notably
+    the ``tilelang.3rdparty.tvm`` shipped in the CI wheels) raises
+    ``AttributeError`` for ``.name_hint`` because it isn't part of the
+    serialized object dict — even though it's the documented attribute.
+    Fall back through ``.name`` and finally ``str(buffer_var)``. Empty
+    return only on a truly anonymous var.
+    """
+    for attr in ("name_hint", "name"):
+        try:
+            v = getattr(buffer_var, attr, None)
+        except Exception:
+            v = None
+        if isinstance(v, str) and v:
+            return v
+    # Last-ditch fallback: ``repr`` of a tir.Var renders as ``Var(<name>, ...)``
+    # — extract the leading bare identifier if present, else give up.
+    try:
+        rep = str(buffer_var)
+        import re as _re
+
+        m = _re.match(r"\s*([A-Za-z_][A-Za-z0-9_.]*)", rep)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return ""
+
+
 def _scope_of(buffer_var: tir.Var) -> str:
     """Best-effort scope read from a buffer var's storage_scope attribute.
 
@@ -112,12 +144,11 @@ def _scope_of(buffer_var: tir.Var) -> str:
         scope = getattr(ta, "storage_scope", None)
         if scope is not None:
             return str(scope)
-    # 2) ``name_hint`` suffix — kernels carrying scope info in the var name,
+    # 2) Name-suffix fallback — kernels carrying scope info in the var name,
     #    typically ``"<name>_local"``, ``"<name>_local.fragment"`` etc.
-    name_hint = getattr(buffer_var, "name_hint", None)
-    if isinstance(name_hint, str):
-        # Match suffixes like ``_local``, ``.local``, ``_local.fragment``.
-        for suffix_scope in (
+    name = _var_name(buffer_var)
+    if name:
+        for suf, scope in (
             ("local.fragment", "local.fragment"),
             ("_local", "local"),
             (".local", "local"),
@@ -125,8 +156,7 @@ def _scope_of(buffer_var: tir.Var) -> str:
             (".shared", "shared"),
             ("_global", "global"),
         ):
-            suf, scope = suffix_scope
-            if name_hint.endswith(suf):
+            if name.endswith(suf):
                 return scope
     return "<unknown>"
 
@@ -162,9 +192,14 @@ def _collect_ub_allocs(
             if scope in _UB_BACKED_SCOPES or "fragment" in scope:
                 elems = _shape_elems(node.extents)
                 # Reviewer #80 finding (medium-3): TVM's ``tir.Var`` does
-                # not standardly expose ``.name``; use ``.name_hint`` for
-                # compatibility across TVM versions.
-                name = node.buffer_var.name_hint
+                # not standardly expose ``.name``; ``.name_hint`` is the
+                # canonical attribute. BUT the FFI ``__getattr__`` on
+                # some TVM installs (including the tilelang-vendored TVM
+                # used by CI) raises ``AttributeError`` for ``.name_hint``
+                # even though docs say it should work. ``_var_name``
+                # tries ``.name_hint`` first then ``.name`` then ``str()``
+                # — never crashes on a real Allocate node.
+                name = _var_name(node.buffer_var) or "<anon>"
                 dtype = node.dtype
                 nbytes = elems * _dtype_bytes(dtype) if elems is not None else -1
                 allocs.append((name, dtype, elems, nbytes))

@@ -29,7 +29,6 @@ debugging cost.
 
 from __future__ import annotations
 
-import math
 from typing import List, Optional, Tuple
 
 from tilelang import tvm as tvm
@@ -100,12 +99,35 @@ def _scope_of(buffer_var: tir.Var) -> str:
     (``buffer_var.type_annotation.storage_scope``, ``buffer_var.name_hint``
     suffix, the enclosing ``attr "storage_scope"`` block). Try them in
     order and fall back to "<unknown>".
+
+    Reviewer #80 finding (medium-2): docstring promised three fallbacks
+    but only the first was implemented; add the ``name_hint`` suffix
+    fallback (the third — ``attr "storage_scope"`` block — requires
+    visitor state and is handled at the call site in
+    ``_collect_ub_allocs``; documenting that here).
     """
+    # 1) ``type_annotation.storage_scope`` (most TVM versions >= 0.16).
     ta = getattr(buffer_var, "type_annotation", None)
     if ta is not None:
         scope = getattr(ta, "storage_scope", None)
         if scope is not None:
             return str(scope)
+    # 2) ``name_hint`` suffix — kernels carrying scope info in the var name,
+    #    typically ``"<name>_local"``, ``"<name>_local.fragment"`` etc.
+    name_hint = getattr(buffer_var, "name_hint", None)
+    if isinstance(name_hint, str):
+        # Match suffixes like ``_local``, ``.local``, ``_local.fragment``.
+        for suffix_scope in (
+            ("local.fragment", "local.fragment"),
+            ("_local", "local"),
+            (".local", "local"),
+            ("_shared", "shared"),
+            (".shared", "shared"),
+            ("_global", "global"),
+        ):
+            suf, scope = suffix_scope
+            if name_hint.endswith(suf):
+                return scope
     return "<unknown>"
 
 
@@ -139,7 +161,10 @@ def _collect_ub_allocs(
             # ``_UB_BACKED_SCOPES`` for rationale.
             if scope in _UB_BACKED_SCOPES or "fragment" in scope:
                 elems = _shape_elems(node.extents)
-                name = node.buffer_var.name
+                # Reviewer #80 finding (medium-3): TVM's ``tir.Var`` does
+                # not standardly expose ``.name``; use ``.name_hint`` for
+                # compatibility across TVM versions.
+                name = node.buffer_var.name_hint
                 dtype = node.dtype
                 nbytes = elems * _dtype_bytes(dtype) if elems is not None else -1
                 allocs.append((name, dtype, elems, nbytes))
@@ -167,6 +192,13 @@ def _suggest_block_M(allocs, ub_cap: int) -> Optional[int]:
             biggest_nbytes = nbytes
             biggest_name = name
             db = _dtype_bytes(dtype)
+            # Reviewer #80 finding (medium-4 part 1): reset per-row state
+            # for every new "biggest" alloc; otherwise, when this alloc's
+            # element count is not divisible by any guess in the table,
+            # ``biggest_per_row_bytes`` keeps the stale value from the
+            # previous (smaller) alloc and the suggestion misleads.
+            biggest_per_row_bytes = 0
+            biggest_block_M_guess = None
             # Assume per-row bytes = nbytes / leading_dim guess. For most
             # NPU kernels leading_dim is a power-of-2 in {16, 32, 64} —
             # try the largest power-of-2 leading dim that divides elems.
@@ -175,14 +207,23 @@ def _suggest_block_M(allocs, ub_cap: int) -> Optional[int]:
                     biggest_per_row_bytes = (elems // guess) * db
                     biggest_block_M_guess = guess
                     break
+            # If no divisor matched, fall back to a single-row estimate so
+            # the caller still gets a suggestion rather than ``None``.
+            if biggest_per_row_bytes == 0 and elems is not None and elems > 0:
+                biggest_per_row_bytes = db  # one element per row
+                biggest_block_M_guess = elems  # caller sees true row count
     if biggest_per_row_bytes == 0:
         return None
     # Suggest block_M = floor(ub_cap / 2 / per_row_bytes)
     suggested = max(1, (ub_cap // 2) // biggest_per_row_bytes)
     if suggested <= 0:
         return None
-    # Round down to nearest power of 2.
-    suggested_pow2 = 1 << int(math.log2(suggested))
+    # Reviewer #80 finding (medium-4 part 2): use ``bit_length()`` rather
+    # than ``int(math.log2(...))`` to round down to the nearest power of
+    # 2. ``math.log2`` is float-based and can return e.g.
+    # ``log2(64) = 5.999999...`` on some platforms, which then truncates
+    # to 5 and yields 32 instead of 64. ``bit_length()`` is exact.
+    suggested_pow2 = 1 << (suggested.bit_length() - 1)
     return suggested_pow2, biggest_name, biggest_block_M_guess
 
 
@@ -259,7 +300,13 @@ def _check_one(
 def _CheckUBBudgetPass(prim_func: PrimFunc, mod: IRModule, ctx) -> PrimFunc:
     import os
 
-    target = mod.attrs.get("target") if hasattr(mod, "attrs") else None
+    # Reviewer #80 finding (high-1): ``mod.attrs`` can be ``None`` even
+    # when the attribute itself exists; ``hasattr`` only checks for the
+    # descriptor and would return ``True`` in that case, so ``.get(...)``
+    # then crashes with ``AttributeError: 'NoneType' object has no
+    # attribute 'get'``. Guard with ``getattr(..., None) is not None``.
+    _mod_attrs = getattr(mod, "attrs", None)
+    target = _mod_attrs.get("target") if _mod_attrs is not None else None
     # Determine chip; fall back to default if target lookup fails.
     chip_name = _DEFAULT_CHIP
     if target is not None:

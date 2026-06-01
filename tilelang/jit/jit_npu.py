@@ -908,7 +908,7 @@ class JitKernel_NPU:
         # tensor (and a kernel call returned an ``int`` instead of a
         # ``torch.Tensor``).
         metadata["so_launcher_path"] = kernel_launcher_path
-        instance = cls(metadata)
+        instance = cls(metadata, out_idx=out_idx)
         instance.so_launcher_path = kernel_launcher_path
         instance.so_utils_path = kernel_utils_path
         return instance

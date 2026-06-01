@@ -884,7 +884,8 @@ class JitKernel_NPU:
         # in canonical, non-negative form because the cache layer
         # normalised it before storing).
         self.out_idx = _normalize_out_idx(
-            out_idx if out_idx is not None else metadata["out_idx"], len(self.param_info)
+            out_idx if out_idx is not None else metadata["out_idx"],
+            len(self.param_info),
         )
         self._launch()
 

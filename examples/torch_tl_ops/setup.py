@@ -6,14 +6,16 @@ Pure Python package, dependencies:
 - torch_npu
 """
 
-from setuptools import setup, find_packages
+from setuptools import setup
 from pathlib import Path
 
 PACKAGE_NAME = "tl_ascend_ops"
 VERSION = "0.1.0"
 
 readme_path = Path(__file__).parent / "README.md"
-long_description = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
+long_description = (
+    readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
+)
 
 setup(
     name=PACKAGE_NAME,
@@ -34,7 +36,7 @@ setup(
         "tl_ascend_ops": ["kernels/**/*", "utils/**/*", "*.so", "*.pkl"],
     },
     include_package_data=True,
-    python_requires=">=3.8",
+    python_requires=">=3.11",
     install_requires=[
         "torch>2.6.0",
     ],

@@ -163,7 +163,7 @@ Configure environment variables:
 source /path/to/install/Ascend/ascend-toolkit/set_env.sh
 ```
 
-Prepare a Python environment with Python version between 3.7.*x* and 3.11.4 (inclusive) and ensure that `pip3` is available.
+Prepare a Python environment with Python version >= 3.11 and ensure that `pip3` is available.
 
    Ascend Toolkit Installation Requirements
 

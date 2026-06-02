@@ -367,9 +367,12 @@ def sparse_attention_mla(
                                              size=[block_H_half, tail_size_k])
 
                                 offset = batch_id * heads_mul_seq_len + seq_id * heads + block_h_offset
-                                T.copy(
-                                    ub_cross_kernel_16[0:block_H_half, 0:tail_size_k],
-                                    Output[offset : offset + block_H_half, block_k_offset : block_k_offset + tail_size_k])
+                                # FIX(heads<block_H): write only valid head rows; block_h_offset may exceed heads
+                                _valid_h = T.max(0, T.min(block_H_half, heads - block_h_offset))
+                                if _valid_h > 0:
+                                    T.copy(
+                                        ub_cross_kernel_16[0:_valid_h, 0:tail_size_k],
+                                        Output[offset : offset + _valid_h, block_k_offset : block_k_offset + tail_size_k])
 
     return main
 

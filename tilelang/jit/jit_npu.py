@@ -522,8 +522,17 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
   // base_ptr offset shape and stride are not used, arbitrarily set for now
   std::string name = "";
   name.append(kernelName);
-  void *workspace_addr = NULL;
-  {"auto launch_call = [&]()" if enable_taskqueue else ""} {{
+  void *workspace_addr_ptr = NULL;
+  {
+        f'''
+    uint32_t blockNum4Workspace = gridX * gridY * gridZ;
+    uint64_t totalWorkSpaceSize = {workspace_size} * blockNum4Workspace;
+    workspace_addr_ptr = const_cast<void *>(at::empty(totalWorkSpaceSize, at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte)).storage().data());
+    '''
+        if workspace_size > 0
+        else ""
+    }
+  {"auto launch_call = [=]()" if enable_taskqueue else ""} {{
     uint32_t blockNum = gridX * gridY * gridZ;
     {
         "blockNum = std::min(blockNum, (uint32_t)" + str(num_physical_blocks) + ");"
@@ -542,37 +551,21 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
       return {"ret" if enable_taskqueue else ""};
     }}
     // stub argument for workspace
-    void *syncBlockLock = NULL;
+    void *syncBlockLock_ptr = NULL;
 
     uint16_t ModuleId = 0;
     {
         f'''
     uint64_t syncBlockLockSize = {lock_num} * sizeof(int64_t);
-    ret = rtMalloc(reinterpret_cast<void **>(&syncBlockLock),
-                   syncBlockLockSize, RT_MEMORY_HBM, 0);
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
+    syncBlockLock_ptr = const_cast<void *>(at_npu::native::allocate_workspace(syncBlockLockSize, stream).storage().data());
     std::vector<int64_t> lockInitData({lock_num}, {lock_ini_val});
-    ret = rtMemcpy(syncBlockLock, syncBlockLockSize, reinterpret_cast<void *>(lockInitData.data()),
+    ret = rtMemcpy(syncBlockLock_ptr, syncBlockLockSize, reinterpret_cast<void *>(lockInitData.data()),
                    syncBlockLockSize, RT_MEMCPY_HOST_TO_DEVICE);
     if (ret != RT_ERROR_NONE) {{
       return {'ret' if enable_taskqueue else ''};
     }}
     '''
         if lock_num > 0
-        else ""
-    }
-    {
-        f'''
-    uint64_t totalWorkSpaceSize = {workspace_size} * blockNum;
-    ret = rtMalloc(reinterpret_cast<void **>(&workspace_addr),
-                   totalWorkSpaceSize, RT_MEMORY_HBM, ModuleId);
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
-    '''
-        if workspace_size > 0
         else ""
     }
     struct __attribute__((packed)) {{
@@ -595,8 +588,8 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
       {"void* DTData __attribute__((aligned(8)));" if need_debug else ""}
     }} args = {{
       static_cast<void*>(ffts_addr),
-      static_cast<void*>(syncBlockLock),
-      static_cast<void*>(workspace_addr),
+      {"static_cast<void*>(syncBlockLock_ptr)," if lock_num > 0 else "nullptr,"}
+      {"static_cast<void*>(workspace_addr_ptr)," if workspace_size > 0 else "nullptr,"}
       {
         ", ".join(
             f"static_cast<{_ty_to_cpp(ty)}>(arg{i})"
@@ -620,8 +613,8 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     {"return ret;" if enable_taskqueue else ""}
    }};
    {
-        "at_npu::native::OpCommand::RunOpApi(name.c_str(), launch_call, true);"
-        "rtFree(workspace_addr); "
+        "at_npu::native::OpCommand cmd; "
+        "cmd.Name(name.c_str()).SetCustomHandler(launch_call).Run();"
         if enable_taskqueue
         else ""
     }
@@ -1109,7 +1102,7 @@ class compiler_npu:
     def __init__(self) -> None:
         pass
 
-    def _get_workspace_size(self, lib_path, suffix, default=32768):
+    def _get_workspace_size(self, lib_path, suffix, default=0):
         # Try to get the infer_workspace_shape_function in the kernel, then use the return value as workspace_size
         # Use default to avoid except
         # If you have set the os env "TILELANG_ASCEND_WORKSPACE_SIZE", "TILELANG_ASCEND_WORKSPACE_SIZE" has a higher priority
@@ -1193,6 +1186,19 @@ class compiler_npu:
         self._parse_npuir_metadata()
         self.metadata["kernel_src"] = self._npuir_to_bin_enable_npu_compile()
         self.header_path = get_npu_launcher_header()
+
+        TILELANG_ASCEND_WORKSPACE_SIZE = os.environ.get(
+            "TILELANG_ASCEND_WORKSPACE_SIZE"
+        )
+        if TILELANG_ASCEND_WORKSPACE_SIZE is not None:
+            try:
+                self.workspace_size = int(TILELANG_ASCEND_WORKSPACE_SIZE)
+            except ValueError:
+                print(
+                    f"Warning: TILELANG_ASCEND_WORKSPACE_SIZE must be integer, "
+                    f"got '{TILELANG_ASCEND_WORKSPACE_SIZE}', using {self.workspace_size}"
+                )
+
         self.wrapper_src = generate_npu_wrapper_src(
             self.constants,
             self.signature,
@@ -1206,18 +1212,6 @@ class compiler_npu:
             self.metadata["kernel_name"], self.header_path, self.wrapper_src
         )
         self.metadata["so_launcher_path"] = self.so_launcher_path
-
-        TILELANG_ASCEND_WORKSPACE_SIZE = os.environ.get(
-            "TILELANG_ASCEND_WORKSPACE_SIZE"
-        )
-        if TILELANG_ASCEND_WORKSPACE_SIZE is not None:
-            try:
-                self.workspace_size = int(TILELANG_ASCEND_WORKSPACE_SIZE)
-            except ValueError:
-                print(
-                    f"Warning: TILELANG_ASCEND_WORKSPACE_SIZE must be integer, "
-                    f"got '{TILELANG_ASCEND_WORKSPACE_SIZE}', using default 32768"
-                )
 
         return JitKernel_NPU(metadata=self.metadata, out_idx=out_idx)
 
@@ -1515,7 +1509,6 @@ class compiler_npu:
                 so_path, "_infer_workspace_shape_function"
             )
             self.workspace_size = result
-
             if not Path(bin_path).exists():
                 err_lines = [
                     "AscendNPU IR compile reported success but output object was not generated.",

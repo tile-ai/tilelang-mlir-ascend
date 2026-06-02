@@ -109,7 +109,9 @@ def sparse_attn_kernel(
                 for i, j in T.Parallel(block_heads, max_top_k):
                     acc_s[i, j] *= scale
                 # [MODIFIED] reduce size changed from top_k to block_top_k_cube
-                T.reduce_max(acc_s, scores_max, dim=1, size=[block_heads, block_top_k_cube])
+                T.reduce_max(
+                    acc_s, scores_max, dim=1, size=[block_heads, block_top_k_cube]
+                )
                 for i, j in T.Parallel(block_heads, max_top_k):
                     acc_s[i, j] = T.exp(acc_s[i, j] - scores_max[i, 0])
                 T.vbrc(value_zero, valid_mask)
@@ -121,7 +123,9 @@ def sparse_attn_kernel(
                 for i, j in T.Parallel(block_heads, max_top_k):
                     acc_s[i, j] *= valid_mask[0, j]
                 # [MODIFIED] reduce size changed from top_k to block_top_k_cube
-                T.reduce_sum(acc_s, scores_sum, dim=1, size=[block_heads, block_top_k_cube])
+                T.reduce_sum(
+                    acc_s, scores_sum, dim=1, size=[block_heads, block_top_k_cube]
+                )
                 T.copy(AttnSink[n * block_heads, 0], attn_sink_shared)
                 for i in T.Parallel(block_heads):
                     scores_sum[i, 0] += T.exp(attn_sink_shared[i, 0] - scores_max[i, 0])

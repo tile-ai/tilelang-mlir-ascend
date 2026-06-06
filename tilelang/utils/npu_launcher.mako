@@ -113,7 +113,7 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
   workspace_addr_ptr = const_cast<void *>(at::empty(totalWorkSpaceSize, at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte)).storage().data());
   % endif
   % if enable_taskqueue:
-  auto launch_call = [&]() -> rtError_t {
+  auto launch_call = [=]() -> rtError_t {
   % endif
     uint32_t blockNum = gridX * gridY * gridZ;
 
@@ -141,7 +141,11 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     void *ffts_addr = NULL;
     uint32_t ffts_len; ret = rtGetC2cCtrlAddr((uint64_t*)&ffts_addr, &ffts_len);
     if (ret != RT_ERROR_NONE) {
-      return% if enable_taskqueue: ret% endif;
+      % if enable_taskqueue:
+      return ret;
+      % else:
+      return;
+      % endif
     }
   % endif
     // stub argument for workspace
@@ -164,12 +168,20 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
         RT_MEMCPY_HOST_TO_DEVICE
     );
     if (ret != RT_ERROR_NONE) {
-      return% if enable_taskqueue: ret% endif;
+      % if enable_taskqueue:
+      return ret;
+      % else:
+      return;
+      % endif
     }
   % endif
   % if workspace_size > 0:
     if (ret != RT_ERROR_NONE) {
-      return% if enable_taskqueue: ret% endif;
+      % if enable_taskqueue:
+      return ret;
+      % else:
+      return;
+      % endif
     }
   % endif
     struct __attribute__((packed)) {
@@ -216,7 +228,7 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
       static_cast<${ty_to_cpp[ty]}>(grid${mark}),
       % endfor
       % if need_debug:
-      , static_cast<void*>(DTData)
+      static_cast<void*>(DTData)
       % endif
     };
     unsigned long int beginTime = 0;

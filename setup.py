@@ -288,6 +288,7 @@ def download_and_extract_llvm(version, is_aarch64=False, extract_path="3rdparty"
 
 package_data = {
     "tilelang": ["py.typed", "*pyx"],
+    "tilelang.utils": ["*.mako"],
 }
 
 LLVM_VERSION = "10.0.1"

@@ -8,3 +8,4 @@ ml_dtypes
 psutil
 pyyaml
 pybind11==3.0.1
+mako

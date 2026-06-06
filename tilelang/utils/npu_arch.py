@@ -37,6 +37,16 @@ CHIP_SPECS = {
         "L2": 112 * 1024 * 1024,
         "cube": [16, 16, 16],
     },
+    "Ascend910_95": {
+        "cores": 40,
+        "UB": 256 * 1024,
+        "L1": 1024 * 1024,
+        "L0A": 64 * 1024,
+        "L0B": 64 * 1024,
+        "L0C": 512 * 1024,
+        "L2": 64 * 1024 * 1024,
+        "cube": [16, 16, 16],
+    },
 }
 DEFAULT_CHIP = "Ascend910B"
 
@@ -234,6 +244,27 @@ def is_tensorcore_supported_precision(
     return False
 
 
+def is_ffts_supported(arch: str = None):
+    if arch is None:
+        arch = get_ascend_device_name()
+    if arch.startswith("Ascend910_95") or arch.startswith("Ascend950"):
+        return False
+    if arch in ["Ascend910A", "Ascend310B4"]:
+        return False
+    return True
+
+
+def force_disable_ffts():
+    disable_ffts = os.getenv("TILELANG_DISABLE_FFTS", "false").lower() in ("true", "1")
+    return disable_ffts
+
+
+def is_compile_on_910_95(arch: str = None):
+    if arch is None:
+        arch = get_ascend_device_name()
+    return arch.startswith("Ascend910_95") or arch.startswith("Ascend950")
+
+
 __all__ = [
     "AscendArch",
     "is_ascend_arch",
@@ -243,4 +274,7 @@ __all__ = [
     "supports_native_bf16",
     "get_arch",
     "is_tensorcore_supported_precision",
+    "is_ffts_supported",
+    "force_disable_ffts",
+    "is_compile_on_910_95",
 ]

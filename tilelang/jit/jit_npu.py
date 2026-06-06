@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Union
 import torch
+from mako.template import Template
 from ..engine import lower
 from ..utils import (
     NPUUtils,
@@ -252,508 +253,216 @@ def extract_device_print_code_from_cann():
     )
 
 
+_NPU_LAUNCHER_TEMPLATE = None
+
+
+def _get_npu_launcher_template():
+    global _NPU_LAUNCHER_TEMPLATE
+    if _NPU_LAUNCHER_TEMPLATE is None:
+        template_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "utils",
+            "npu_launcher.mako",
+        )
+        _NPU_LAUNCHER_TEMPLATE = Template(filename=template_path)
+    return _NPU_LAUNCHER_TEMPLATE
+
+
+_TY_TO_CPP = {
+    "i1": "int32_t",
+    "i8": "int8_t",
+    "i16": "int16_t",
+    "i32": "int32_t",
+    "i64": "int64_t",
+    "u1": "uint32_t",
+    "u8": "uint8_t",
+    "u16": "uint16_t",
+    "u32": "uint32_t",
+    "u64": "uint64_t",
+    "fp16": "float",
+    "bf16": "float",
+    "fp32": "float",
+    "f32": "float",
+    "fp64": "double",
+}
+
+_EXTRACTED_TY = {
+    "i1": "int32_t",
+    "i8": "int8_t",
+    "i16": "int16_t",
+    "i32": "int32_t",
+    "i64": "int64_t",
+    "u1": "uint32_t",
+    "u8": "uint8_t",
+    "u16": "uint16_t",
+    "u32": "uint32_t",
+    "u64": "uint64_t",
+    "fp16": "float",
+    "bf16": "float",
+    "fp32": "float",
+    "f32": "float",
+    "fp64": "double",
+}
+
+_FORMAT_OF = {
+    "PyObject*": "O",
+    "float": "f",
+    "double": "d",
+    "long": "l",
+    "int8_t": "b",
+    "int16_t": "h",
+    "int32_t": "i",
+    "int64_t": "L",
+    "uint8_t": "B",
+    "uint16_t": "H",
+    "uint32_t": "I",
+    "uint64_t": "K",
+}
+
+_SIGTYPE_TO_INT = {
+    "i1": 12,
+    "i4": 29,
+    "i8": 2,
+    "i16": 6,
+    "i32": 3,
+    "i64": 9,
+    "u1": 30,
+    "u8": 4,
+    "u16": 7,
+    "u32": 8,
+    "u64": 10,
+    "fp16": 1,
+    "bf16": 27,
+    "fp32": 0,
+    "fp64": 11,
+    "fp8e5": 35,
+    "fp8e4nv": 36,
+}
+
+
+def _format_of_msprof_task_type_ratio(bs_task_type, mix_mode):
+    default_task_type = (
+        "MSPROF_GE_TASK_TYPE_AIV"
+        if mix_mode == "aiv"
+        else "MSPROF_GE_TASK_TYPE_AI_CORE"
+    )
+    if not bs_task_type:
+        return default_task_type, 0
+    task_type_num, mix_block_dim_ratio = divmod(int(bs_task_type), 10)
+    task_type_map = {
+        1: "MSPROF_GE_TASK_TYPE_AIV",
+        2: "MSPROF_GE_TASK_TYPE_AI_CORE",
+        3: "MSPROF_GE_TASK_TYPE_MIX_AIC",
+        4: "MSPROF_GE_TASK_TYPE_MIX_AIV",
+    }
+    task_type = task_type_map.get(task_type_num, default_task_type)
+    return task_type, mix_block_dim_ratio
+
+
 def generate_npu_wrapper_src(
-    constants, signature, workspace_size, mix_mode, lock_num, lock_ini_val, need_debug
+    constants,
+    signature,
+    workspace_size,
+    mix_mode,
+    lock_num,
+    lock_ini_val,
+    need_debug,
+    bs_task_type=0,
+    compile_on_910_95=False,
+    force_simt_only=False,
+    shared_mem_dynamic_size=0,
 ):
-    def _ty_to_cpp(ty):
-        if ty[0] == "*":
-            return "void*"
-        return {
-            "i1": "int32_t",
-            "i8": "int8_t",
-            "i16": "int16_t",
-            "i32": "int32_t",
-            "i64": "int64_t",
-            "u32": "uint32_t",
-            "u64": "uint64_t",
-            "fp16": "float",
-            "bf16": "float",
-            "fp32": "float",
-            "f32": "float",
-            "fp64": "double",
-        }[ty]
+    from ..utils.npu_arch import is_ffts_supported, force_disable_ffts, get_ascend_device_name
 
-    def _extracted_ty(ty):
-        if ty[0] == "*":
-            return "PyObject*"
-        return {
-            "i1": "int32_t",
-            "i32": "int32_t",
-            "i64": "int64_t",
-            "u32": "uint32_t",
-            "u64": "uint64_t",
-            "fp16": "float",
-            "bf16": "float",
-            "fp32": "float",
-            "f32": "float",
-            "fp64": "double",
-        }[ty]
+    ty_to_cpp = {}
+    extracted_ty = {}
+    for ty in signature.values():
+        if ty not in ty_to_cpp:
+            ty_to_cpp[ty] = "void*" if ty[0] == "*" else _TY_TO_CPP[ty]
+        if ty not in extracted_ty:
+            extracted_ty[ty] = "PyObject*" if ty[0] == "*" else _EXTRACTED_TY[ty]
 
-    def _format_of(ty):
-        return {
-            "PyObject*": "O",
-            "float": "f",
-            "double": "d",
-            "long": "l",
-            "uint32_t": "I",
-            "int32_t": "i",
-            "uint64_t": "K",
-            "int64_t": "L",
-        }[ty]
+    sigtype_to_int = {}
+    for ty in signature.values():
+        if ty.startswith("*") and ty[1:] not in sigtype_to_int:
+            sigtype_to_int[ty[1:]] = _SIGTYPE_TO_INT.get(ty[1:], 0)
 
-    arg_decls = ", ".join(f"{_ty_to_cpp(ty)} arg{i}" for i, ty in signature.items())
-    """
-    args:
-        int gridX, gridY, gridZ;
-        rtStream_t stream;
-        const void *function;
-        PyObject* packed_metadata, *launch_metadata;
-        PyObject* launch_enter_hook, *launch_exit_hook;
-        *args_expand
-    """
-    format = "iiiKKOOOO" + "".join(
-        [_format_of(_extracted_ty(ty)) for ty in signature.values()]
+    arg_decls = ", ".join(
+        f"{ty_to_cpp[ty]} arg{i}" for i, ty in signature.items()
+    )
+    format_str = "iiiKKOOOO" + "".join(
+        [_FORMAT_OF[extracted_ty[ty]] for ty in signature.values()]
+    )
+    launch_args = ", ".join(
+        f"ptr_info{i}.dev_ptr" if ty[0] == "*" else f"_arg{i}"
+        for i, ty in signature.items()
     )
 
     grid_info = {"X": "i32", "Y": "i32", "Z": "i32"}
+    for ty in grid_info.values():
+        if ty not in ty_to_cpp:
+            ty_to_cpp[ty] = _TY_TO_CPP[ty]
 
     enable_taskqueue = os.getenv("TILELANG_ENABLE_TASKQUEUE", "true").lower() in (
         "true",
         "1",
     )
-    enable_auto_map_parallel_blocks = False
+    enable_auto_map_parallel_blocks = os.getenv(
+        "TILELANG_ALL_BLOCKS_PARALLEL", "false"
+    ).lower() in ("true", "1")
+    enable_grid_warn_print = os.getenv(
+        "TILELANG_GRID_WARN_PRINT", "false"
+    ).lower() in ("true", "1")
     npu_utils = NPUUtils.get()
     num_physical_blocks = (
         npu_utils.get_aivector_core_num()
         if mix_mode == "aiv"
         else npu_utils.get_aicore_num()
     )
-    task_type = (
-        "MSPROF_GE_TASK_TYPE_AIV"
-        if mix_mode == "aiv"
-        else "MSPROF_GE_TASK_TYPE_AI_CORE"
+
+    task_type, mix_block_dim_ratio = _format_of_msprof_task_type_ratio(
+        bs_task_type, mix_mode
     )
-    LINE_CHANGE_CHAR = chr(10)  # it is \n
+    is_mix_task_type = "MIX" in task_type
 
-    cpp_device_pointer = """
-typedef struct _DevicePtrInfo {
-  void *dev_ptr;
-  bool valid;
-} DevicePtrInfo;
+    arch = get_ascend_device_name()
+    target_support_ffts = is_ffts_supported(arch) and (not force_disable_ffts())
 
-static inline DevicePtrInfo getPointer(PyObject *obj, int idx) {
-  DevicePtrInfo ptr_info;
-  ptr_info.dev_ptr = 0;
-  ptr_info.valid = true;
-  if (PyLong_Check(obj)) {
-    ptr_info.dev_ptr = reinterpret_cast<void *>(PyLong_AsUnsignedLongLong(obj));
-    return ptr_info;
-  }
-  if (obj == Py_None) {
-    // valid nullptr
-    return ptr_info;
-  }
-  PyObject *ptr = PyObject_GetAttrString(obj, "data_ptr");
-  if(ptr){
-    PyObject *empty_tuple = PyTuple_New(0);
-    PyObject *ret = PyObject_Call(ptr, empty_tuple, NULL);
-    Py_DECREF(empty_tuple);
-    Py_DECREF(ptr);
-    if (!PyLong_Check(ret)) {
-      PyErr_SetString(PyExc_TypeError, "data_ptr method of Pointer object must return 64-bit int");
-      ptr_info.valid = false;
-      return ptr_info;
-    }
-    ptr_info.dev_ptr = reinterpret_cast<void *>(PyLong_AsUnsignedLongLong(ret));
-    if(!ptr_info.dev_ptr)
-      return ptr_info;
-    Py_DECREF(ret);  // Thanks ChatGPT!
-    return ptr_info;
-  }
-  PyErr_SetString(PyExc_TypeError, "Pointer argument must be either uint64 or have data_ptr method");
-  return ptr_info;
-}
-"""
+    enable_simt = force_simt_only
 
-    cpp_msprof_extern = """
-extern "C" {
-  typedef int (* callback)(unsigned int type, void* data, unsigned int len);
-  extern int MsprofReportApi(unsigned int  agingFlag, const MsprofApi *api);
-  extern unsigned long int  MsprofSysCycleTime();
-  extern int MsprofRegisterCallback(unsigned int moduleId, callback handle);
-  static unsigned int __MsprofFlagL0  = 0;
-  static unsigned int __MsprofFlagL1  = 0;
+    debug_print_code = ""
+    if need_debug:
+        debug_print_code = extract_device_print_code_from_cann()
 
-  int ProfCtrlHandle(unsigned int CtrlType, void* CtrlData, unsigned int DataLen) {
-    if ((CtrlData == nullptr) || (DataLen == 0U)) {
-      return 1;
-    }
-
-    if (CtrlType == 1) {
-      MsprofCommandHandle* handle = (MsprofCommandHandle *)(CtrlData);
-      if (handle->type >= 6)  // 6 is not used here
-        return 1;
-      if (handle->type == 1) {  // init - 0  , start - 1
-        __MsprofFlagL0 = ((0x00000800ULL & handle->profSwitch) == 0x00000800ULL) ? 1 : 0;
-        __MsprofFlagL1 = ((0x00000002ULL & handle->profSwitch) == 0x00000002ULL) ? 1 : 0;
-      }
-    }
-    return 0;
-  }
-}
-"""
-
-    cpp_msprof_callback = """
-  MsprofRegisterCallback(8, ProfCtrlHandle);      // 8 - CCE defined in msprof headerfile slog.h
-"""
-
-    cpp_msprof_call_before_launch = """
-    unsigned long int beginTime = 0;
-    unsigned long int endTime = 0;
-    unsigned long int opNameHashID = 0;
-    unsigned int threadId = 0;
-    char* _kernelName = const_cast<char*>(name.c_str());
-    size_t length = name.length();
-    if (__MsprofFlagL0 || __MsprofFlagL1)
-    {
-      beginTime = MsprofSysCycleTime();
-    }
-"""
-
-    cpp_msprof_call_after_launch = f"""
-    if (__MsprofFlagL0 || __MsprofFlagL1)
-    {{
-      endTime = MsprofSysCycleTime();
-      opNameHashID = MsprofGetHashId(_kernelName, length);
-      threadId = (unsigned int)(syscall(SYS_gettid));
-      MsprofApi info;
-      info.level = MSPROF_REPORT_NODE_LEVEL;
-      info.magicNumber = 0x5a5a;      //MSPROF_REPORT_DATA_MAGIC_NUM
-      info.type = MSPROF_REPORT_NODE_LAUNCH_TYPE;
-      info.threadId = threadId;
-      info.reserve = 0;
-      info.beginTime = beginTime;
-      info.endTime = endTime;
-      info.itemId = opNameHashID;
-      MsprofReportApi(false, &info);
-    }}
-    if (__MsprofFlagL1)
-    {{
-      MsprofCompactInfo nodeBasicInfo;
-      nodeBasicInfo.level = MSPROF_REPORT_NODE_LEVEL;
-      nodeBasicInfo.magicNumber = 0x5a5a;      //MSPROF_REPORT_DATA_MAGIC_NUM
-      nodeBasicInfo.type = MSPROF_REPORT_NODE_BASIC_INFO_TYPE;
-      nodeBasicInfo.threadId = threadId;
-      nodeBasicInfo.timeStamp = endTime;
-      nodeBasicInfo.data.nodeBasicInfo.opName = opNameHashID;
-      nodeBasicInfo.data.nodeBasicInfo.opType = opNameHashID;
-      nodeBasicInfo.data.nodeBasicInfo.taskType = {task_type};
-      nodeBasicInfo.data.nodeBasicInfo.blockDim = blockNum;
-      MsprofReportCompactInfo(0, static_cast<void *>(&nodeBasicInfo), sizeof(MsprofCompactInfo));
-
-      // Report tensor info
-      int max_tensors_num = tensorShapes.size() < MSPROF_GE_TENSOR_DATA_NUM ? tensorShapes.size() : MSPROF_GE_TENSOR_DATA_NUM;
-      MsprofAdditionalInfo tensorInfo;
-      tensorInfo.level = MSPROF_REPORT_NODE_LEVEL;
-      tensorInfo.type = MSPROF_REPORT_NODE_TENSOR_INFO_TYPE;
-      tensorInfo.threadId = threadId;
-      tensorInfo.timeStamp = endTime;
-      auto profTensorData = reinterpret_cast<MsprofTensorInfo *>(tensorInfo.data);
-      profTensorData->opName = opNameHashID;
-      int tensorCount = 0;
-      int dataTypes[MSPROF_GE_TENSOR_DATA_NUM];
-      if (tensorShapes.size() > 0) {{
-        {
-        LINE_CHANGE_CHAR.join(
-            f"dataTypes[{i}] = {convert_sigtype_to_int(ty[1:])};"
-            for i, ty in signature.items()
-            if ty.startswith("*") and i < 5
-        )
-    }
-      }}
-      for (int i = 0; i < tensorShapes.size() && tensorCount < MSPROF_GE_TENSOR_DATA_NUM; i++) {{
-        auto fillTensorData = [&](int index, int tensorType) {{
-          profTensorData->tensorData[index].tensorType = tensorType;
-          profTensorData->tensorData[index].format = 2; // GeDataFormat: ND = 2
-          profTensorData->tensorData[index].dataType = dataTypes[i];
-          int nDim = tensorShapes[i].size();
-          nDim = nDim < MSPROF_GE_TENSOR_DATA_SHAPE_LEN ? nDim : MSPROF_GE_TENSOR_DATA_SHAPE_LEN;
-          for (int j = 0; j < nDim; j++) {{
-            profTensorData->tensorData[index].shape[j] = tensorShapes[i][j];
-          }}
-          for (int j = nDim; j < MSPROF_GE_TENSOR_DATA_SHAPE_LEN; j++) {{
-            profTensorData->tensorData[index].shape[j] = 0;
-          }}
-        }};
-        int tensorType = (i < tensorKinds.size()) ? tensorKinds[i] : 0;  // DeFault tensor type is input
-        if (tensorType == TENSOR_KIND_INPUT || tensorType == TENSOR_KIND_INPUT_OUTPUT) {{
-          fillTensorData(tensorCount, MSPROF_GE_TENSOR_TYPE_INPUT);
-          tensorCount++;
-        }}
-        if ((tensorType == TENSOR_KIND_OUTPUT || tensorType == TENSOR_KIND_INPUT_OUTPUT) && tensorCount < MSPROF_GE_TENSOR_DATA_NUM){{
-          fillTensorData(tensorCount, MSPROF_GE_TENSOR_TYPE_OUTPUT);
-          tensorCount++;
-        }}
-      }}
-      profTensorData->tensorNum = tensorCount;
-      MsprofReportAdditionalInfo(false, static_cast<void *>(&tensorInfo), sizeof(MsprofAdditionalInfo));
-    }}
-"""
-
-    return f"""
-#include "npu_launcher.h"
-#define PY_SSIZE_T_CLEAN
-{"#define __CCE_ENABLE_PRINT__" if need_debug else ""}
-{extract_device_print_code_from_cann() if need_debug else ""}
-
-#define TENSOR_KIND_INPUT 0
-#define TENSOR_KIND_OUTPUT 1
-#define TENSOR_KIND_INPUT_OUTPUT 2
-
-{cpp_msprof_extern}
-
-{cpp_device_pointer}
-
-static void _launch(const char* kernelName, const void* func, rtStream_t stream, int gridX, int gridY, int gridZ, std::vector<std::vector<int64_t>> &tensorShapes, std::vector<int> &tensorKinds, {
-        arg_decls
-    }) {{
-  // only 1D parallelization is supported for NPU
-  // Pointer type becomes flattened 1-D Memref tuple: base_ptr, data_ptr, offset, shape, stride
-  // base_ptr offset shape and stride are not used, arbitrarily set for now
-  std::string name = "";
-  name.append(kernelName);
-  void *workspace_addr_ptr = NULL;
-  {
-        f'''
-    uint32_t blockNum4Workspace = gridX * gridY * gridZ;
-    uint64_t totalWorkSpaceSize = {workspace_size} * blockNum4Workspace;
-    workspace_addr_ptr = const_cast<void *>(at::empty(totalWorkSpaceSize, at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte)).storage().data());
-    '''
-        if workspace_size > 0
-        else ""
-    }
-  {"auto launch_call = [=]()" if enable_taskqueue else ""} {{
-    uint32_t blockNum = gridX * gridY * gridZ;
-    {
-        "blockNum = std::min(blockNum, (uint32_t)" + str(num_physical_blocks) + ");"
-        if enable_auto_map_parallel_blocks
-        else ""
-    }
-    {
-        "cce::internal::DebugTunnelData *DTData = cce::internal::DebugTunnel::Open(blockNum);"
-        if need_debug
-        else ""
-    }
-    rtError_t ret;
-    void *ffts_addr = NULL;
-    uint32_t ffts_len; ret = rtGetC2cCtrlAddr((uint64_t*)&ffts_addr, &ffts_len);
-    if (ret != RT_ERROR_NONE) {{
-      return {"ret" if enable_taskqueue else ""};
-    }}
-    // stub argument for workspace
-    void *syncBlockLock_ptr = NULL;
-
-    uint16_t ModuleId = 0;
-    {
-        f'''
-    uint64_t syncBlockLockSize = {lock_num} * sizeof(int64_t);
-    syncBlockLock_ptr = const_cast<void *>(at_npu::native::allocate_workspace(syncBlockLockSize, stream).storage().data());
-    std::vector<int64_t> lockInitData({lock_num}, {lock_ini_val});
-    ret = rtMemcpy(syncBlockLock_ptr, syncBlockLockSize, reinterpret_cast<void *>(lockInitData.data()),
-                   syncBlockLockSize, RT_MEMCPY_HOST_TO_DEVICE);
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
-    '''
-        if lock_num > 0
-        else ""
-    }
-    struct __attribute__((packed)) {{
-      void* ffts_addr __attribute__((aligned(8)));
-      void* syncBlockLock __attribute__((aligned(8)));
-      void* workspace_addr __attribute__((aligned(8)));
-      {
-        " ".join(
-            f"{_ty_to_cpp(ty)} arg{i} __attribute__((aligned({4 if ty[0] != '*' and ty[-2:] != '64' else 8})));"
-            for i, ty in signature.items()
-            if i not in constants
-        )
-    }
-      {
-        " ".join(
-            f"{_ty_to_cpp(ty)} grid{mark} __attribute__((aligned(4)));"
-            for mark, ty in grid_info.items()
-        )
-    }
-      {"void* DTData __attribute__((aligned(8)));" if need_debug else ""}
-    }} args = {{
-      static_cast<void*>(ffts_addr),
-      {"static_cast<void*>(syncBlockLock_ptr)," if lock_num > 0 else "nullptr,"}
-      {"static_cast<void*>(workspace_addr_ptr)," if workspace_size > 0 else "nullptr,"}
-      {
-        ", ".join(
-            f"static_cast<{_ty_to_cpp(ty)}>(arg{i})"
-            for i, ty in signature.items()
-            if i not in constants
-        )
-    },
-      {
-        ", ".join(
-            f"static_cast<{_ty_to_cpp(ty)}>(grid{mark})"
-            for mark, ty in grid_info.items()
-        )
-    }
-      {", static_cast<void*>(DTData)" if need_debug else ""}
-    }};
-    {cpp_msprof_call_before_launch}
-    ret = rtKernelLaunch(func, blockNum, static_cast<void*>(&args), sizeof(args), NULL, stream);
-    {"void *&stream_ref = const_cast<void*&>(stream);" if need_debug else ""}
-    {"cce::internal::DebugTunnel::Close(DTData, stream_ref);" if need_debug else ""}
-    {cpp_msprof_call_after_launch}
-    {"return ret;" if enable_taskqueue else ""}
-   }};
-   {
-        "at_npu::native::OpCommand cmd; "
-        "cmd.Name(name.c_str()).SetCustomHandler(launch_call).Run();"
-        if enable_taskqueue
-        else ""
-    }
-  return;
-}}
-
-// Extract tensor shape from PyObject
-static std::vector<int64_t> _get_tensor_shape(PyObject *tensor) {{
-  std::vector<int64_t> shape;
-
-  // Early return if tensor is None or null
-  if (!tensor || tensor == Py_None) {{
-    return shape;
-  }}
-
-  // Calling tensor.size()
-  PyObject* size_result = PyObject_CallMethod(tensor, "size", NULL);
-  if (!size_result) {{
-    return shape;
-  }}
-  // Using PySequence_Fast to improve access efficiency
-  PyObject* seq = PySequence_Fast(size_result, "Expected a sequence from tensor.size()");
-  if (seq) {{
-    Py_ssize_t len = PySequence_Fast_GET_SIZE(seq);
-    PyObject** items = PySequence_Fast_ITEMS(seq);
-    for (Py_ssize_t i = 0; i < len; ++i) {{
-      PyObject* dim = items[i];
-      if (PyLong_Check(dim)) {{
-        shape.push_back(PyLong_AsLong(dim));
-      }}
-    }}
-  }}
-  Py_DECREF(seq);
-  Py_DECREF(size_result);
-  return shape;
-}}
-
-static PyObject* launch(PyObject* self, PyObject* args) {{
-  int gridX, gridY, gridZ;
-  rtStream_t stream;
-  const void *function;
-  PyObject *packedMetadata = NULL;
-  PyObject *launch_metadata = NULL;
-  PyObject *launch_enter_hook = NULL;
-  PyObject *launch_exit_hook = NULL;
-  std::vector<std::vector<int64_t>> tensorShapes;
-  {" ".join([f"{_extracted_ty(ty)} _arg{i}; " for i, ty in signature.items()])}
-  if(!PyArg_ParseTuple(
-      args, \"{format}\",
-      &gridX, &gridY, &gridZ, &stream, &function,
-      &packedMetadata, &launch_metadata,
-      &launch_enter_hook, &launch_exit_hook
-      {
-        ", " + ", ".join(f"&_arg{i}" for i, ty in signature.items())
-        if len(signature) > 0
-        else ""
-    }
-      )
-    ) {{
-    return NULL;
-  }}
-  if (__MsprofFlagL1)
-  {{
-    {
-        LINE_CHANGE_CHAR.join(
-            f"{{ auto tmp = _get_tensor_shape(_arg{i}); if (!tmp.empty()) tensorShapes.push_back(tmp); }}"
-            for i, ty in signature.items()
-            if ty[0] == "*"
-        )
-    }
-  }}
-
-  if (launch_enter_hook != Py_None && !PyObject_CallObject(launch_enter_hook, args)) {{
-    return NULL;
-  }}
-
-  // get kernel_name
-  PyObject *kernelNameObj = PyDict_GetItemString(packedMetadata, "kernel_name");
-  const char *kernelName = PyUnicode_AsUTF8(kernelNameObj);
-  // get tensor_kinds
-  std::vector<int> tensorKinds;
-  PyObject *tensorKindList = PyDict_GetItemString(packedMetadata, "tensor_kinds");
-  if (tensorKindList) {{
-    int size = PyObject_Size(tensorKindList);
-    for (int i = 0; i < size; i++) {{
-      PyObject *kind = PySequence_GetItem(tensorKindList, i);
-      tensorKinds.push_back(PyLong_AsLong(kind));
-    }}
-  }}
-
-  // raise exception asap
-  {
-        "; ".join(
-            [
-                f"DevicePtrInfo ptr_info{i} = getPointer(_arg{i}, {i}); if (!ptr_info{i}.valid) return NULL;"
-                if ty[0] == "*"
-                else ""
-                for i, ty in signature.items()
-            ]
-        )
-    };
-  _launch(kernelName, function, stream, gridX, gridY, gridZ, tensorShapes, tensorKinds, {
-        ", ".join(
-            f"ptr_info{i}.dev_ptr" if ty[0] == "*" else f"_arg{i}"
-            for i, ty in signature.items()
-        )
-    });
-  if (PyErr_Occurred()) {{
-    return NULL;
-  }}
-  if (launch_exit_hook != Py_None && !PyObject_CallObject(launch_exit_hook, args)) {{
-    return NULL;
-  }}
-  Py_RETURN_NONE;
-}}
-
-static PyMethodDef ModuleMethods[] = {{
-  {{"launch", launch, METH_VARARGS, "Entry point for all kernels with this signature"}},
-  {{NULL, NULL, 0, NULL}} // sentinel
-}};
-
-static struct PyModuleDef ModuleDef = {{
-  PyModuleDef_HEAD_INIT,
-  \"__tilelang_launcher\",
-  NULL, //documentation
-  -1, //size
-  ModuleMethods
-}};
-
-PyMODINIT_FUNC PyInit___tilelang_launcher(void) {{
-  PyObject *m = PyModule_Create(&ModuleDef);
-  if(m == NULL) {{
-    return NULL;
-  }}
-  PyModule_AddFunctions(m, ModuleMethods);
-  {cpp_msprof_callback}
-  return m;
-}}
-"""
+    template = _get_npu_launcher_template()
+    return template.render(
+        arg_decls=arg_decls,
+        format_str=format_str,
+        need_debug=need_debug,
+        debug_print_code=debug_print_code,
+        enable_taskqueue=enable_taskqueue,
+        enable_auto_map_parallel_blocks=enable_auto_map_parallel_blocks,
+        enable_grid_warn_print=enable_grid_warn_print,
+        num_physical_blocks=num_physical_blocks,
+        lock_num=lock_num,
+        lock_ini_val=lock_ini_val,
+        workspace_size=workspace_size,
+        task_type=task_type,
+        mix_block_dim_ratio=mix_block_dim_ratio,
+        is_mix_task_type=is_mix_task_type,
+        target_support_ffts=target_support_ffts,
+        compile_on_910_95=compile_on_910_95,
+        enable_simt=enable_simt,
+        force_simt_only=force_simt_only,
+        shared_mem_dynamic_size=shared_mem_dynamic_size,
+        signature=signature,
+        constants=constants,
+        grid_info=grid_info,
+        ty_to_cpp=ty_to_cpp,
+        extracted_ty=extracted_ty,
+        sigtype_to_int=sigtype_to_int,
+        launch_args=launch_args,
+    )
 
 
 def read_binary_file(file_path, mode="rb", chunk_size=None, return_type="bytes"):
@@ -1199,6 +908,20 @@ class compiler_npu:
                     f"got '{TILELANG_ASCEND_WORKSPACE_SIZE}', using {self.workspace_size}"
                 )
 
+        from ..utils.npu_arch import is_compile_on_910_95, get_ascend_device_name
+
+        arch = get_ascend_device_name()
+        compile_on_910_95 = is_compile_on_910_95(arch)
+
+        bs_task_type = self.metadata.get("bs_task_type", 0)
+        force_simt_only = self.metadata.get("force_simt_only", False)
+        shared_mem_dynamic_size = self.metadata.get("shared_mem_dynamic_size", 0)
+
+        if force_simt_only and shared_mem_dynamic_size == 0:
+            shared_mem_dynamic_size = 122880
+        elif not force_simt_only and shared_mem_dynamic_size == 0:
+            shared_mem_dynamic_size = 221184
+
         self.wrapper_src = generate_npu_wrapper_src(
             self.constants,
             self.signature,
@@ -1207,6 +930,10 @@ class compiler_npu:
             self.lock_num,
             self.lock_ini_val,
             self.need_debug,
+            bs_task_type=bs_task_type,
+            compile_on_910_95=compile_on_910_95,
+            force_simt_only=force_simt_only,
+            shared_mem_dynamic_size=shared_mem_dynamic_size,
         )
         self.so_launcher_path = self.make_npu_launcher_stub(
             self.metadata["kernel_name"], self.header_path, self.wrapper_src

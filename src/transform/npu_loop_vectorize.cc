@@ -1107,6 +1107,80 @@ private:
   // Single-statement vectorization
   // ============================================================
 
+  // Check whether every buffer load in the RHS expression can be decomposed
+  // into regions that LoopVectorize will later be able to merge.  A buffer
+  // load whose innermost loop var sits in dimension d is only decomposable
+  // when every dimension after d has buffer size 1 — otherwise the scalar
+  // regions that DecomposeExpression creates (all sizes = 1) will fail the
+  // CheckContinuity test (size != buffer.shape[i] for i > loop_var_dim),
+  // leaving unmerged npuir calls inside a parallel loop that the codegen
+  // mis-lowers (dynamic tensor.empty with missing dynamic sizes).
+  static bool
+  CanDecomposeBufferAccess(const PrimExpr &expr,
+                           const std::vector<const VarNode *> &loop_vars) {
+    struct Checker : public ExprVisitor {
+      const std::vector<const VarNode *> &loop_vars;
+      bool ok = true;
+
+      explicit Checker(const std::vector<const VarNode *> &lv)
+          : loop_vars(lv) {}
+
+      void VisitExpr_(const BufferLoadNode *op) override {
+        if (!ok)
+          return;
+
+        const VarNode *inner = loop_vars.back();
+        int d = -1;
+        for (size_t i = 0; i < op->indices.size(); ++i) {
+          if (tir::UsesVar(op->indices[i],
+                           [inner](const VarNode *v) { return v == inner; })) {
+            if (d >= 0) {
+              d = -2;
+              break;
+            }
+            d = static_cast<int>(i);
+          }
+        }
+
+        // -1: loop-invariant — decomposition handles this via broadcast.
+        // -2: loop var used indirectly or in multiple dimensions — the
+        //     resulting scalar regions cannot be merged into a single vector
+        //     region later, so decomposition would leave unvectorizable npuir
+        //     calls behind.
+        if (d == -2) {
+          ok = false;
+          return;
+        }
+        if (d < 0) {
+          // -1: loop-invariant for this buffer, but still recurse into
+          // indices in case they contain nested BufferLoads that do use
+          // the loop var (e.g. scales[index_buf[i, 1], 1]).
+          ExprVisitor::VisitExpr_(op);
+          return;
+        }
+
+        // For every dimension after the loop-var dimension, the buffer must
+        // be size 1.  DecomposeExpression creates scalar regions (all region
+        // sizes = 1), and CheckContinuity requires size == buffer.shape[i]
+        // for i > loop_var_dim.
+        for (size_t i = d + 1; i < op->buffer->shape.size(); ++i) {
+          const auto *imm = op->buffer->shape[i].as<IntImmNode>();
+          if (!imm || imm->value != 1) {
+            ok = false;
+            return;
+          }
+        }
+
+        // Recurse into indices to check nested BufferLoads.
+        ExprVisitor::VisitExpr_(op);
+      }
+    };
+
+    Checker checker(loop_vars);
+    checker(expr);
+    return checker.ok;
+  }
+
   Stmt VectorizeSingleStatement(const ForNode *op) {
     const auto *store = op->body.as<BufferStoreNode>();
 
@@ -1115,6 +1189,10 @@ private:
       if (!idx.as<VarNode>() && !IsScalar(idx))
         return StmtMutator::VisitStmt_(op);
     }
+
+    // Bail out early when a buffer load in the RHS cannot be vectorized.
+    if (!CanDecomposeBufferAccess(store->value, current_loop_vars_))
+      return StmtMutator::VisitStmt_(op);
 
     Array<Stmt> stmts;
     std::vector<BufferAccessInfo> tmp_bufs;

@@ -9,7 +9,6 @@ import torch.nn as nn
 import tilelang
 import tilelang.language as T
 
-torch.npu.set_device(0)
 tilelang.cache.clear_cache()
 
 

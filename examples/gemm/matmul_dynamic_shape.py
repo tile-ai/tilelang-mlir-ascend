@@ -3,7 +3,6 @@ import torch
 import tilelang
 import tilelang.language as T
 
-torch.npu.set_device(0)
 tilelang.cache.clear_cache()
 
 @tilelang.jit(target="npuir")

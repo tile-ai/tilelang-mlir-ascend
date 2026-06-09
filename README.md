@@ -141,7 +141,7 @@ If you need to access Ascend NPU computing resources for development or testing,
 **tile-lang** provides the building blocks to implement a wide variety of operators. Some examples include:
 
 - [Vector Add](./examples/elementwise/vec_add_1d.py)
-- [Flash Attention](./examples/flash_attn_npuir.py)
+- [Flash Attention](./examples/flash_attention/flash_attn_npuir.py)
 
 Within the `examples` directory, you will also find additional complex kernels—such as convolutions, forward/backward passes for FlashAttention, more operators will continuously be added.
 
@@ -283,8 +283,6 @@ def test_vec_add():
     Test function to validate the vector addition kernel.
     Compares the result of the custom TileLang kernel against PyTorch's native addition.
     """
-    # Set the target NPU device (device ID 6 in this case)
-    torch.npu.set_device(6)
 
     # Instantiate the vector addition kernel for the full sequence length (single block)
     func = vec_add(seq_len, seq_len)

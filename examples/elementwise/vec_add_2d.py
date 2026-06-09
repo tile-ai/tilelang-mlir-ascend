@@ -68,7 +68,6 @@ def run_test(main_args):
 
 
 if __name__ == "__main__":
-    torch.npu.set_device(0)
     tilelang.cache.clear_cache()
     args = parser.parse_args()
     run_test(args)

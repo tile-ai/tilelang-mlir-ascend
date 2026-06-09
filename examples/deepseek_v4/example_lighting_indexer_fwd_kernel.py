@@ -161,7 +161,6 @@ def _ref_indexer(q_flat, kv, weights):
 
 
 def test_lighting_indexer_fwd_small():
-    torch.npu.set_device(0)
     SEQ, SKV, H, D = 8, 16, 8, 32
     BN, BQ = 16, 4
 

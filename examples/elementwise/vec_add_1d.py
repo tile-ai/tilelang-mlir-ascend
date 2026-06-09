@@ -41,7 +41,6 @@ def vec_add(N, block_N, dtype="float32"):
 
 
 def test_vec_add():
-    torch.npu.set_device(0)
     func = vec_add(seq_len, seq_len)
     compiled_kernel = tilelang.compile(func, target="npuir")
 

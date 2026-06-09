@@ -6,7 +6,6 @@ import tilelang
 import tilelang.language as T
 
 torch.manual_seed(1234)
-torch.npu.set_device(0)
 tilelang.cache.clear_cache()
 
 M = 16

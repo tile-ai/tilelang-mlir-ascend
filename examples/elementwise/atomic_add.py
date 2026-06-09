@@ -67,7 +67,6 @@ def atomic_add_2d(M, N, block_M, block_N, dtype="float32"):
 #  Tests
 # ---------------------------------------------------------------------------
 def test_atomic_add_1d():
-    torch.npu.set_device(0)
     N = 64
 
     a = torch.randn(N, dtype=eval("torch." + dtype)).npu()
@@ -86,7 +85,6 @@ def test_atomic_add_1d():
 
 
 def test_atomic_add_2d():
-    torch.npu.set_device(0)
     M, N = 256, 256
 
     a = torch.randn(M, N, dtype=eval("torch." + dtype)).npu()

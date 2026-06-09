@@ -8,8 +8,6 @@ import tilelang.language as T
 seq_len = 512
 dim = 128
 
-torch.npu.set_device(0)
-
 @tilelang.jit(out_idx=[-1], target="npuir")
 def online_flash_attention(block_M, block_N, block_K, dtype="float16", accum_dtype="float32"):
     shape_q = [seq_len, dim]

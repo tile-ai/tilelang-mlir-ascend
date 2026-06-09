@@ -243,7 +243,6 @@ def test_ternary_simple(v1, v2, v3):
 
 
 if __name__ == "__main__":
-    # torch.npu.set_device(6)
     os.environ['TILELANG_ASCEND_MODE'] = 'Developer'
     # Create random input tensors on the NPU
     v1 = torch.randn(size=[seq_len], dtype=eval("torch." + dtype)).npu()

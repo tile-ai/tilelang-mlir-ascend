@@ -51,10 +51,10 @@ jobs:
         python -m pre_commit run --files $(tr '\n' ' ' < /tmp/changed_files.txt)
 
   # ============================================================
-  # Doc link check (PR only, after format passes)
+  # Doc link check (PR only, runs regardless of format result)
   # ============================================================
   doc-link-check:
-    if: github.event_name == 'pull_request' && needs.format.result == 'success'
+    if: always() && github.event_name == 'pull_request'
     needs: format
     uses: ./.github/workflows/doc-link-check.yml
 

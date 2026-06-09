@@ -256,7 +256,6 @@ def lighting_indexer_bwd(
 
 
 def _smoke_bwd():
-    torch.npu.set_device(0)
     # T33: probe per-shape stability of the bwd kernel. Standalone PASS at
     # SEQ=1,K=8,BI=8 doesn't generalize: the shim hit garbage dk values at
     # K=4,BI=4. Test K=BI=4 here to see if same garbage repros.

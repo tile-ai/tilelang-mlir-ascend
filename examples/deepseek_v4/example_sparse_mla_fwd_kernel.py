@@ -180,7 +180,6 @@ def _ref_torch(q, kv, indices, sm_scale=None):
 
 
 def test_sparse_mla_fwd_small():
-    torch.npu.set_device(0)
     B, S, SKV, H = 1, 8, 16, 16
     D, DT = 64, 16
     topk = 8

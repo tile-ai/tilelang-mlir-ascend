@@ -649,9 +649,6 @@ def run_test(verify_acc=True):
 
 
 if __name__ == "__main__":
-    # Specifies which NPU device to use
-    torch.npu.set_device(0)
-
     # Generate data and run tests
     generate_data()
     run_test(verify_acc=True)

@@ -131,6 +131,10 @@ def indexer_bwd(q, k, indices, weights, grad_output, block_top_k=16):
     top_k = indices.shape[1]
     device = q.device
 
+    assert top_k % block_top_k == 0, (
+        f"top_k ({top_k}) must be a multiple of block_top_k ({block_top_k})"
+    )
+
     dq = torch.zeros(
         (query_len, num_heads, head_dim), device=device, dtype=torch.float16
     )

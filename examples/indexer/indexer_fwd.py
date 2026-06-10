@@ -137,6 +137,13 @@ def indexer_fwd(
     seq_kv = kv.shape[0]
     device = q.device
 
+    assert seq_len % block_Q == 0, (
+        f"seq_len ({seq_len}) must be a multiple of block_Q ({block_Q})"
+    )
+    assert seq_kv % block_N == 0, (
+        f"seq_kv ({seq_kv}) must be a multiple of block_N ({block_N})"
+    )
+
     metadata, num_q_blocks = prepare_metadata(ks, ke, seq_len, block_Q, block_N, device)
 
     kernel = _indexer_fwd_kernel(

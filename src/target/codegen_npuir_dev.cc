@@ -2010,7 +2010,23 @@ mlir::Value CodeGenTileLangNPUIRDEV::BinaryOpCodegen(const PrimExprNode *op,
   // duplicated MLIR Op
   std::pair<bool, mlir::Value> result = CheckPrimExprMap(op);
   if (result.first) {
-    return result.second;
+    mlir::Value cached = result.second;
+
+    // Only reuse a cached binary op when it was generated from the current
+    // operands. The same PrimExprNode can be revisited with remapped SSA values
+    // while lowering loops, so blindly returning the cached value may reuse an
+    // operation from an earlier operand context.
+    if (auto *defOp = cached.getDefiningOp()) {
+      bool operandsMatch = false;
+      if (defOp->getNumOperands() >= 2) {
+        operandsMatch =
+            (defOp->getOperand(0) == lhs && defOp->getOperand(1) == rhs);
+      }
+
+      if (operandsMatch) {
+        return cached;
+      }
+    }
   }
   mlir::Value mlirVal;
   if constexpr (std::is_same_v<U, std::nullptr_t>) {

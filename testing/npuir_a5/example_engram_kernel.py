@@ -70,7 +70,7 @@ def get_engram_gate_fwd_kernel(
             rstd_k_reducer = T.alloc_shared((1,), accum_dtype)
 
             x_smem = T.alloc_shared((hidden_size,), dtype)
-            # 原二维kv_smem拆分为两个独立的一维共享内存
+            # Split the original 2D kv_smem into two independent 1D shared memories
             kv_smem_0 = T.alloc_shared((blk_d,), dtype)
             kv_smem_1 = T.alloc_shared((blk_d,), dtype)
 

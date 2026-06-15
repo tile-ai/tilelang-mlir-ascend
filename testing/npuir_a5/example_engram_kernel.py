@@ -357,11 +357,34 @@ def engram_gate_fwd(
     return output, dot, gate_score, rstd_x, rstd_k
 
 
-def calc_diff(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-    x, y = x.double(), y.double()
-    denominator = (x * x + y * y).sum()
-    sim = 2 * (x * y).sum() / denominator
-    return 1 - sim if denominator != 0 else 0
+def check_tensor(
+    name: str,
+    value: torch.Tensor,
+    ref: torch.Tensor,
+    atol: float = 1e-2,
+) -> int:
+    value_cpu = value.detach().cpu()
+    ref_cpu = ref.detach().cpu()
+    diff = (value_cpu.float() - ref_cpu.float()).abs()
+    mismatch = diff > atol
+    mismatch_count = int(mismatch.sum().item())
+    max_abs = float(diff.max().item()) if diff.numel() > 0 else 0.0
+    mean_abs = float(diff.mean().item()) if diff.numel() > 0 else 0.0
+    print(
+        f"{name}: mismatch={mismatch_count}/{diff.numel()}, "
+        f"atol={atol}, max_abs={max_abs:.6e}, mean_abs={mean_abs:.6e}"
+    )
+    return mismatch_count
+
+
+def calc_diff(x: torch.Tensor, y: torch.Tensor) -> float:
+    x_cpu = x.detach().cpu().double()
+    y_cpu = y.detach().cpu().double()
+    denominator = (x_cpu * x_cpu + y_cpu * y_cpu).sum().item()
+    if denominator == 0.0:
+        return 0.0
+    sim = 2 * (x_cpu * y_cpu).sum().item() / denominator
+    return 1.0 - sim
 
 
 def assert_equal(
@@ -440,11 +463,11 @@ def run_test():
 
     weight_fused = (weight_hidden.float() * weight_embed.float()).contiguous()
 
-    out, dot, gate_score, rstd_x, rstd_k = engram_gate_fwd(
-        hidden_states, k, v, weight_fused, eps, clamp_value, save_for_backward=False
+    out_save, dot, gate_score, rstd_x, rstd_k = engram_gate_fwd(
+        hidden_states, k, v, weight_fused, eps, clamp_value, save_for_backward=True
     )
 
-    out_ref, _, _, _, _ = engram_gate_ref(
+    out_ref, dot_ref, gate_score_ref, rstd_x_ref, rstd_k_ref = engram_gate_ref(
         hidden_states,
         k,
         v,
@@ -455,9 +478,40 @@ def run_test():
         save_for_backward=True,
     )
 
-    assert dot is None and gate_score is None and rstd_x is None and rstd_k is None
-    diff_out = calc_diff(out, out_ref)
-    assert diff_out < 1e-2, f"out_no_save mismatch: {diff_out:.6e}"
+    assert (
+        dot is not None
+        and gate_score is not None
+        and rstd_x is not None
+        and rstd_k is not None
+    )
+    mismatch_counts = {}
+    mismatch_counts["out_save"] = check_tensor("out_save", out_save, out_ref)
+    mismatch_counts["dot"] = check_tensor("dot", dot, dot_ref)
+    mismatch_counts["gate_score"] = check_tensor(
+        "gate_score", gate_score, gate_score_ref
+    )
+    mismatch_counts["rstd_x"] = check_tensor("rstd_x", rstd_x, rstd_x_ref)
+    mismatch_counts["rstd_k"] = check_tensor("rstd_k", rstd_k, rstd_k_ref)
+
+    print(f"mismatch_counts={mismatch_counts}")
+
+    diff_out = calc_diff(out_save, out_ref)
+    diff_dot = calc_diff(dot, dot_ref)
+    diff_gate = calc_diff(gate_score, gate_score_ref)
+    diff_rstd_x = calc_diff(rstd_x, rstd_x_ref)
+    diff_rstd_k = calc_diff(rstd_k, rstd_k_ref)
+    print(
+        "calc_diff: "
+        f"out={diff_out:.6e}, dot={diff_dot:.6e}, "
+        f"gate_score={diff_gate:.6e}, rstd_x={diff_rstd_x:.6e}, "
+        f"rstd_k={diff_rstd_k:.6e}"
+    )
+
+    assert diff_out < 1e-2, f"out_save mismatch: {diff_out:.6e}"
+    assert diff_dot < 1e-2, f"dot mismatch: {diff_dot:.6e}"
+    assert diff_gate < 1e-2, f"gate_score mismatch: {diff_gate:.6e}"
+    assert diff_rstd_x < 1e-2, f"rstd_x mismatch: {diff_rstd_x:.6e}"
+    assert diff_rstd_k < 1e-2, f"rstd_k mismatch: {diff_rstd_k:.6e}"
     print("All check pass!")
 
 

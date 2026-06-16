@@ -2638,21 +2638,128 @@ void CodeGenTileLangNPUIRDEV::VreduceCodegen(const CallNode *op) {
   mlir::Value dst = GenExtractSliceFromRegion(npuirop.dst, npuirop.dst_range);
 
   auto loc = builder.getUnknownLoc();
-  auto elemTy = src.getType().cast<mlir::RankedTensorType>().getElementType();
+  auto srcRankedTy = src.getType().cast<mlir::RankedTensorType>();
+  auto elemTy = srcRankedTy.getElementType();
+  auto srcShape = srcRankedTy.getShape();
+  int srcRank = srcShape.size();
+  int numReduceDims = npuirop.reduce_dims.size();
+
+  DenseSet<int64_t> reduceDimSet(npuirop.reduce_dims.begin(), npuirop.reduce_dims.end());
+  llvm::SmallVector<int64_t> naturalReduceShape;
+  for (int i = 0; i < srcRank; ++i) {
+    if (!reduceDimSet.contains(i)) {
+      naturalReduceShape.push_back(srcShape[i]);
+    }
+  }
+  int naturalReduceRank = naturalReduceShape.size();
+
   auto dstRankedTy = dst.getType().cast<mlir::RankedTensorType>();
   auto dstShape = dstRankedTy.getShape();
   int dstRank = dstShape.size();
 
-  llvm::SmallVector<int64_t> squeezeDimsList(
-      npuirop.reduce_dims.begin(),
-      npuirop.reduce_dims.end()
-  );
+  llvm::SmallVector<int64_t> squeezeDimsList;
+
+  if (dstRank == naturalReduceRank + numReduceDims) {
+    bool valid = true;
+    for (int64_t dim : npuirop.reduce_dims) {
+      if (dim >= dstRank || dstShape[dim] != 1) {
+        valid = false;
+        break;
+      }
+    }
+    if (valid) {
+      squeezeDimsList.assign(npuirop.reduce_dims.begin(), npuirop.reduce_dims.end());
+    }
+  }
+
+  int squeezedDstRank = dstRank - squeezeDimsList.size();
+  if (squeezedDstRank != naturalReduceRank) {
+    emitError(loc) << "Reduce shape mismatch: dst rank " << dstRank
+                   << " after squeezing " << squeezeDimsList.size() << " dims "
+                   << "should equal natural reduce rank " << naturalReduceRank
+                   << "\nInput shape: " << srcShape
+                   << "\nReduce dims: " << npuirop.reduce_dims
+                   << "\nExpected natural shape: " << naturalReduceShape
+                   << "\nActual dst shape: " << dstShape;
+    return;
+  }
+
+  llvm::SmallVector<int64_t> squeezedDstShape;
+  DenseSet<int64_t> squeezeDimSet(squeezeDimsList.begin(), squeezeDimsList.end());
+  for (int i = 0; i < dstRank; ++i) {
+    if (!squeezeDimSet.contains(i)) {
+      squeezedDstShape.push_back(dstShape[i]);
+    }
+  }
+  if (squeezedDstShape != naturalReduceShape) {
+    emitError(loc) << "Reduce shape mismatch: dst after squeeze should be " << naturalReduceShape
+                   << ", but got " << squeezedDstShape
+                   << "\nInput shape: " << srcShape
+                   << "\nReduce dims: " << npuirop.reduce_dims
+                   << "\nActual dst shape: " << dstShape;
+    return;
+  }
+
+  mlir::Value initValue;
+  if (npuirop.reduce_mode == "sum") {
+    initValue = builder.create<mlir::arith::ConstantOp>(loc, elemTy, builder.getZeroAttr(elemTy));
+  } else if (npuirop.reduce_mode == "max") {
+    if (elemTy.isa<mlir::FloatType>()) {
+      auto floatTy = elemTy.cast<mlir::FloatType>();
+      initValue = builder.create<mlir::arith::ConstantOp>(
+          loc, elemTy,
+          builder.getFloatAttr(floatTy, -std::numeric_limits<double>::infinity()));
+    } else {
+      auto intTy = elemTy.cast<mlir::IntegerType>();
+      initValue = builder.create<mlir::arith::ConstantOp>(
+          loc, elemTy,
+          builder.getIntegerAttr(intTy, APInt::getMinValue(intTy.getWidth())));
+    }
+  } else if (npuirop.reduce_mode == "min") {
+    if (elemTy.isa<mlir::FloatType>()) {
+      auto floatTy = elemTy.cast<mlir::FloatType>();
+      initValue = builder.create<mlir::arith::ConstantOp>(
+          loc, elemTy,
+          builder.getFloatAttr(floatTy, std::numeric_limits<double>::infinity()));
+    } else {
+      auto intTy = elemTy.cast<mlir::IntegerType>();
+      initValue = builder.create<mlir::arith::ConstantOp>(
+          loc, elemTy,
+          builder.getIntegerAttr(intTy, APInt::getMaxValue(intTy.getWidth())));
+    }
+  } else if (npuirop.reduce_mode == "prod") {
+    initValue = builder.create<mlir::arith::ConstantOp>(loc, elemTy, builder.getOneAttr(elemTy));
+  } else if (npuirop.reduce_mode == "any" || npuirop.reduce_mode == "ori") {
+    initValue = builder.create<mlir::arith::ConstantOp>(loc, elemTy, builder.getZeroAttr(elemTy));
+  } else if (npuirop.reduce_mode == "all") {
+    if (elemTy.isa<mlir::IntegerType>()) {
+      auto intTy = elemTy.cast<mlir::IntegerType>();
+      initValue = builder.create<mlir::arith::ConstantOp>(
+          loc, elemTy,
+          builder.getIntegerAttr(intTy, APInt::getAllOnes(intTy.getWidth())));
+    } else {
+      initValue = builder.create<mlir::arith::ConstantOp>(loc, elemTy, builder.getZeroAttr(elemTy));
+    }
+  } else if (npuirop.reduce_mode == "xori") {
+    initValue = builder.create<mlir::arith::ConstantOp>(loc, elemTy, builder.getZeroAttr(elemTy));
+  } else if (npuirop.reduce_mode == "none") {
+    initValue = builder.create<mlir::arith::ConstantOp>(loc, elemTy, builder.getZeroAttr(elemTy));
+  } else {
+    emitError(loc) << "unknown reduce_mode: " << npuirop.reduce_mode;
+    return;
+  }
+
+  auto fillOp = builder.create<mlir::linalg::FillOp>(loc, ValueRange{initValue}, ValueRange{dst});
+  dst = fillOp.getResult(0);
 
   mlir::Value squeezedInit = dst;
   if (!squeezeDimsList.empty()) {
-    auto squeezed = squeezeDims(builder, loc, dst, squeezeDimsList);
+    auto staticDstType = RankedTensorType::get(dstRankedTy.getShape(), elemTy);
+    squeezedInit = builder.create<tensor::CastOp>(loc, staticDstType, dst);
+
+    auto squeezed = squeezeDims(builder, loc, squeezedInit, squeezeDimsList);
     if (failed(squeezed)) {
-      emitError(loc, "squeeze failed");
+      emitError(loc) << "squeeze failed for reduce operation";
       return;
     }
     squeezedInit = *squeezed;
@@ -2743,11 +2850,11 @@ void CodeGenTileLangNPUIRDEV::VreduceCodegen(const CallNode *op) {
     } else if (npuirop.reduce_mode == "none") {
       result = accumElem;
     } else {
-      emitError(loc, "unknown reduce_mode: " + npuirop.reduce_mode);
+      emitError(loc) << "unknown reduce_mode: " << npuirop.reduce_mode;
       return;
     }
-
     // TODO: max_with_index_left/max_with_index_right/min_with_index_left/min_with_index_right
+
     builder.create<mlir::linalg::YieldOp>(loc, result);
   }
 
@@ -2755,15 +2862,18 @@ void CodeGenTileLangNPUIRDEV::VreduceCodegen(const CallNode *op) {
   if (!squeezeDimsList.empty()) {
     auto unsqueezed = unsqueezeDims(builder, loc, reducedResult, squeezeDimsList);
     if (failed(unsqueezed)) {
-      emitError(loc, "unsqueeze failed");
+      emitError(loc) << "unsqueeze failed for reduce operation";
       return;
     }
     reducedResult = *unsqueezed;
+
+    reducedResult = builder.create<tensor::CastOp>(loc, dstRankedTy, reducedResult);
   }
 
   auto insertSliceOp = ReshapeCastAndInsertSlice(reducedResult, dst_ori, npuirop.dst_range);
   SetVarValue(npuirop.dst, insertSliceOp);
 }
+
 
 void CodeGenTileLangNPUIRDEV::VcumsumCodegen(const CallNode *op) {
   /// Generate hivm.hir.cumsum for tl.npuir_cumsum.

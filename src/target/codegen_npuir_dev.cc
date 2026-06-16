@@ -2708,24 +2708,24 @@ void CodeGenTileLangNPUIRDEV::VreduceCodegen(const CallNode *op) {
       auto floatTy = elemTy.cast<mlir::FloatType>();
       initValue = builder.create<mlir::arith::ConstantOp>(
           loc, elemTy,
-          builder.getFloatAttr(floatTy, -std::numeric_limits<double>::infinity()));
+          builder.getFloatAttr(floatTy, llvm::APFloat::getInf(floatTy.getFloatSemantics(), true)));
     } else {
       auto intTy = elemTy.cast<mlir::IntegerType>();
       initValue = builder.create<mlir::arith::ConstantOp>(
           loc, elemTy,
-          builder.getIntegerAttr(intTy, APInt::getMinValue(intTy.getWidth())));
+          builder.getIntegerAttr(intTy, llvm::APInt::getMinValue(intTy.getWidth())));
     }
   } else if (npuirop.reduce_mode == "min") {
     if (elemTy.isa<mlir::FloatType>()) {
       auto floatTy = elemTy.cast<mlir::FloatType>();
       initValue = builder.create<mlir::arith::ConstantOp>(
           loc, elemTy,
-          builder.getFloatAttr(floatTy, std::numeric_limits<double>::infinity()));
+          builder.getFloatAttr(floatTy, llvm::APFloat::getInf(floatTy.getFloatSemantics(), false)));
     } else {
       auto intTy = elemTy.cast<mlir::IntegerType>();
       initValue = builder.create<mlir::arith::ConstantOp>(
           loc, elemTy,
-          builder.getIntegerAttr(intTy, APInt::getMaxValue(intTy.getWidth())));
+          builder.getIntegerAttr(intTy, llvm::APInt::getMaxValue(intTy.getWidth())));
     }
   } else if (npuirop.reduce_mode == "prod") {
     initValue = builder.create<mlir::arith::ConstantOp>(loc, elemTy, builder.getOneAttr(elemTy));
@@ -2736,7 +2736,7 @@ void CodeGenTileLangNPUIRDEV::VreduceCodegen(const CallNode *op) {
       auto intTy = elemTy.cast<mlir::IntegerType>();
       initValue = builder.create<mlir::arith::ConstantOp>(
           loc, elemTy,
-          builder.getIntegerAttr(intTy, APInt::getAllOnes(intTy.getWidth())));
+          builder.getIntegerAttr(intTy, llvm::APInt::getAllOnes(intTy.getWidth())));
     } else {
       initValue = builder.create<mlir::arith::ConstantOp>(loc, elemTy, builder.getZeroAttr(elemTy));
     }
@@ -2866,8 +2866,6 @@ void CodeGenTileLangNPUIRDEV::VreduceCodegen(const CallNode *op) {
       return;
     }
     reducedResult = *unsqueezed;
-
-    reducedResult = builder.create<tensor::CastOp>(loc, dstRankedTy, reducedResult);
   }
 
   auto insertSliceOp = ReshapeCastAndInsertSlice(reducedResult, dst_ori, npuirop.dst_range);

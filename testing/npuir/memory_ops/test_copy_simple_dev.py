@@ -181,10 +181,8 @@ def test_copy_simple_3d_dev(dtype, M, N, K, block_M, block_N, block_K):
         c.cpu(), b.to(torch.float32).cpu(), dtype="float32", rtol=1e-5, atol=1e-5
     )
 
-
 @tilelang.jit(target="npuir")
 def implicit_cast_copy_1d(L, block_L, dtype="float16", mid_dtype="float32"):
-
     @T.prim_func
     def implicit_cast_copy_1d(
         In: T.Tensor((L,), dtype),
@@ -192,11 +190,9 @@ def implicit_cast_copy_1d(L, block_L, dtype="float16", mid_dtype="float32"):
     ):
         with T.Kernel(T.ceildiv(L, block_L), is_npu=True) as (cid, _):
             start_idx = cid * block_L
-            # Alloc UB with mid_dtype (different from dtype)
             A_frag = T.alloc_fragment((block_L,), mid_dtype)
-            # GM(dtype) -> UB(mid_dtype) : Implicit Cast during GM2UB
+
             T.copy(In[start_idx], A_frag)
-            # UB(mid_dtype) -> GM(dtype) : Implicit Cast during UB2GM
             T.copy(A_frag, Out[start_idx])
 
     return implicit_cast_copy_1d
@@ -204,7 +200,6 @@ def implicit_cast_copy_1d(L, block_L, dtype="float16", mid_dtype="float32"):
 
 @tilelang.jit(target="npuir")
 def implicit_cast_copy_1d_dynamic(L, block_L, dtype="float16", mid_dtype="float32"):
-
     @T.prim_func
     def implicit_cast_copy_1d_dynamic(
         In: T.Tensor((L,), dtype),
@@ -214,7 +209,6 @@ def implicit_cast_copy_1d_dynamic(L, block_L, dtype="float16", mid_dtype="float3
         with T.Kernel(T.ceildiv(L, block_L), is_npu=True) as (cid, _):
             start_idx = cid * block_L
             tile_size = T.min(block_L, shape_L - start_idx)
-
             A_frag = T.alloc_fragment((block_L,), mid_dtype)
 
             T.copy(In[start_idx : start_idx + tile_size], A_frag[0:tile_size])
@@ -238,7 +232,9 @@ def test_copy_implicit_cast_dev(dtype, mid_dtype):
     expected_tensor = input_tensor.to(getattr(torch, mid_dtype)).to(
         getattr(torch, dtype)
     )
-    assert_close(output_tensor.cpu(), expected_tensor.cpu(), dtype=dtype)
+    assert_close(
+        output_tensor.cpu(), expected_tensor.cpu(), dtype=dtype, rtol=1e-5, atol=1e-5
+    )
 
 
 def test_copy_implicit_cast_dynamic_dev():
@@ -254,4 +250,6 @@ def test_copy_implicit_cast_dynamic_dev():
     expected_tensor = input_tensor.to(getattr(torch, mid_dtype)).to(
         getattr(torch, dtype)
     )
-    assert_close(output_tensor.cpu(), expected_tensor.cpu(), dtype=dtype)
+    assert_close(
+        output_tensor.cpu(), expected_tensor.cpu(), dtype=dtype, rtol=1e-5, atol=1e-5
+    )

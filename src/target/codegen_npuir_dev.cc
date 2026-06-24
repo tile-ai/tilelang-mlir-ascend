@@ -1821,7 +1821,7 @@ void CodeGenTileLangNPUIRDEV::EmitCopyMemrefToTensor(
       copyDimVal = builder.create<mlir::arith::ConstantIndexOp>(loc, val);
     } else {
       copyDimVal = sizeOfr.get<mlir::Value>();
-      if (copyDimVal.getType().isInteger(32)) {
+      if (copyDimVal.getType().isIndex()) {
         copyDimVal = builder.create<mlir::arith::IndexCastOp>(
             loc, builder.getIndexType(), copyDimVal);
       }

@@ -1732,155 +1732,162 @@ CodeGenTileLangNPUIRDEV::ComputeUBAllocShapeFromDstRange(
 void CodeGenTileLangNPUIRDEV::EmitCopyMemrefToTensor(
     const tvm::tl::AscendCopy &npuirop, mlir::Value src, mlir::Value dst,
     const SliceRange &srcR, const SliceRange &dstR, mlir::Location loc) {
-  auto dstTensorTy = dst.getType().cast<mlir::RankedTensorType>();
-  auto srcMemrefTy = src.getType().cast<mlir::MemRefType>();
+  auto dst_tensor_type_ori = dst.getType().cast<mlir::RankedTensorType>();
+  auto src_memref_type_ori = src.getType().cast<mlir::MemRefType>();
 
-  // 1. Canonicalize copy rank by collapsing static-1 dimensions
-  llvm::SmallVector<int64_t> ubAllocShape =
-      ComputeUBAllocShapeFromDstRange(dstTensorTy, dstR.sizes);
-  CollapsedDims srcCollapse = CollapseStaticOneDims(
-      srcR.sizes, static_cast<int64_t>(ubAllocShape.size()));
-  auto copySizes = srcCollapse.sizes;
-  auto copyProjected = srcCollapse.projected;
+  // 1) Canonicalize copy rank: drop static-1 dims using src_sizes
+  llvm::SmallVector<int64_t> ub_alloc_shape =
+      ComputeUBAllocShapeFromDstRange(dst_tensor_type_ori, dstR.sizes);
+  CollapsedDims srcC = CollapseStaticOneDims(
+      srcR.sizes, static_cast<int64_t>(ub_alloc_shape.size()));
+  llvm::ArrayRef<mlir::OpFoldResult> copy_sizes = srcC.sizes;
+  llvm::ArrayRef<int64_t> copy_projected = srcC.projected;
 
-  // 2. Create rank-reduced source subview
-  mlir::Value srcView = CreateRankReducedSubviewFromBaseRank(
-      src, srcR.offs, srcR.sizes, srcR.strides, copyProjected, loc);
+  // 2) Build src_view as rank-reduced subview to copy rank
+  mlir::Value src_view = CreateRankReducedSubviewFromBaseRank(
+      src, srcR.offs, srcR.sizes, srcR.strides, copy_projected, loc);
 
-  // 3. Allocate static UB buffer
-  bool hasDynamicDim = false;
-  for (int64_t d : ubAllocShape) {
+  // 3) Alloc UB from dst_range. kDynamic appears only when dst type has a
+  // dynamic dim;
+  //    dst_range dynamic + dst static => static alloc (dst dim as bound),
+  //    dynamic subview.
+  bool has_dynamic = false;
+  for (int64_t d : ub_alloc_shape) {
     if (mlir::ShapedType::isDynamic(d)) {
-      hasDynamicDim = true;
+      has_dynamic = true;
       break;
     }
   }
-  ICHECK(!hasDynamicDim) << "Dynamic UB allocation is not supported";
+  ICHECK(!has_dynamic)
+      << "dst with dynamic dimension(s) not supported for UB alloc";
 
-  mlir::Value baseUb = CreateStaticLocalUB(
-      ubAllocShape, dstTensorTy.getElementType(), loc);
-  auto ubTy = baseUb.getType().cast<mlir::MemRefType>();
-  bool rankMatches = static_cast<int64_t>(copySizes.size()) == ubTy.getRank();
-  llvm::SmallVector<mlir::OpFoldResult> fullSizes(ubTy.getRank(), builder.getIndexAttr(1));
+  mlir::Value base_ub = CreateStaticLocalUB(
+      ub_alloc_shape, src_memref_type_ori.getElementType(), loc);
 
-  // 4. Create UB target subview matching copy rank
-  mlir::Value ubView;
-  if (rankMatches) {
-    for (unsigned i = 0; i < copySizes.size(); ++i) {
-      fullSizes[i] = copySizes[i];
+  // 4) Create ub_view matching copy rank
+  mlir::Value ub_view;
+  auto ubTy = base_ub.getType().cast<mlir::MemRefType>();
+  // Full copy sizes per dimension for tail block detection
+  llvm::SmallVector<mlir::OpFoldResult> full_sizes(ubTy.getRank(), builder.getIndexAttr(1));
+
+  if ((int64_t)copy_sizes.size() == ubTy.getRank()) {
+    for (unsigned i = 0; i < copy_sizes.size(); ++i) {
+      full_sizes[i] = copy_sizes[i];
     }
-    if (OpFoldResultsEqualStaticShape(copySizes, ubAllocShape)) {
-      ubView = baseUb;
+
+    if (OpFoldResultsEqualStaticShape(copy_sizes, ub_alloc_shape)) {
+      ub_view = base_ub;
     } else {
-      ubView = CreateSameRankDynamicSubview(baseUb, copySizes, loc);
+      ub_view = CreateSameRankDynamicSubview(base_ub, copy_sizes, loc);
     }
   } else {
-    CollapsedDims dstCollapse =
+    CollapsedDims dstC =
         CollapseStaticOneDims(dstR.sizes, static_cast<int64_t>(ubTy.getRank()));
 
     llvm::SmallVector<mlir::OpFoldResult> fullOffsets(ubTy.getRank(),
                                                       builder.getIndexAttr(0));
     llvm::SmallVector<mlir::OpFoldResult> fullStrides(ubTy.getRank(),
                                                       builder.getIndexAttr(1));
+    llvm::SmallVector<mlir::OpFoldResult> fullSizes(ubTy.getRank(),
+                                                    builder.getIndexAttr(1));
 
-    if (static_cast<int64_t>(dstCollapse.keptIdx.size()) == static_cast<int64_t>(copySizes.size()) &&
-        static_cast<int64_t>(dstCollapse.keptIdx.size()) <= ubTy.getRank()) {
-      for (unsigned k = 0; k < dstCollapse.keptIdx.size(); ++k) {
-        unsigned idx = dstCollapse.keptIdx[k];
-        if (idx < static_cast<unsigned>(ubTy.getRank()))
-          fullSizes[idx] = copySizes[k];
+    if ((int64_t)dstC.keptIdx.size() == (int64_t)copy_sizes.size() &&
+        (int64_t)dstC.keptIdx.size() <= ubTy.getRank()) {
+      for (unsigned k = 0; k < dstC.keptIdx.size(); ++k) {
+        unsigned idx = dstC.keptIdx[k];
+        if (idx < (unsigned)ubTy.getRank())
+          fullSizes[idx] = copy_sizes[k];
       }
     } else {
       for (unsigned k = 0;
-           k < copySizes.size() && k < static_cast<unsigned>(ubTy.getRank()); ++k) {
-        fullSizes[k] = copySizes[k];
+           k < copy_sizes.size() && k < (unsigned)ubTy.getRank(); ++k) {
+        fullSizes[k] = copy_sizes[k];
       }
     }
 
-    ubView = CreateRankReducedSubviewFromBaseRank(
-        baseUb, fullOffsets, fullSizes, fullStrides, copyProjected, loc);
+    full_sizes = fullSizes;
+    ub_view = CreateRankReducedSubviewFromBaseRank(
+        base_ub, fullOffsets, fullSizes, fullStrides, copy_projected, loc);
   }
 
-  // Pre-zero full UB for tail blocks
-  mlir::Type elemTy = ubTy.getElementType();
-  mlir::TypedAttr zeroAttr = builder.getZeroAttr(elemTy);
-  mlir::Value zeroVal = builder.create<mlir::arith::ConstantOp>(loc, zeroAttr);
+  // Tail block pre-zero
+  mlir::Type elem_type = ubTy.getElementType();
+  mlir::TypedAttr zero_attr = builder.getZeroAttr(elem_type);
+  mlir::Value zero_val = builder.create<mlir::arith::ConstantOp>(loc, zero_attr);
 
-  mlir::Value needPad = builder.create<mlir::arith::ConstantOp>(
+  mlir::Value need_pad = builder.create<mlir::arith::ConstantOp>(
       loc, builder.getBoolAttr(false));
 
-  for (int64_t dim = 0; dim < ubTy.getRank(); ++dim) {
-    int64_t staticFullSize = ubAllocShape[dim];
-    if (mlir::ShapedType::isDynamic(staticFullSize))
+  for (int64_t dim_idx = 0; dim_idx < ubTy.getRank(); ++dim_idx) {
+    int64_t static_full_size = ub_alloc_shape[dim_idx];
+    if (mlir::ShapedType::isDynamic(static_full_size)) {
       continue;
+    }
 
-    mlir::Value copyDimVal;
-    auto sizeOfr = fullSizes[dim];
-    if (auto attr = sizeOfr.dyn_cast<mlir::Attribute>()) {
+    mlir::Value copy_dim_val;
+    auto size_ofr = full_sizes[dim_idx];
+    if (auto attr = size_ofr.dyn_cast<mlir::Attribute>()) {
       int64_t val = attr.cast<mlir::IntegerAttr>().getInt();
-      copyDimVal = builder.create<mlir::arith::ConstantIndexOp>(loc, val);
+      copy_dim_val = builder.create<mlir::arith::ConstantIndexOp>(loc, val);
     } else {
-      copyDimVal = sizeOfr.get<mlir::Value>();
-      if (copyDimVal.getType().isIndex()) {
-        copyDimVal = builder.create<mlir::arith::IndexCastOp>(
-            loc, builder.getIndexType(), copyDimVal);
+      copy_dim_val = size_ofr.get<mlir::Value>();
+      if (copy_dim_val.getType().isInteger(32)) {
+        copy_dim_val = builder.create<mlir::arith::IndexCastOp>(
+            loc, builder.getIndexType(), copy_dim_val);
       }
     }
 
-    mlir::Value fullSizeVal = builder.create<mlir::arith::ConstantIndexOp>(loc, staticFullSize);
-    mlir::Value isTail = builder.create<mlir::arith::CmpIOp>(
-        loc, mlir::arith::CmpIPredicate::slt, copyDimVal, fullSizeVal);
-    needPad = builder.create<mlir::arith::OrIOp>(loc, needPad, isTail);
+    mlir::Value full_size_val = builder.create<mlir::arith::ConstantIndexOp>(loc, static_full_size);
+    mlir::Value is_tail = builder.create<mlir::arith::CmpIOp>(
+        loc, mlir::arith::CmpIPredicate::slt, copy_dim_val, full_size_val);
+    need_pad = builder.create<mlir::arith::OrIOp>(loc, need_pad, is_tail);
   }
 
-  auto padIfOp = builder.create<mlir::scf::IfOp>(loc, needPad, /*addElseRegion=*/false);
-  padIfOp->setAttr("hivm.unlikely_condition", builder.getUnitAttr());
+  auto pad_if_op = builder.create<mlir::scf::IfOp>(loc, need_pad, /*addElseRegion=*/false);
+  pad_if_op->setAttr("hivm.unlikely_condition", builder.getUnitAttr());
   {
     mlir::OpBuilder::InsertionGuard guard(builder);
-    builder.setInsertionPointToStart(&padIfOp.getThenRegion().front());
-    builder.create<mlir::linalg::FillOp>(loc, zeroVal, baseUb);
+    builder.setInsertionPointToStart(&pad_if_op.getThenRegion().front());
+    builder.create<mlir::linalg::FillOp>(loc, zero_val, base_ub);
   }
 
-  // 5. Execute memory copy
-  builder.create<mlir::memref::CopyOp>(loc, srcView, ubView);
+  // 5) Copy
+  builder.create<mlir::memref::CopyOp>(loc, src_view, ub_view);
 
-  // Fast path: full static UB to tensor (skip expand + insert)
-  bool canUseFullUb = rankMatches;
-  if (canUseFullUb) {
+  // Fast path: full UB to tensor when rank matches and all dst offsets are 0
+  bool rank_matches = (int64_t)copy_sizes.size() == ubTy.getRank();
+  bool can_use_full_ub = rank_matches;
+  if (can_use_full_ub) {
     for (auto &off : dstR.offs) {
       if (auto attr = off.dyn_cast<mlir::Attribute>()) {
         int64_t val = attr.cast<mlir::IntegerAttr>().getInt();
         if (val != 0) {
-          canUseFullUb = false;
+          can_use_full_ub = false;
           break;
         }
       } else {
-        canUseFullUb = false;
+        can_use_full_ub = false;
         break;
       }
     }
   }
 
-  if (canUseFullUb) {
-    mlir::Value fullTensor = builder.create<mlir::bufferization::ToTensorOp>(
-        loc, baseUb, /*restrict=*/true, /*writable=*/true);
-    mlir::Value casted = CreateCastIfTypeMismatch(fullTensor, dst);
+  if (can_use_full_ub) {
+    mlir::Value full_tensor = builder.create<mlir::bufferization::ToTensorOp>(
+        loc, base_ub, /*restrict=*/true, /*writable=*/true);
+    mlir::Value casted = CreateCastIfTypeMismatch(full_tensor, dst);
     SetVarValue(npuirop.dst, casted);
     return;
   }
 
-  // Fallback path: subview to tensor + shape normalization + insert
-  mlir::Value loadedTensor = builder.create<mlir::bufferization::ToTensorOp>(
-      loc, ubView, /*restrict=*/true, /*writable=*/false);
+  // 6) ToTensor
+  mlir::Value loaded_tensor = builder.create<mlir::bufferization::ToTensorOp>(
+      loc, ub_view, /*restrict=*/true, /*writable=*/false);
 
-  mlir::Value castedTensor = CreateCastIfTypeMismatch(loadedTensor, dst);
+  // 7) Insert slice with optional cast
+  mlir::Value result = InsertSliceWithCast(loaded_tensor, dst, dstR, loc);
 
-  mlir::Value result = InsertSlice(
-      castedTensor, dst,
-      const_cast<llvm::SmallVector<mlir::OpFoldResult>&>(dstR.offs),
-      const_cast<llvm::SmallVector<mlir::OpFoldResult>&>(dstR.sizes),
-      const_cast<llvm::SmallVector<mlir::OpFoldResult>&>(dstR.strides));
-
+  // 8) SetVarValue
   SetVarValue(npuirop.dst, result);
 }
 

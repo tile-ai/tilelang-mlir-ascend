@@ -33,13 +33,27 @@ class NPUBinaryHandleCache:
         if isinstance(kernel, memoryview):
             return kernel.tobytes()
         if isinstance(kernel, str):
-            return kernel.encode("latin1")
+            return kernel.encode("utf-8")
         try:
             return bytes(kernel)
         except TypeError as exc:
             raise TypeError(
                 f"Unsupported NPU kernel binary type: {type(kernel).__name__}"
             ) from exc
+
+    @staticmethod
+    def _raise_if_load_failed(
+        loaded: Any,
+        name: str,
+    ) -> None:
+        if not isinstance(loaded, tuple) or len(loaded) < 2:
+            return
+
+        module_handle, function_handle = loaded[:2]
+        if module_handle and function_handle:
+            return
+
+        raise RuntimeError(f"Failed to load NPU kernel binary: {name}")
 
     @classmethod
     def kernel_digest(cls, kernel: Any) -> str:
@@ -74,7 +88,9 @@ class NPUBinaryHandleCache:
         key = self.make_key(name, kernel, shared, device, mix_mode)
         with self._lock:
             if key not in self._entries:
-                self._entries[key] = loader(name, kernel, shared, device, mix_mode)
+                loaded = loader(name, kernel, shared, device, mix_mode)
+                self._raise_if_load_failed(loaded, name)
+                self._entries[key] = loaded
             return self._entries[key]
 
     def clear(self) -> None:

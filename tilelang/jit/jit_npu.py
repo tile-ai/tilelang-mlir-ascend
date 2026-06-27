@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Union
 import torch
@@ -845,6 +846,8 @@ class JitKernel_NPU:
         self.symbolic = metadata["symbolic"]
         self.prim_func = metadata["primfunc"]
         self.out_idx = metadata["out_idx"]
+        self._loaded_binary = None
+        self._load_binary_lock = threading.Lock()
         self._launch()
 
     @classmethod
@@ -875,6 +878,19 @@ class JitKernel_NPU:
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         self.launch_npu = mod.launch
+
+    def _get_loaded_binary(self):
+        if self._loaded_binary is None:
+            with self._load_binary_lock:
+                if self._loaded_binary is None:
+                    self._loaded_binary = NPUUtils.get().load_binary(
+                        self.utils_name,
+                        self.utils_kernel_src,
+                        self.utils_shared,
+                        self.utils_device,
+                        self.mix_mode,
+                    )
+        return self._loaded_binary
 
     def _calcu_grid(self, orig_to_input, *args: Any):
         """
@@ -986,14 +1002,7 @@ class JitKernel_NPU:
         full_args.extend(self.extra_args)
 
         # Run kernel
-        npu_utils = NPUUtils.get()
-        t_module, t_function, t_n_regs, t_n_spills = npu_utils.load_binary(
-            self.utils_name,
-            self.utils_kernel_src,
-            self.utils_shared,
-            self.utils_device,
-            self.mix_mode,
-        )
+        t_module, t_function, t_n_regs, t_n_spills = self._get_loaded_binary()
         self.launch_npu(
             self.launch_grid[0],
             self.launch_grid[1],

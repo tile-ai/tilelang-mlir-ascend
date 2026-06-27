@@ -19,6 +19,8 @@ from typing import Union
 
 import pybind11
 
+from .npu_binary_cache import NPUBinaryHandleCache
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,6 +37,7 @@ class NPUUtils(object):
     """
 
     _initialized = False
+    _load_binary_cache = NPUBinaryHandleCache()
 
     def __new__(cls):
         if not hasattr(cls, "instance"):
@@ -87,8 +90,13 @@ class NPUUtils(object):
         return cls()
 
     def load_binary(self, name, kernel, shared, device, mix_mode):
-        return self.npu_utils_mod.load_kernel_binary(
-            name, kernel, shared, device, mix_mode
+        return self._load_binary_cache.get_or_load(
+            self.npu_utils_mod.load_kernel_binary,
+            name,
+            kernel,
+            shared,
+            device,
+            mix_mode,
         )
 
     @functools.lru_cache()

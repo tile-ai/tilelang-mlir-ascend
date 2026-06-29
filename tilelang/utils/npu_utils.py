@@ -88,14 +88,8 @@ class NPUUtils(object):
 
     @staticmethod
     def _raise_if_load_failed(loaded, name):
-        if not isinstance(loaded, tuple) or len(loaded) < 2:
-            return
-
-        module_handle, function_handle = loaded[:2]
-        if module_handle and function_handle:
-            return
-
-        raise RuntimeError(f"Failed to load NPU kernel binary: {name}")
+        if loaded is None:
+            raise RuntimeError(f"Failed to load NPU kernel binary: {name}")
 
     def load_binary(self, name, kernel, shared, device, mix_mode):
         loaded = self.npu_utils_mod.load_kernel_binary(

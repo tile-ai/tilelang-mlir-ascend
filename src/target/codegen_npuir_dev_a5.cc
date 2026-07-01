@@ -1183,6 +1183,38 @@ mlir::Value CodeGenTileLangNPUIRDEVA5::InsertSlice(
   return insertOp.getResult();
 }
 
+// Helper to handle slice insertion with optional type casting
+mlir::Value CodeGenTileLangNPUIRDEVA5::InsertSliceWithCast(mlir::Value src_slice,
+                                                         mlir::Value dst,
+                                                         const SliceRange &dstR,
+                                                         mlir::Location loc) {
+  auto srcElemTy = mlir::getElementTypeOrSelf(src_slice.getType());
+  auto dstElemTy = mlir::getElementTypeOrSelf(dst.getType());
+
+  if (srcElemTy == dstElemTy) {
+    return InsertSlice(
+        src_slice, dst,
+        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.offs),
+        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.sizes),
+        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.strides));
+  }
+
+  // Type mismatch path: use intermediate empty tensor of rank D to avoid rank
+  // mismatch in backend vcast fusion
+  auto dstTy = dst.getType().cast<mlir::RankedTensorType>();
+  auto shadowTy = mlir::RankedTensorType::get(dstTy.getShape(), srcElemTy);
+  mlir::Value shadow_empty =
+      CreateStaticBackedTensor(shadowTy, dst, src_slice, loc);
+
+  mlir::Value inserted = InsertSlice(
+      src_slice, shadow_empty,
+      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.offs),
+      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.sizes),
+      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.strides));
+
+  return CreateCastIfTypeMismatch(inserted, dst);
+}
+
 // Smart reshape tensor using expand_shape or collapse_shape when possible,
 // falling back to collapse_shape + expand_shape only when necessary.
 //

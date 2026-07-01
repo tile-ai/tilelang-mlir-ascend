@@ -1708,7 +1708,7 @@ CodeGenTileLangNPUIRDEVA5::ComputeUBAllocShapeFromDstRange(
   return ub_alloc_shape;
 }
 
-void CodeGenTileLangNPUIRDEV::EmitCopyMemrefToTensor(
+void CodeGenTileLangNPUIRDEVA5::EmitCopyMemrefToTensor(
     const tvm::tl::AscendCopy &npuirop, mlir::Value src, mlir::Value dst,
     const SliceRange &srcR, const SliceRange &dstR, mlir::Location loc) {
   auto dst_tensor_type_ori = dst.getType().cast<mlir::RankedTensorType>();
@@ -1810,7 +1810,7 @@ void CodeGenTileLangNPUIRDEV::EmitCopyMemrefToTensor(
       copy_dim_val = builder.create<mlir::arith::ConstantIndexOp>(loc, val);
     } else {
       copy_dim_val = size_ofr.get<mlir::Value>();
-      if (copy_dim_val.getType().isInteger(32)) {
+      if (copy_dim_val.getType().isIndex()) {
         copy_dim_val = builder.create<mlir::arith::IndexCastOp>(
             loc, builder.getIndexType(), copy_dim_val);
       }
@@ -1834,7 +1834,8 @@ void CodeGenTileLangNPUIRDEV::EmitCopyMemrefToTensor(
   builder.create<mlir::memref::CopyOp>(loc, src_view, ub_view);
 
   // Fast path: full UB to tensor when rank matches and all dst offsets are 0
-  bool rank_matches = (int64_t)copy_sizes.size() == ubTy.getRank();
+  bool rank_matches = (int64_t)copy_sizes.size() == ubTy.getRank() &&
+                      ubTy.getRank() == dst_tensor_type_ori.getRank();
   bool can_use_full_ub = rank_matches;
   if (can_use_full_ub) {
     for (auto &off : dstR.offs) {

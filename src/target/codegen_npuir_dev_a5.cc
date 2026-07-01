@@ -714,23 +714,15 @@ mlir::Type CodeGenTileLangNPUIRDEVA5::DTypetoMLIRType(DataType t) { // NOLINT(*)
     case 16: {
       if (t.is_scalar()) {
         return builder.getI16Type();
-      } else {
-        fail = true;
-      }
-      if (!fail) {
-        return builder.getI16Type();
-      }
+      } 
+      fail = true;
       break;
     }
     case 32: {
       if (t.is_scalar()) {
         return builder.getI32Type();
-      } else {
-        fail = true;
       }
-      if (!fail) {
-        return builder.getI32Type();
-      }
+      fail = true;
       break;
     }
     case 64: {

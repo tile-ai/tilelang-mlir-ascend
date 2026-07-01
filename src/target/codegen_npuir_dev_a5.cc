@@ -713,7 +713,7 @@ mlir::Type CodeGenTileLangNPUIRDEVA5::DTypetoMLIRType(DataType t) { // NOLINT(*)
     }
     case 16: {
       if (t.is_scalar()) {
-        builder.getI16Type();
+        return builder.getI16Type();
       } else {
         fail = true;
       }
@@ -724,7 +724,7 @@ mlir::Type CodeGenTileLangNPUIRDEVA5::DTypetoMLIRType(DataType t) { // NOLINT(*)
     }
     case 32: {
       if (t.is_scalar()) {
-        builder.getI32Type();
+        return builder.getI32Type();
       } else {
         fail = true;
       }
@@ -1184,7 +1184,7 @@ mlir::Value CodeGenTileLangNPUIRDEVA5::InsertSlice(
 }
 
 // Helper to handle slice insertion with optional type casting
-mlir::Value CodeGenTileLangNPUIRDEVA5::InsertSliceWithCast(mlir::Value src_slice,
+mlir::Value CodeGenTileLangNPUIRDEV::InsertSliceWithCast(mlir::Value src_slice,
                                                          mlir::Value dst,
                                                          const SliceRange &dstR,
                                                          mlir::Location loc) {

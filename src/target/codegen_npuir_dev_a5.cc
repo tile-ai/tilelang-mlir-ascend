@@ -1072,65 +1072,35 @@ CodeGenTileLangNPUIRDEVA5::UpdatePrimExprMap(const PrimExprNode *key,
 mlir::Value
 CodeGenTileLangNPUIRDEVA5::CreateCastIfTypeMismatch(mlir::Value src,
                                                     mlir::Value dst) {
-  // src is always a tensor, dst may be a tensor or a memref, the return value
-  // is always a tensor
-
-  auto srcTensorTy = src.getType().dyn_cast<mlir::TensorType>();
-  ICHECK(srcTensorTy) << "src must be a tensor";
-
-  auto dstTensorTy = dst.getType().dyn_cast<mlir::ShapedType>();
-  ICHECK(dstTensorTy) << "dst must be a shaped type";
+  auto srcTensorTy = src.getType().dyn_cast<mlir::RankedTensorType>();
+  ICHECK(srcTensorTy) << "src must be a ranked tensor";
 
   mlir::Type srcElemTy = mlir::getElementTypeOrSelf(src.getType());
   mlir::Type dstElemTy = mlir::getElementTypeOrSelf(dst.getType());
-
   if (srcElemTy == dstElemTy) {
     return src;
   }
 
+  auto resultTensorTy =
+      mlir::RankedTensorType::get(srcTensorTy.getShape(), dstElemTy);
   auto loc = builder.getUnknownLoc();
-  auto srcShape = srcTensorTy.getShape();
-  auto dstShape = dstTensorTy.getShape();
-  auto broadcastDim = getBroadcastDim(srcShape, dstShape);
-  auto broadcastDimAttr = builder.getDenseI64ArrayAttr(broadcastDim);
-  SmallVector<mlir::Value> dynamicDims;
-  for (int64_t i = 0, rank = srcTensorTy.getRank(); i < rank; ++i) {
-    if (srcTensorTy.isDynamicDim(i)) {
-      dynamicDims.push_back(builder.create<mlir::tensor::DimOp>(loc, src, i));
-    }
-  }
-  auto emptyForBroadcast = builder.create<mlir::tensor::EmptyOp>(
-      loc, dstShape, srcElemTy, dynamicDims);
-
-  Value srcAfterBroadcast =
-      broadcast(src, emptyForBroadcast.getResult(), broadcastDimAttr, builder);
-
-  auto roundingAttr = builder.getAttr<mlir::hfusion::RoundModeAttr>(
-      mlir::hfusion::RoundMode::RINT);
-  // TODO: enable_overflow is currently fixed to true. May need to be
-  // configurable based on specific use cases in the future.
-  auto enableOverflowAttr = builder.getBoolAttr(true);
-  // TODO: TypeFn is currently fixed to cast_signed. If unsigned integer
-  // conversion is needed, extend NpuirCast class to include an is_unsigned
-  // parameter and set TypeFn::cast_unsigned accordingly. bitcast mode is also
-  // available for reinterpretation of bit patterns without conversion.
-  auto castAttr = builder.getAttr<mlir::hfusion::TypeFnAttr>(
-      mlir::hfusion::TypeFn::cast_signed);
-
-  auto castDstTensor = builder.create<mlir::tensor::EmptyOp>(
-      loc, mlir::RankedTensorType::get(dstTensorTy.getShape(), dstElemTy),
-      dynamicDims);
+  mlir::Value castDstTensor =
+      CreateStaticBackedTensor(resultTensorTy, src, dst, loc);
 
   SmallVector<mlir::NamedAttribute> attrs;
   attrs.push_back(builder.getNamedAttr(
-      mlir::hfusion::RoundModeAttr::getMnemonic(), roundingAttr));
-  attrs.push_back(builder.getNamedAttr("enable_overflow", enableOverflowAttr));
+      mlir::hfusion::RoundModeAttr::getMnemonic(),
+      builder.getAttr<mlir::hfusion::RoundModeAttr>(
+          mlir::hfusion::RoundMode::RINT)));
   attrs.push_back(
-      builder.getNamedAttr(mlir::hfusion::TypeFnAttr::getMnemonic(), castAttr));
-  auto newCastOp = builder.create<mlir::hfusion::CastOp>(
-      loc, mlir::ValueRange(srcAfterBroadcast), mlir::ValueRange(castDstTensor),
-      attrs);
+      builder.getNamedAttr("enable_overflow", builder.getBoolAttr(true)));
+  attrs.push_back(builder.getNamedAttr(
+      mlir::hfusion::TypeFnAttr::getMnemonic(),
+      builder.getAttr<mlir::hfusion::TypeFnAttr>(
+          mlir::hfusion::TypeFn::cast_signed)));
 
+  auto newCastOp = builder.create<mlir::hfusion::CastOp>(
+      loc, mlir::ValueRange(src), mlir::ValueRange(castDstTensor), attrs);
   return newCastOp->getResult(0);
 }
 
@@ -1242,35 +1212,22 @@ mlir::Value CodeGenTileLangNPUIRDEVA5::InsertSlice(
   return insertOp.getResult();
 }
 
-// Helper to handle slice insertion with optional type casting
 mlir::Value CodeGenTileLangNPUIRDEVA5::InsertSliceWithCast(
     mlir::Value src_slice, mlir::Value dst, const SliceRange &dstR,
     mlir::Location loc) {
   auto srcElemTy = mlir::getElementTypeOrSelf(src_slice.getType());
   auto dstElemTy = mlir::getElementTypeOrSelf(dst.getType());
 
-  if (srcElemTy == dstElemTy) {
-    return InsertSlice(
-        src_slice, dst,
-        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.offs),
-        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.sizes),
-        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.strides));
+  mlir::Value insert_slice = src_slice;
+  if (srcElemTy != dstElemTy) {
+    insert_slice = CreateCastIfTypeMismatch(src_slice, dst);
   }
 
-  // Type mismatch path: use intermediate empty tensor of rank D to avoid rank
-  // mismatch in backend vcast fusion
-  auto dstTy = dst.getType().cast<mlir::RankedTensorType>();
-  auto shadowTy = mlir::RankedTensorType::get(dstTy.getShape(), srcElemTy);
-  mlir::Value shadow_empty =
-      CreateStaticBackedTensor(shadowTy, dst, src_slice, loc);
-
-  mlir::Value inserted = InsertSlice(
-      src_slice, shadow_empty,
+  return InsertSlice(
+      insert_slice, dst,
       const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.offs),
       const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.sizes),
       const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.strides));
-
-  return CreateCastIfTypeMismatch(inserted, dst);
 }
 
 // Smart reshape tensor using expand_shape or collapse_shape when possible,
@@ -1831,7 +1788,7 @@ void CodeGenTileLangNPUIRDEVA5::EmitCopyMemrefToTensor(
       << "dst with dynamic dimension(s) not supported for UB alloc";
 
   mlir::Value base_ub = CreateStaticLocalUB(
-      ub_alloc_shape, dst_tensor_type_ori.getElementType(), loc);
+      ub_alloc_shape, src_memref_type_ori.getElementType(), loc);
 
   // 4) Create ub_view matching copy rank
   mlir::Value ub_view;
@@ -1881,20 +1838,10 @@ void CodeGenTileLangNPUIRDEVA5::EmitCopyMemrefToTensor(
   mlir::Value loaded_tensor = builder.create<mlir::bufferization::ToTensorOp>(
       loc, ub_view, /*restrict=*/true, /*writable=*/false);
 
-  // 7) Type Cast (skip reshape - let InsertSlice handle rank difference to
-  // avoid
-  //    expand_shape failures on strided memrefs from subview)
-  mlir::Value casted_tensor = CreateCastIfTypeMismatch(loaded_tensor, dst);
+  // 7) Insert slice with optional cast
+  mlir::Value result = InsertSliceWithCast(loaded_tensor, dst, dstR, loc);
 
-  // 8) InsertSlice - tensor.insert_slice can handle source rank < dest rank,
-  //    using dstR.sizes to specify the slice shape in the destination.
-  mlir::Value result = InsertSlice(
-      casted_tensor, dst,
-      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.offs),
-      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.sizes),
-      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.strides));
-
-  // 9) SetVarValue
+  // 8) SetVarValue
   SetVarValue(npuirop.dst, result);
 }
 
@@ -1925,20 +1872,25 @@ void CodeGenTileLangNPUIRDEVA5::EmitCopyTensorToMemref(
   llvm::ArrayRef<mlir::OpFoldResult> copy_sizes = srcC.sizes;
   llvm::ArrayRef<int64_t> copy_projected = srcC.projected;
 
-  // 2) Create rank-reduced tensor.extract_slice
-  mlir::Value src_slice = CreateRankReducedExtractSlice(
-      src, srcR.offs, srcR.sizes, srcR.strides, copy_projected, loc);
+  // 2) Cast the full source tensor first when element types differ, so backend
+  // vcast always sees a static full tensor instead of a dynamic extract_slice.
+  mlir::Value copy_src = src;
+  if (mlir::getElementTypeOrSelf(src.getType()) !=
+      mlir::getElementTypeOrSelf(dst.getType())) {
+    copy_src = CreateCastIfTypeMismatch(src, dst);
+  }
 
-  // 3) Create rank-reduced memref.subview
+  // 3) Create rank-reduced tensor.extract_slice from the copy source
+  mlir::Value src_slice = CreateRankReducedExtractSlice(
+      copy_src, srcR.offs, srcR.sizes, srcR.strides, copy_projected, loc);
+
+  // 4) Create rank-reduced memref.subview
   mlir::Value dst_view = CreateRankReducedSubviewFromBaseRank(
       dst, dstR.offs, dstR.sizes, dstR.strides, copy_projected, loc);
 
-  // 4) Type cast if element types differ
-  mlir::Value casted_tensor = CreateCastIfTypeMismatch(src_slice, dst_view);
-
   // 5) Materialize directly (no reshape needed - shapes match!)
   auto matOp = builder.create<mlir::bufferization::MaterializeInDestinationOp>(
-      loc, casted_tensor, dst_view);
+      loc, src_slice, dst_view);
   matOp.setWritable(true);
 }
 
@@ -1967,13 +1919,8 @@ void CodeGenTileLangNPUIRDEVA5::EmitCopyTensorToTensor(
   mlir::Value src_slice = CreateRankReducedExtractSlice(
       src, srcR.offs, srcR.sizes, srcR.strides, srcC.projected, loc);
 
-  mlir::Value casted_tensor = CreateCastIfTypeMismatch(src_slice, dst);
-
-  mlir::Value result = InsertSlice(
-      casted_tensor, dst,
-      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.offs),
-      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.sizes),
-      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.strides));
+  // Insert slice with optional cast
+  mlir::Value result = InsertSliceWithCast(src_slice, dst, dstR, loc);
 
   SetVarValue(npuirop.dst, result);
 }
@@ -3711,7 +3658,17 @@ void CodeGenTileLangNPUIRDEVA5::CreateHIVMBinaryVectorOp(const CallNode *op) {
       // If load only one element, do not use memref.subview, use memref.load as
       // a scalar
       if (is_scalar_load) {
-        src = VisitExpr_(buffer_node);
+        if (arg_id == 0) {
+          src = GetVarValue(region_node);
+          auto region = tvm::tl::RegionOp(region_node->args, vmap);
+          auto region_buffer = region.GetBuffer();
+          buffer_shape.clear();
+          for (auto dim : region_buffer->shape) {
+            buffer_shape.push_back(dim);
+          }
+        } else {
+          src = VisitExpr_(buffer_node);
+        }
       } else {
         src = GenExtractSliceFromRegion(region_node);
 

@@ -116,6 +116,7 @@ def copy(
     Returns:
         tir.Call: A handle to the copy operation
     """
+
     def get_extent(data):
         if isinstance(data, tir.Var) and T.has_let_value(data):
             data = T.get_let_value(data)

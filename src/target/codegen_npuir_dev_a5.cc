@@ -1088,16 +1088,16 @@ CodeGenTileLangNPUIRDEVA5::CreateCastIfTypeMismatch(mlir::Value src,
       CreateStaticBackedTensor(resultTensorTy, src, dst, loc);
 
   SmallVector<mlir::NamedAttribute> attrs;
-  attrs.push_back(builder.getNamedAttr(
-      mlir::hfusion::RoundModeAttr::getMnemonic(),
-      builder.getAttr<mlir::hfusion::RoundModeAttr>(
-          mlir::hfusion::RoundMode::RINT)));
+  attrs.push_back(
+      builder.getNamedAttr(mlir::hfusion::RoundModeAttr::getMnemonic(),
+                           builder.getAttr<mlir::hfusion::RoundModeAttr>(
+                               mlir::hfusion::RoundMode::RINT)));
   attrs.push_back(
       builder.getNamedAttr("enable_overflow", builder.getBoolAttr(true)));
-  attrs.push_back(builder.getNamedAttr(
-      mlir::hfusion::TypeFnAttr::getMnemonic(),
-      builder.getAttr<mlir::hfusion::TypeFnAttr>(
-          mlir::hfusion::TypeFn::cast_signed)));
+  attrs.push_back(
+      builder.getNamedAttr(mlir::hfusion::TypeFnAttr::getMnemonic(),
+                           builder.getAttr<mlir::hfusion::TypeFnAttr>(
+                               mlir::hfusion::TypeFn::cast_signed)));
 
   auto newCastOp = builder.create<mlir::hfusion::CastOp>(
       loc, mlir::ValueRange(src), mlir::ValueRange(castDstTensor), attrs);
@@ -1218,16 +1218,28 @@ mlir::Value CodeGenTileLangNPUIRDEVA5::InsertSliceWithCast(
   auto srcElemTy = mlir::getElementTypeOrSelf(src_slice.getType());
   auto dstElemTy = mlir::getElementTypeOrSelf(dst.getType());
 
-  mlir::Value insert_slice = src_slice;
-  if (srcElemTy != dstElemTy) {
-    insert_slice = CreateCastIfTypeMismatch(src_slice, dst);
+  if (srcElemTy == dstElemTy) {
+    return InsertSlice(
+        src_slice, dst,
+        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.offs),
+        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.sizes),
+        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.strides));
   }
 
-  return InsertSlice(
-      insert_slice, dst,
+  // Type mismatch path: use intermediate empty tensor of rank D to avoid rank
+  // mismatch in backend vcast fusion
+  auto dstTy = dst.getType().cast<mlir::RankedTensorType>();
+  auto shadowTy = mlir::RankedTensorType::get(dstTy.getShape(), srcElemTy);
+  mlir::Value shadow_empty =
+      CreateStaticBackedTensor(shadowTy, dst, src_slice, loc);
+
+  mlir::Value inserted = InsertSlice(
+      src_slice, shadow_empty,
       const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.offs),
       const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.sizes),
       const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.strides));
+
+  return CreateCastIfTypeMismatch(inserted, dst);
 }
 
 // Smart reshape tensor using expand_shape or collapse_shape when possible,
@@ -1867,8 +1879,9 @@ void CodeGenTileLangNPUIRDEVA5::EmitCopyTensorToMemref(
   }
 
   // 1) Canonicalize copy rank: drop static-1 dims
-  int64_t maxRank = std::min<int64_t>(srcTy.getRank(), dstTy.getRank());
-  CollapsedDims srcC = CollapseStaticOneDims(srcR.sizes, maxRank);
+  // Use -1 to fully collapse all unit dims -- bishengir's HFusionFoldUnitDims
+  // assumes subview has no unit dims.
+  CollapsedDims srcC = CollapseStaticOneDims(srcR.sizes, /*maxRank=*/-1);
   llvm::ArrayRef<mlir::OpFoldResult> copy_sizes = srcC.sizes;
   llvm::ArrayRef<int64_t> copy_projected = srcC.projected;
 

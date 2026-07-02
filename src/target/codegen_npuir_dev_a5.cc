@@ -1134,6 +1134,65 @@ CodeGenTileLangNPUIRDEVA5::CreateCastIfTypeMismatch(mlir::Value src,
   return newCastOp->getResult(0);
 }
 
+mlir::Value CodeGenTileLangNPUIRDEVA5::CreateStaticBackedTensor(
+    mlir::RankedTensorType tensor_type, mlir::Value runtime_shape_source,
+    mlir::Value static_bound_source, mlir::Location loc) {
+  if (tensor_type.hasStaticShape()) {
+    return builder.create<mlir::tensor::EmptyOp>(loc, tensor_type.getShape(),
+                                                 tensor_type.getElementType());
+  }
+
+  auto tryGetStaticDim = [](mlir::Value val, int64_t dim) -> int64_t {
+    if (!val)
+      return mlir::ShapedType::kDynamic;
+    auto ty = val.getType().dyn_cast<mlir::ShapedType>();
+    if (!ty || !ty.hasRank() || dim < 0 || dim >= ty.getRank())
+      return mlir::ShapedType::kDynamic;
+    return ty.getDimSize(dim);
+  };
+
+  auto rank = tensor_type.getRank();
+  llvm::SmallVector<int64_t> staticShape(tensor_type.getShape().begin(),
+                                         tensor_type.getShape().end());
+  for (int64_t i = 0; i < rank; ++i) {
+    if (!tensor_type.isDynamicDim(i))
+      continue;
+    int64_t bound = tryGetStaticDim(runtime_shape_source, i);
+    if (mlir::ShapedType::isDynamic(bound))
+      bound = tryGetStaticDim(static_bound_source, i);
+    ICHECK(!mlir::ShapedType::isDynamic(bound))
+        << "failed to infer static upper bound for dynamic tensor dim " << i
+        << "; ensure callers provide a static-shaped source";
+    staticShape[i] = bound;
+  }
+
+  mlir::Value fullEmpty = builder.create<mlir::tensor::EmptyOp>(
+      loc, staticShape, tensor_type.getElementType());
+
+  llvm::SmallVector<mlir::OpFoldResult> offsets(rank, builder.getIndexAttr(0));
+  llvm::SmallVector<mlir::OpFoldResult> strides(rank, builder.getIndexAttr(1));
+  llvm::SmallVector<mlir::OpFoldResult> sizes;
+  sizes.reserve(rank);
+  for (int64_t i = 0; i < rank; ++i) {
+    if (tensor_type.isDynamicDim(i)) {
+      if (runtime_shape_source.getType().isa<mlir::RankedTensorType>()) {
+        sizes.push_back(
+            builder.create<mlir::tensor::DimOp>(loc, runtime_shape_source, i)
+                .getResult());
+      } else {
+        sizes.push_back(
+            builder.create<mlir::memref::DimOp>(loc, runtime_shape_source, i)
+                .getResult());
+      }
+    } else {
+      sizes.push_back(builder.getIndexAttr(tensor_type.getDimSize(i)));
+    }
+  }
+
+  return builder.create<mlir::tensor::ExtractSliceOp>(
+      loc, tensor_type, fullEmpty, offsets, sizes, strides);
+}
+
 // Insert slice into tensor
 mlir::Value CodeGenTileLangNPUIRDEVA5::InsertSlice(
     mlir::Value src_slice, mlir::Value dst_tensor,
@@ -1181,6 +1240,37 @@ mlir::Value CodeGenTileLangNPUIRDEVA5::InsertSlice(
       loc, src_slice, dst_tensor, dst_offsets, dst_sizes, dst_strides);
 
   return insertOp.getResult();
+}
+
+// Helper to handle slice insertion with optional type casting
+mlir::Value CodeGenTileLangNPUIRDEVA5::InsertSliceWithCast(
+    mlir::Value src_slice, mlir::Value dst, const SliceRange &dstR,
+    mlir::Location loc) {
+  auto srcElemTy = mlir::getElementTypeOrSelf(src_slice.getType());
+  auto dstElemTy = mlir::getElementTypeOrSelf(dst.getType());
+
+  if (srcElemTy == dstElemTy) {
+    return InsertSlice(
+        src_slice, dst,
+        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.offs),
+        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.sizes),
+        const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.strides));
+  }
+
+  // Type mismatch path: use intermediate empty tensor of rank D to avoid rank
+  // mismatch in backend vcast fusion
+  auto dstTy = dst.getType().cast<mlir::RankedTensorType>();
+  auto shadowTy = mlir::RankedTensorType::get(dstTy.getShape(), srcElemTy);
+  mlir::Value shadow_empty =
+      CreateStaticBackedTensor(shadowTy, dst, src_slice, loc);
+
+  mlir::Value inserted = InsertSlice(
+      src_slice, shadow_empty,
+      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.offs),
+      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.sizes),
+      const_cast<llvm::SmallVector<mlir::OpFoldResult> &>(dstR.strides));
+
+  return CreateCastIfTypeMismatch(inserted, dst);
 }
 
 // Smart reshape tensor using expand_shape or collapse_shape when possible,

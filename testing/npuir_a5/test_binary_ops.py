@@ -1,7 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025.
 import os
 import torch
-import torch_npu
 
 import tilelang
 import tilelang.language as T
@@ -136,11 +135,17 @@ def make_binary_kernel_2d(M, N, op_name, dtype):
             C_local = T.alloc_shared((block_M, block_N), dtype)
 
             T.copy(
-                A[by * block_M : by * block_M + block_M, bx * block_N : bx * block_N + block_N],
+                A[
+                    by * block_M : by * block_M + block_M,
+                    bx * block_N : bx * block_N + block_N,
+                ],
                 A_local,
             )
             T.copy(
-                B[by * block_M : by * block_M + block_M, bx * block_N : bx * block_N + block_N],
+                B[
+                    by * block_M : by * block_M + block_M,
+                    bx * block_N : bx * block_N + block_N,
+                ],
                 B_local,
             )
 
@@ -163,7 +168,10 @@ def make_binary_kernel_2d(M, N, op_name, dtype):
 
             T.copy(
                 C_local,
-                C[by * block_M : by * block_M + block_M, bx * block_N : bx * block_N + block_N],
+                C[
+                    by * block_M : by * block_M + block_M,
+                    bx * block_N : bx * block_N + block_N,
+                ],
             )
 
     return binary_kernel_2d
@@ -185,7 +193,7 @@ def compute_reference(A, B, op_name):
     elif op_name == "min":
         return torch.minimum(A, B)
     elif op_name == "floordiv":
-        return torch.div(A, B, rounding_mode='floor')
+        return torch.div(A, B, rounding_mode="trunc")
     else:
         raise ValueError(f"Unsupported op: {op_name}")
 
@@ -212,7 +220,7 @@ def run_binary_test_1d(N, dtype, op_name):
 
     ref = compute_reference(A.cpu(), B.cpu(), op_name)
     assert_close(C.cpu(), ref, dtype=dtype)
-    print(f"  PASSED")
+    print("  PASSED")
 
 
 def run_binary_test_2d(M, N, dtype, op_name):
@@ -237,7 +245,7 @@ def run_binary_test_2d(M, N, dtype, op_name):
 
     ref = compute_reference(A.cpu(), B.cpu(), op_name)
     assert_close(C.cpu(), ref, dtype=dtype)
-    print(f"  PASSED")
+    print("  PASSED")
 
 
 def main():

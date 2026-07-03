@@ -1751,7 +1751,6 @@ void CodeGenTileLangNPUIRDEVA5::EmitCopyMemrefToTensor(
                                                    builder.getIndexAttr(1));
 
   if ((int64_t)copy_sizes.size() == ubTy.getRank()) {
-    // Copy sizes directly into full_sizes
     for (unsigned i = 0; i < copy_sizes.size(); ++i) {
       full_sizes[i] = copy_sizes[i];
     }
@@ -1769,7 +1768,6 @@ void CodeGenTileLangNPUIRDEVA5::EmitCopyMemrefToTensor(
                                                       builder.getIndexAttr(0));
     llvm::SmallVector<mlir::OpFoldResult> fullStrides(ubTy.getRank(),
                                                       builder.getIndexAttr(1));
-    // full_sizes already initialized to 1, overwrite kept dimensions
     if ((int64_t)dstC.keptIdx.size() == (int64_t)copy_sizes.size() &&
         (int64_t)dstC.keptIdx.size() <= ubTy.getRank()) {
       for (unsigned k = 0; k < dstC.keptIdx.size(); ++k) {
@@ -1837,8 +1835,8 @@ void CodeGenTileLangNPUIRDEVA5::EmitCopyMemrefToTensor(
   builder.create<mlir::memref::CopyOp>(loc, src_view, ub_view);
 
   // 7) Fast path: full UB to tensor when rank matches and all dst offsets are 0
-  bool rank_matches = (int64_t)copy_sizes.size() == ubTy.getRank() &&
-                      ubTy.getRank() == dst_tensor_type_ori.getRank();
+  bool rank_matches = (int64_t)copy_sizes.size() == ubTy.getRank()
+                      && ubTy.getRank() == dst_tensor_type_ori.getRank();
   bool can_use_full_ub = rank_matches;
   if (can_use_full_ub) {
     for (auto &off : dstR.offs) {

@@ -1,7 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025.
 import os
 import torch
-import torch_npu
 
 import tilelang
 import tilelang.language as T
@@ -64,18 +63,24 @@ def make_cmp_kernel_2d(M, N, cmp_mode, dtype):
 
             A_local = T.alloc_shared((block_M, block_N), dtype)
             B_local = T.alloc_shared((block_M, block_N), dtype)
-            
+
             C_local = T.alloc_shared((block_M, block_N), "int8")
 
             offset_M = by * block_M
             offset_N = bx * block_N
 
-            T.copy(A[offset_M : offset_M + block_M, offset_N : offset_N + block_N], A_local)
-            T.copy(B[offset_M : offset_M + block_M, offset_N : offset_N + block_N], B_local)
+            T.copy(
+                A[offset_M : offset_M + block_M, offset_N : offset_N + block_N], A_local
+            )
+            T.copy(
+                B[offset_M : offset_M + block_M, offset_N : offset_N + block_N], B_local
+            )
 
             T.npuir_cmp(A_local, B_local, C_local, cmp_mode)
 
-            T.copy(C_local, C[offset_M : offset_M + block_M, offset_N : offset_N + block_N])
+            T.copy(
+                C_local, C[offset_M : offset_M + block_M, offset_N : offset_N + block_N]
+            )
 
     return cmp_kernel_2d
 
@@ -109,7 +114,7 @@ def run_cmp_test(M, N, dtype, cmp_mode):
 
     ref = compute_reference(A.cpu(), B.cpu(), cmp_mode)
     assert_close(C.cpu(), ref, dtype="bool")
-    print(f"  PASSED")
+    print("  PASSED")
 
 
 def main():

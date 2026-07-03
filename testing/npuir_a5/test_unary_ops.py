@@ -1,7 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025.
 import os
 import torch
-import torch_npu
 
 import tilelang
 import tilelang.language as T
@@ -68,7 +67,7 @@ def make_unary_kernel_1d(N, op_name, dtype):
             offset = bx * block_N
             tail_size = T.max(0, T.min(block_N, shape - offset))
 
-            T.copy(A[offset : offset + tail_size], A_local[0 : tail_size])
+            T.copy(A[offset : offset + tail_size], A_local[0:tail_size])
 
             if op_name == "exp":
                 T.vexp(A_local[0:block_N], C_local[0:block_N])
@@ -87,7 +86,7 @@ def make_unary_kernel_1d(N, op_name, dtype):
             elif op_name == "floor":
                 T.vfloor(A_local[0:block_N], C_local[0:block_N])
 
-            T.copy(C_local[0 : tail_size], C[offset : offset + tail_size])
+            T.copy(C_local[0:tail_size], C[offset : offset + tail_size])
 
     return unary_kernel_1d
 
@@ -132,7 +131,7 @@ def run_unary_test(N, dtype, op_name):
 
     ref = compute_reference(A.cpu(), op_name)
     assert_close(C.cpu(), ref, dtype=dtype)
-    print(f"  PASSED")
+    print("  PASSED")
 
 
 def main():

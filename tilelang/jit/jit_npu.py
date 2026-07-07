@@ -225,11 +225,25 @@ def _eval_tir_expr(expr, dynamic_val):
             _eval_tir_expr(expr.a, dynamic_val), _eval_tir_expr(expr.b, dynamic_val)
         )
 
-    expr_str = str(expr)
-    try:
-        return int(eval(expr_str, {"__builtins__": {}}, dict(dynamic_val)))
-    except Exception as e:
-        raise ValueError(f"Cannot evaluate shape expression '{expr_str}': {e}") from e
+    from tvm import arith
+    vars_found = _collect_tir_vars(expr)
+    vmap = {}
+    for v in vars_found:
+        val = dynamic_val.get(v.name)
+        if val is None:
+            raise ValueError(
+                f"Missing runtime value for symbolic var '{v.name}' in shape expression"
+            ) 
+        vmap[v] = tir.IntImm(v.dtype, val)
+    
+    substituted = tir.stmt_functor.substitute(expr, vmap)
+    simplified = arith.Analyzer().simplify(substituted)
+    if isinstance(simplified, tir.IntImm):
+        return int(simplified.value)
+    else:
+        raise ValueError(
+            f"Cannot simplify shape expression '{expr}' to a constant integer, got '{simplified}'"
+        )
 
 
 # Collect all variables used in the buffer shape, including vars nested

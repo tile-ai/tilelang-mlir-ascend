@@ -194,19 +194,13 @@ def _eval_tir_expr(expr, dynamic_val):
         return int(expr)
 
     if isinstance(expr, tir.Add):
-        return _eval_tir_expr(expr.a, dynamic_val) + _eval_tir_expr(
-            expr.b, dynamic_val
-        )
+        return _eval_tir_expr(expr.a, dynamic_val) + _eval_tir_expr(expr.b, dynamic_val)
 
     if isinstance(expr, tir.Sub):
-        return _eval_tir_expr(expr.a, dynamic_val) - _eval_tir_expr(
-            expr.b, dynamic_val
-        )
+        return _eval_tir_expr(expr.a, dynamic_val) - _eval_tir_expr(expr.b, dynamic_val)
 
     if isinstance(expr, tir.Mul):
-        return _eval_tir_expr(expr.a, dynamic_val) * _eval_tir_expr(
-            expr.b, dynamic_val
-        )
+        return _eval_tir_expr(expr.a, dynamic_val) * _eval_tir_expr(expr.b, dynamic_val)
 
     if isinstance(expr, tir.FloorDiv):
         return _eval_tir_expr(expr.a, dynamic_val) // _eval_tir_expr(
@@ -219,9 +213,7 @@ def _eval_tir_expr(expr, dynamic_val):
         )
 
     if isinstance(expr, tir.Mod):
-        return _eval_tir_expr(expr.a, dynamic_val) % _eval_tir_expr(
-            expr.b, dynamic_val
-        )
+        return _eval_tir_expr(expr.a, dynamic_val) % _eval_tir_expr(expr.b, dynamic_val)
 
     if isinstance(expr, tir.Max):
         return max(
@@ -237,9 +229,7 @@ def _eval_tir_expr(expr, dynamic_val):
     try:
         return int(eval(expr_str, {"__builtins__": {}}, dict(dynamic_val)))
     except Exception as e:
-        raise ValueError(
-            f"Cannot evaluate shape expression '{expr_str}': {e}"
-        ) from e
+        raise ValueError(f"Cannot evaluate shape expression '{expr_str}': {e}") from e
 
 
 # Collect all variables used in the buffer shape, including vars nested

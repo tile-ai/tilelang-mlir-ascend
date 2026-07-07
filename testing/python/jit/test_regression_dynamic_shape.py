@@ -1,10 +1,11 @@
 """Regression test: verify existing bare-var dynamic shapes still work after the fix."""
+
 import sys
+
 sys.path.insert(0, "testing/npuir")
 from testcommon import gen_tensor, assert_close
 import tilelang
 import tilelang.language as T
-import torch
 import torch_npu  # noqa: F401
 
 

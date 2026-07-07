@@ -41,7 +41,7 @@ class KernelParam:
             elif isinstance(s, (Var, PrimExpr)):
                 shape.append(s)
             else:
-                shape.append(s)
+                raise ValueError(f"Unsupported dimension type: {type(s)}")
         return cls(dtype, shape)
 
     @classmethod

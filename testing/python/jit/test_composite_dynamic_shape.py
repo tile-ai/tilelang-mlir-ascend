@@ -1,4 +1,5 @@
 """Unit test for composite dynamic shape support in _process_dynamic_symbolic."""
+
 import tilelang.language as T
 from tvm import tir
 from tilelang.jit.jit_npu import (
@@ -53,17 +54,27 @@ def test_process_dynamic_symbolic_composite():
     dyn_map = _process_dynamic_symbolic(kernel)
 
     # raw_batch_size should be registered with affine binding
-    raw_entries = [(str(k), v) for k, v in dyn_map.items() if str(k) == "raw_batch_size"]
-    assert len(raw_entries) == 1, f"Expected 1 entry for raw_batch_size, got {len(raw_entries)}"
+    raw_entries = [
+        (str(k), v) for k, v in dyn_map.items() if str(k) == "raw_batch_size"
+    ]
+    assert len(raw_entries) == 1, (
+        f"Expected 1 entry for raw_batch_size, got {len(raw_entries)}"
+    )
     _, raw_pos = raw_entries[0]
-    assert len(raw_pos) == 4, f"Expected affine binding (4-tuple), got {len(raw_pos)}-tuple"
-    assert raw_pos[2] == 1 and raw_pos[3] == 1, f"Expected a=1, b=1, got a={raw_pos[2]}, b={raw_pos[3]}"
+    assert len(raw_pos) == 4, (
+        f"Expected affine binding (4-tuple), got {len(raw_pos)}-tuple"
+    )
+    assert raw_pos[2] == 1 and raw_pos[3] == 1, (
+        f"Expected a=1, b=1, got a={raw_pos[2]}, b={raw_pos[3]}"
+    )
 
     # cp_batch_size should be registered with direct binding
     cp_entries = [(str(k), v) for k, v in dyn_map.items() if str(k) == "cp_batch_size"]
     assert len(cp_entries) == 1
     _, cp_pos = cp_entries[0]
-    assert len(cp_pos) == 2, f"Expected direct binding (2-tuple), got {len(cp_pos)}-tuple"
+    assert len(cp_pos) == 2, (
+        f"Expected direct binding (2-tuple), got {len(cp_pos)}-tuple"
+    )
 
     print("[PASS] test_process_dynamic_symbolic_composite")
 
@@ -103,7 +114,9 @@ def test_symbolic_var_promoter_with_composite():
             seq_map_r2c[0] = seq_map_r2c[0]
 
     new_func, new_map = _symbolic_var_promoter_pass(kernel)
-    assert len(new_func.params) == len(kernel.params) + 1, "Should promote 1 symbolic var"
+    assert len(new_func.params) == len(kernel.params) + 1, (
+        "Should promote 1 symbolic var"
+    )
     assert any(str(k) == "raw_batch_size" for k in new_map.keys())
 
     print("[PASS] test_symbolic_var_promoter_with_composite")
@@ -130,7 +143,9 @@ def test_runtime_resolution():
             assert len(pos) == 4
             a, b = pos[2], pos[3]
             resolved_value = (actual_dim - b) // a
-            assert resolved_value == 8, f"Expected raw_batch_size=8, got {resolved_value}"
+            assert resolved_value == 8, (
+                f"Expected raw_batch_size=8, got {resolved_value}"
+            )
 
     # Simulate output shape evaluation
     dynamic_val = {"raw_batch_size": 8}

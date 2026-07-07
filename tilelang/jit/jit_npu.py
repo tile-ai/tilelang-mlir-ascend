@@ -110,18 +110,199 @@ def _transform_stmt(stmt, symbolic_var_names):
         return stmt
 
 
-# Collect all variables used in the buffer shape
+def _collect_tir_vars(expr):
+    """Collect all tir.Var nodes from a TIR expression, preserving first-seen order."""
+    vars_found = []
+    seen = set()
+
+    def visit(node):
+        if isinstance(node, tir.Var):
+            key = node.name
+            if key not in seen:
+                seen.add(key)
+                vars_found.append(node)
+
+    tir.stmt_functor.post_order_visit(expr, visit)
+    return vars_found
+
+
+def _detect_affine(expr, var):
+    """Detect if expr is affine in *var*: expr = a * var + b.
+
+    Returns (a, b) as Python ints, or None if not affine in *var*.
+    """
+    if isinstance(expr, tir.Var):
+        if expr.same_as(var) or expr.name == var.name:
+            return (1, 0)
+        return None
+
+    if isinstance(expr, tir.IntImm):
+        return (0, int(expr))
+
+    if isinstance(expr, tir.Add):
+        left = _detect_affine(expr.a, var)
+        right = _detect_affine(expr.b, var)
+        if left is not None and right is not None:
+            return (left[0] + right[0], left[1] + right[1])
+        return None
+
+    if isinstance(expr, tir.Sub):
+        left = _detect_affine(expr.a, var)
+        right = _detect_affine(expr.b, var)
+        if left is not None and right is not None:
+            return (left[0] - right[0], left[1] - right[1])
+        return None
+
+    if isinstance(expr, tir.Mul):
+        left = _detect_affine(expr.a, var)
+        right = _detect_affine(expr.b, var)
+        if left is not None and right is not None:
+            if left[0] == 0:
+                scale = left[1]
+                return (right[0] * scale, right[1] * scale)
+            if right[0] == 0:
+                scale = right[1]
+                return (left[0] * scale, left[1] * scale)
+            return None
+        return None
+
+    if isinstance(expr, tir.FloorDiv):
+        left = _detect_affine(expr.a, var)
+        if left is not None and isinstance(expr.b, tir.IntImm):
+            divisor = int(expr.b)
+            if left[0] == 0:
+                return (0, left[1] // divisor)
+        return None
+
+    return None
+
+
+def _eval_tir_expr(expr, dynamic_val):
+    """Evaluate a TIR PrimExpr at runtime using resolved dynamic values.
+
+    *dynamic_val* maps var-name (str) -> int.
+    """
+    if isinstance(expr, tir.Var):
+        val = dynamic_val.get(str(expr))
+        if val is None:
+            raise ValueError(
+                f"Missing runtime value for symbolic var '{expr}' in shape expression"
+            )
+        return val
+
+    if isinstance(expr, tir.IntImm):
+        return int(expr)
+
+    if isinstance(expr, tir.Add):
+        return _eval_tir_expr(expr.a, dynamic_val) + _eval_tir_expr(
+            expr.b, dynamic_val
+        )
+
+    if isinstance(expr, tir.Sub):
+        return _eval_tir_expr(expr.a, dynamic_val) - _eval_tir_expr(
+            expr.b, dynamic_val
+        )
+
+    if isinstance(expr, tir.Mul):
+        return _eval_tir_expr(expr.a, dynamic_val) * _eval_tir_expr(
+            expr.b, dynamic_val
+        )
+
+    if isinstance(expr, tir.FloorDiv):
+        return _eval_tir_expr(expr.a, dynamic_val) // _eval_tir_expr(
+            expr.b, dynamic_val
+        )
+
+    if isinstance(expr, tir.Div):
+        return _eval_tir_expr(expr.a, dynamic_val) // _eval_tir_expr(
+            expr.b, dynamic_val
+        )
+
+    if isinstance(expr, tir.Mod):
+        return _eval_tir_expr(expr.a, dynamic_val) % _eval_tir_expr(
+            expr.b, dynamic_val
+        )
+
+    if isinstance(expr, tir.Max):
+        return max(
+            _eval_tir_expr(expr.a, dynamic_val), _eval_tir_expr(expr.b, dynamic_val)
+        )
+
+    if isinstance(expr, tir.Min):
+        return min(
+            _eval_tir_expr(expr.a, dynamic_val), _eval_tir_expr(expr.b, dynamic_val)
+        )
+
+    expr_str = str(expr)
+    try:
+        return int(eval(expr_str, {"__builtins__": {}}, dict(dynamic_val)))
+    except Exception as e:
+        raise ValueError(
+            f"Cannot evaluate shape expression '{expr_str}': {e}"
+        ) from e
+
+
+# Collect all variables used in the buffer shape, including vars nested
+# inside composite TIR expressions such as tir.Add(var, 1).
 def _process_dynamic_symbolic(func):
     params = func.params
     buffer_map = func.buffer_map
     dynamic_symbolic_map = {}
-    for i, param in enumerate(params):
+
+    # Phase 1: collect every tir.Var that appears in any buffer shape,
+    # including those nested inside composite expressions (Add, Sub, Mul, ...).
+    all_vars = []
+    seen_var_names = set()
+    for param in params:
         if param not in buffer_map:
             continue
         buffer = buffer_map[param]
-        for j, shape in enumerate(buffer.shape):
-            if isinstance(shape, tir.Var) and (shape not in dynamic_symbolic_map):
-                dynamic_symbolic_map[shape] = (i, j)
+        for shape in buffer.shape:
+            for v in _collect_tir_vars(shape):
+                if v.name not in seen_var_names:
+                    seen_var_names.add(v.name)
+                    all_vars.append(v)
+
+    # Phase 2: for each var, find the best binding.
+    #   - Preferred: a buffer dim whose shape IS the var (direct binding).
+    #   - Fallback: a buffer dim whose shape is an affine expression in var
+    #     (composite binding with inverse transform).
+    for var in all_vars:
+        # Skip vars that are already explicit parameters (scalar params).
+        if var in params:
+            continue
+
+        # Try direct binding first.
+        for i, param in enumerate(params):
+            if param not in buffer_map:
+                continue
+            buffer = buffer_map[param]
+            for j, shape in enumerate(buffer.shape):
+                if isinstance(shape, tir.Var) and shape.same_as(var):
+                    dynamic_symbolic_map[var] = (i, j)
+                    break
+            if var in dynamic_symbolic_map:
+                break
+
+        if var in dynamic_symbolic_map:
+            continue
+
+        # Fall back to affine binding.
+        for i, param in enumerate(params):
+            if param not in buffer_map:
+                continue
+            buffer = buffer_map[param]
+            for j, shape in enumerate(buffer.shape):
+                if isinstance(shape, tir.Var):
+                    continue
+                affine = _detect_affine(shape, var)
+                if affine is not None and affine[0] != 0:
+                    a, b = affine
+                    dynamic_symbolic_map[var] = (i, j, a, b)
+                    break
+            if var in dynamic_symbolic_map:
+                break
+
     return dynamic_symbolic_map
 
 
@@ -902,14 +1083,21 @@ class JitKernel_NPU:
         dynamic_val = {}
         extra_args = []
         for key, pos in self.symbolic.items():
-            # Ensure that pos is a tuple with two elements.
+            # pos is (buffer_idx, dim_idx) for direct binding,
+            # or (buffer_idx, dim_idx, a, b) for affine binding where
+            # var = (actual_dim - b) // a.
             if isinstance(pos, (tuple, list)) and len(pos) >= 2:
                 tensor_idx, dim_idx = pos[0], pos[1]
                 if tensor_idx in orig_to_input:
-                    pos = orig_to_input[tensor_idx]
-                    arg = args[pos]
+                    arg_pos = orig_to_input[tensor_idx]
+                    arg = args[arg_pos]
                     if isinstance(arg, torch.Tensor) and dim_idx < len(arg.shape):
-                        value = arg.shape[dim_idx]
+                        actual_dim = arg.shape[dim_idx]
+                        if len(pos) == 4:
+                            a, b = pos[2], pos[3]
+                            value = (actual_dim - b) // a
+                        else:
+                            value = actual_dim
                         dynamic_val[str(key)] = value
                         extra_args.append(value)
                     else:
@@ -982,6 +1170,11 @@ class JitKernel_NPU:
                         val = dynamic_val.get(str(dim))
                         if val is None:
                             raise ValueError(f"Missing value for {dim}")
+                        shape.append(val)
+                    elif isinstance(dim, tir.IntImm):
+                        shape.append(int(dim))
+                    elif isinstance(dim, tir.PrimExpr):
+                        val = _eval_tir_expr(dim, dynamic_val)
                         shape.append(val)
                     else:
                         shape.append(int(dim))

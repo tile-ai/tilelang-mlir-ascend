@@ -226,6 +226,7 @@ def _eval_tir_expr(expr, dynamic_val):
         )
 
     from tvm import arith
+
     vars_found = _collect_tir_vars(expr)
     vmap = {}
     for v in vars_found:
@@ -233,9 +234,9 @@ def _eval_tir_expr(expr, dynamic_val):
         if val is None:
             raise ValueError(
                 f"Missing runtime value for symbolic var '{v.name}' in shape expression"
-            ) 
+            )
         vmap[v] = tir.IntImm(v.dtype, val)
-    
+
     substituted = tir.stmt_functor.substitute(expr, vmap)
     simplified = arith.Analyzer().simplify(substituted)
     if isinstance(simplified, tir.IntImm):

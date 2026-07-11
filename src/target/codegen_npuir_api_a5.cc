@@ -64,6 +64,7 @@
 #include <mlir/IR/Value.h>
 #include <mlir/IR/Verifier.h>
 #include <mlir/Pass/PassManager.h>
+#include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <bishengir/Dialect/Utils/Util.h>
 
 // //===----------------------------------------------------------------------===//
@@ -87,6 +88,18 @@
 using namespace mlir;
 
 namespace tvm {
+// ElemwiseOp template for linalg/hfusion dialect lowering
+template <auto V> struct ElemwiseOp;
+template <linalg::BinaryFn V> struct ElemwiseOp<V> {
+  using Op = linalg::ElemwiseBinaryOp;
+  using FnAttr = linalg::BinaryFnAttr;
+  static constexpr linalg::BinaryFn Fn = V;
+};
+template <hfusion::BinaryFn V> struct ElemwiseOp<V> {
+  using Op = hfusion::ElemwiseBinaryOp;
+  using FnAttr = hfusion::BinaryFnAttr;
+  static constexpr hfusion::BinaryFn Fn = V;
+};
 namespace codegen {
 
 constexpr uint8_t FLAG_ID_BITS = 64;
@@ -2281,7 +2294,7 @@ mlir::Value CodeGenTileLangNPUIRAPIA5::VisitExpr_(const CallNode *op) {
   } else if (op->op.same_as(Op::Get("tl.copy"))) {
     AscendCopyCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_add"))) {
-    CreateHIVMBinaryVectorOp<mlir::hivm::VAddOp>(op);
+    CreateHIVMBinaryVectorOp<ElemwiseOp<linalg::BinaryFn::add>>(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_exp"))) {
     UnaryVecOpCodegen<tvm::tl::NpuirExp, mlir::hivm::VExpOp>(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_ln"))) {

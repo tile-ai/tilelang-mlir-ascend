@@ -292,6 +292,8 @@ namespace {
 }  // namespace
 
 
+
+
 template <auto V> struct ElemwiseOp;
 
 template <linalg::BinaryFn V> struct ElemwiseOp<V> {
@@ -317,6 +319,13 @@ template <hfusion::UnaryFn V> struct ElemwiseOp<V> {
   using FnAttr = hfusion::UnaryFnAttr;
   static constexpr hfusion::UnaryFn Fn = V;
 };
+
+
+template <typename T>
+struct is_elemwise_op : std::false_type {};
+
+template <auto V>
+struct is_elemwise_op<ElemwiseOp<V>> : std::true_type {};
 
 
 /*****************************************************************************************

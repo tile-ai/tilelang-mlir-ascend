@@ -291,6 +291,34 @@ namespace {
   };
 }  // namespace
 
+
+template <auto V> struct ElemwiseOp;
+
+template <linalg::BinaryFn V> struct ElemwiseOp<V> {
+  using Op = linalg::ElemwiseBinaryOp;
+  using FnAttr = linalg::BinaryFnAttr;
+  static constexpr linalg::BinaryFn Fn = V;
+};
+
+template <hfusion::BinaryFn V> struct ElemwiseOp<V> {
+  using Op = hfusion::ElemwiseBinaryOp;
+  using FnAttr = hfusion::BinaryFnAttr;
+  static constexpr hfusion::BinaryFn Fn = V;
+};
+
+template <linalg::UnaryFn V> struct ElemwiseOp<V> {
+  using Op = linalg::ElemwiseUnaryOp;
+  using FnAttr = linalg::UnaryFnAttr;
+  static constexpr linalg::UnaryFn Fn = V;
+};
+
+template <hfusion::UnaryFn V> struct ElemwiseOp<V> {
+  using Op = hfusion::ElemwiseUnaryOp;
+  using FnAttr = hfusion::UnaryFnAttr;
+  static constexpr hfusion::UnaryFn Fn = V;
+};
+
+
 /*****************************************************************************************
 ******************************************************************************************
 Functions for CodeGenTileLangNPUIRAPIA5 class
@@ -2317,7 +2345,7 @@ mlir::Value CodeGenTileLangNPUIRAPIA5::VisitExpr_(const CallNode *op) {
   } else if (op->op.same_as(Op::Get("tl.npuir_mul"))) {
     CreateHIVMBinaryVectorOp<mlir::hivm::VMulOp>(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
-    CreateHIVMBinaryVectorOp<mlir::hivm::VSubOp>(op);
+    CreateHIVMBinaryVectorOp<ElemwiseOp<linalg::BinaryFn::sub>>(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_max"))) {
     CreateHIVMBinaryVectorOp<mlir::hivm::VMaxOp>(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_min"))) {

@@ -1838,13 +1838,19 @@ void CodeGenTileLangNPUIRAPIA5::CreateHIVMBinaryVectorOp(const CallNode *op) {
                                           op->args[3].as<Bool>().value());
     builder.create<T>(loc, mlir::TypeRange{}, mlir::ValueRange{src0, src1},
                       mlir::ValueRange{dst}, round_attr, transpose, broadcast);
-  } else if constexpr (std::is_same_v<T, mlir::hivm::VDivOp>) {
+  }} else if constexpr (std::is_same_v<T, mlir::hivm::VDivOp>) {
         builder.create<T>(loc, mlir::TypeRange{}, mlir::ValueRange{src0, src1},
                       mlir::ValueRange{dst}, true, transpose, broadcast);
+  } else if constexpr (is_elemwise_op<T>::value) {
+    auto fn_attr = T::FnAttr::get(builder.getContext(), T::Fn);
+    builder.create<typename T::Op>(loc, mlir::TypeRange{},
+                                    mlir::ValueRange{src0, src1},
+                                    mlir::ValueRange{dst}, fn_attr);
   } else {
     builder.create<T>(loc, mlir::TypeRange{}, mlir::ValueRange{src0, src1},
                       mlir::ValueRange{dst}, transpose, broadcast);
   }
+}
 }
 
 template <typename T>

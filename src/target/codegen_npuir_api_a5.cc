@@ -291,6 +291,43 @@ namespace {
   };
 }  // namespace
 
+
+
+
+template <auto V> struct ElemwiseOp;
+
+template <linalg::BinaryFn V> struct ElemwiseOp<V> {
+  using Op = linalg::ElemwiseBinaryOp;
+  using FnAttr = linalg::BinaryFnAttr;
+  static constexpr linalg::BinaryFn Fn = V;
+};
+
+template <hfusion::BinaryFn V> struct ElemwiseOp<V> {
+  using Op = hfusion::ElemwiseBinaryOp;
+  using FnAttr = hfusion::BinaryFnAttr;
+  static constexpr hfusion::BinaryFn Fn = V;
+};
+
+template <linalg::UnaryFn V> struct ElemwiseOp<V> {
+  using Op = linalg::ElemwiseUnaryOp;
+  using FnAttr = linalg::UnaryFnAttr;
+  static constexpr linalg::UnaryFn Fn = V;
+};
+
+template <hfusion::UnaryFn V> struct ElemwiseOp<V> {
+  using Op = hfusion::ElemwiseUnaryOp;
+  using FnAttr = hfusion::UnaryFnAttr;
+  static constexpr hfusion::UnaryFn Fn = V;
+};
+
+
+template <typename T>
+struct is_elemwise_op : std::false_type {};
+
+template <auto V>
+struct is_elemwise_op<ElemwiseOp<V>> : std::true_type {};
+
+
 /*****************************************************************************************
 ******************************************************************************************
 Functions for CodeGenTileLangNPUIRAPIA5 class
@@ -1801,13 +1838,19 @@ void CodeGenTileLangNPUIRAPIA5::CreateHIVMBinaryVectorOp(const CallNode *op) {
                                           op->args[3].as<Bool>().value());
     builder.create<T>(loc, mlir::TypeRange{}, mlir::ValueRange{src0, src1},
                       mlir::ValueRange{dst}, round_attr, transpose, broadcast);
-  } else if constexpr (std::is_same_v<T, mlir::hivm::VDivOp>) {
+  }} else if constexpr (std::is_same_v<T, mlir::hivm::VDivOp>) {
         builder.create<T>(loc, mlir::TypeRange{}, mlir::ValueRange{src0, src1},
                       mlir::ValueRange{dst}, true, transpose, broadcast);
+  } else if constexpr (is_elemwise_op<T>::value) {
+    auto fn_attr = T::FnAttr::get(builder.getContext(), T::Fn);
+    builder.create<typename T::Op>(loc, mlir::TypeRange{},
+                                    mlir::ValueRange{src0, src1},
+                                    mlir::ValueRange{dst}, fn_attr);
   } else {
     builder.create<T>(loc, mlir::TypeRange{}, mlir::ValueRange{src0, src1},
                       mlir::ValueRange{dst}, transpose, broadcast);
   }
+}
 }
 
 template <typename T>
@@ -2317,7 +2360,7 @@ mlir::Value CodeGenTileLangNPUIRAPIA5::VisitExpr_(const CallNode *op) {
   } else if (op->op.same_as(Op::Get("tl.npuir_mul"))) {
     CreateHIVMBinaryVectorOp<mlir::hivm::VMulOp>(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
-    CreateHIVMBinaryVectorOp<mlir::hivm::VSubOp>(op);
+    CreateHIVMBinaryVectorOp<ElemwiseOp<linalg::BinaryFn::sub>>(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_max"))) {
     CreateHIVMBinaryVectorOp<mlir::hivm::VMaxOp>(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_min"))) {

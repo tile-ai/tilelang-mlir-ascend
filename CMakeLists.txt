@@ -214,6 +214,7 @@ if(USE_NPUIR)
   if(TILE_LANG_ENABLE_NPUIR_A5)
     tilelang_file_glob(GLOB TILE_LANG_NPUIR_SRCS
       src/target/codegen_npuir.cc
+      src/target/codegen_npuir_api_a5.cc
       src/target/codegen_npuir_dev_a5.cc
       src/target/rt_mod_npuir.cc
     )

@@ -5,6 +5,7 @@ import pytest
 import torch
 import tilelang
 import tilelang.language as T
+from tilelang.utils import NPUUtils
 
 os.environ["TILELANG_ASCEND_MODE"] = "Developer"
 
@@ -27,6 +28,8 @@ def tl_indexer_bwd_impl(
     query_len = T.symbolic("query_len")
     kv_len = T.symbolic("kv_len")
 
+    num_cores = NPUUtils.get().get_aicore_num()
+
     @T.prim_func
     def indexer_bwd_kernel(
         IndexQ: T.Tensor([query_len, num_heads, head_dim], dtype),
@@ -38,8 +41,8 @@ def tl_indexer_bwd_impl(
         dWeights: T.Tensor([query_len, num_heads], accum_dtype),
         dIndexK: T.Tensor([kv_len, head_dim], accum_dtype),
     ):
-        with T.Kernel(query_len, is_npu=True) as (batch_idx, _):
-            # 1. Memory allocation for Shared and Local memory
+        with T.Kernel(num_cores, is_npu=True) as (cidx, _):
+            # 1. Memory allocation for Shared and Local memory (reused across grid-stride iterations)
             q_shared = T.alloc_shared([num_heads, head_dim], dtype)
             k_shared = T.alloc_shared([block_top_k, head_dim], dtype)
             w_shared = T.alloc_shared([num_heads, 1], accum_dtype)
@@ -48,7 +51,6 @@ def tl_indexer_bwd_impl(
             idx_shared = T.alloc_shared([block_top_k], index_dtype)
 
             dw_acc_ub = T.alloc_shared([num_heads, 1], accum_dtype)
-            T.clear(dw_acc_ub)
 
             logits_ub = T.alloc_shared([num_heads, block_top_k], accum_dtype)
             m_grad_ub = T.alloc_shared([num_heads, block_top_k], accum_dtype)
@@ -60,67 +62,89 @@ def tl_indexer_bwd_impl(
             logits_frag = T.alloc_fragment([num_heads, block_top_k], accum_dtype)
             dq_frag = T.alloc_fragment([num_heads, head_dim], accum_dtype)
             dk_frag = T.alloc_fragment([block_top_k, head_dim], accum_dtype)
-            T.clear(dq_frag)
 
-            T.copy(IndexQ[batch_idx, 0, 0], q_shared, size=[num_heads, head_dim])
-            T.copy(Weights[batch_idx, 0], w_shared, size=[num_heads])
+            # 2. Grid-stride loop: each physical core handles ceildiv(query_len, num_cores) work blocks
+            num_iters_inner = top_k // block_top_k
+            for pid in T.serial(T.ceildiv(query_len, num_cores)):
+                batch_idx = cidx + pid * num_cores
+                if batch_idx < query_len:
+                    T.clear(dw_acc_ub)
+                    T.clear(dq_frag)
 
-            # 2. Main loop: process TopK indices in blocks
-            num_iters = top_k // block_top_k
-            for i_iter in T.serial(num_iters):
-                offset = i_iter * block_top_k
+                    T.copy(
+                        IndexQ[batch_idx, 0, 0], q_shared, size=[num_heads, head_dim]
+                    )
+                    T.copy(Weights[batch_idx, 0], w_shared, size=[num_heads])
 
-                # Load indices and gather corresponding Key vectors from global memory
-                T.copy(Indices[batch_idx, offset], idx_shared, size=[block_top_k])
-                for j in T.serial(block_top_k):
-                    curr_k_idx = idx_shared[j]
-                    T.copy(IndexK[curr_k_idx, 0], k_shared[j, 0], size=[head_dim])
+                    # 3. Main loop: process TopK indices in blocks
+                    for i_iter in T.serial(num_iters_inner):
+                        offset = i_iter * block_top_k
 
-                # Workaround for CV kernel bug, this addition is mandatory
-                T.vadd(k_shared, T.cast(0.0, dtype), k_shared)
-                T.copy(
-                    GradOutput[batch_idx, offset],
-                    grad_out_shared,
-                    size=[1, block_top_k],
-                )
+                        # Load indices and gather corresponding Key vectors from global memory
+                        T.copy(
+                            Indices[batch_idx, offset], idx_shared, size=[block_top_k]
+                        )
+                        for j in T.serial(block_top_k):
+                            curr_k_idx = idx_shared[j]
+                            T.copy(
+                                IndexK[curr_k_idx, 0], k_shared[j, 0], size=[head_dim]
+                            )
 
-                # Compute Logits (Q * K^T)
-                T.gemm(q_shared, k_shared, logits_frag, b_transpose=True, initC=True)
-                T.copy(logits_frag, logits_ub)
+                        # Workaround for CV kernel bug, this addition is mandatory
+                        T.vadd(k_shared, T.cast(0.0, dtype), k_shared)
+                        T.copy(
+                            GradOutput[batch_idx, offset],
+                            grad_out_shared,
+                            size=[1, block_top_k],
+                        )
 
-                # Compute weight gradient dW: grad_out * relu(logits)
-                T.vrelu(logits_ub, logits_ub)
-                T.vmul(logits_ub, grad_out_shared, m_grad_ub)
-                T.reduce_sum(m_grad_ub, dw_acc_ub, dim=1, clear=False)
+                        # Compute Logits (Q * K^T)
+                        T.gemm(
+                            q_shared,
+                            k_shared,
+                            logits_frag,
+                            b_transpose=True,
+                            initC=True,
+                        )
+                        T.copy(logits_frag, logits_ub)
 
-                # Compute backpropagation intermediate gradients and apply ReLU mask
-                T.vbrc(grad_out_shared, m_grad_ub)
-                T.vmul(m_grad_ub, w_shared, m_grad_ub)
-                T.vmul(logits_ub, 100000000.0, mask_ub)
-                T.vmin(mask_ub, 1.0, mask_ub)
-                T.vmul(m_grad_ub, mask_ub, m_grad_ub)
-                T.vcast(m_grad_ub, m_grad_f16_ub, round_mode="round")
+                        # Compute weight gradient dW: grad_out * relu(logits)
+                        T.vrelu(logits_ub, logits_ub)
+                        T.vmul(logits_ub, grad_out_shared, m_grad_ub)
+                        T.reduce_sum(m_grad_ub, dw_acc_ub, dim=1, clear=False)
 
-                # Compute matrix multiplication for dQ and dK
-                T.gemm(m_grad_f16_ub, k_shared, dq_frag, initC=False)
-                T.gemm(
-                    m_grad_f16_ub,
-                    q_shared,
-                    dk_frag,
-                    a_transpose=True,
-                    b_transpose=False,
-                    initC=True,
-                )
+                        # Compute backpropagation intermediate gradients and apply ReLU mask
+                        T.vbrc(grad_out_shared, m_grad_ub)
+                        T.vmul(m_grad_ub, w_shared, m_grad_ub)
+                        T.vmul(logits_ub, 100000000.0, mask_ub)
+                        T.vmin(mask_ub, 1.0, mask_ub)
+                        T.vmul(m_grad_ub, mask_ub, m_grad_ub)
+                        T.vcast(m_grad_ub, m_grad_f16_ub, round_mode="round")
 
-                # Atomic accumulate and write back to dK
-                T.copy(dk_frag, dk_temp_ub)
-                for j in T.serial(block_top_k):
-                    target_k_idx = idx_shared[j]
-                    T.atomic_add(dIndexK[target_k_idx, 0], dk_temp_ub[j, 0], [head_dim])
+                        # Compute matrix multiplication for dQ and dK
+                        T.gemm(m_grad_f16_ub, k_shared, dq_frag, initC=False)
+                        T.gemm(
+                            m_grad_f16_ub,
+                            q_shared,
+                            dk_frag,
+                            a_transpose=True,
+                            b_transpose=False,
+                            initC=True,
+                        )
 
-            # 3. Final write back of dWeights and dQ results
-            T.copy(dw_acc_ub, dWeights[batch_idx, 0], size=[num_heads])
-            T.copy(dq_frag, dIndexQ[batch_idx, 0, 0], size=[num_heads, head_dim])
+                        # Atomic accumulate and write back to dK
+                        T.copy(dk_frag, dk_temp_ub)
+                        for j in T.serial(block_top_k):
+                            target_k_idx = idx_shared[j]
+                            T.atomic_add(
+                                dIndexK[target_k_idx, 0], dk_temp_ub[j, 0], [head_dim]
+                            )
+
+                    # 4. Final write back of dWeights and dQ results
+                    T.copy(dw_acc_ub, dWeights[batch_idx, 0], size=[num_heads])
+                    T.copy(
+                        dq_frag, dIndexQ[batch_idx, 0, 0], size=[num_heads, head_dim]
+                    )
 
     return indexer_bwd_kernel
 
@@ -157,7 +181,10 @@ def indexer_bwd_interface(q, k, indices, weights, grad_output, block_top_k=16):
 
 
 TEST_CASES = [
-    (8, 512, 512, 128, 32),
+    # (8, 512, 512, 128, 32),       # baseline
+    (24, 65536, 65536, 128, 32),  # 64k
+    # (24, 131072, 131072, 128, 32),    # 128k
+    # (24, 262144, 262144, 128, 32),    # 256k
 ]
 
 

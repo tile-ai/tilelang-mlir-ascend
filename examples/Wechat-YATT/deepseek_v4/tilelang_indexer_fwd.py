@@ -22,6 +22,7 @@ def tl_indexer_fwd_impl(
     block_Q=16,
 ):
     """TileLang Kernel for indexer forward computation."""
+    kernel_num = 24
     dtype = FP16
     accum_dtype = FP32
     index_dtype = INT32
@@ -42,60 +43,74 @@ def tl_indexer_fwd_impl(
         CuSeqLenKE: T.Tensor([seq_len], index_dtype),
         Metadata: T.Tensor([num_q_blocks, 2], index_dtype),
     ):
-        with T.Kernel(num_q_blocks, is_npu=True) as (cid, _):
-            s_start = cid * block_Q
+        with T.Kernel(kernel_num, is_npu=True) as (kernel_id, _):
+            repeat_num = T.ceildiv(num_q_blocks, kernel_num)
+            for i in T.serial(repeat_num):
+                cid = kernel_id + i * kernel_num
+                if cid < num_q_blocks:
+                    s_start = cid * block_Q
 
-            q_shared = T.alloc_shared((block_Q * heads, index_dim), dtype)
-            k_shared = T.alloc_shared((block_N, index_dim), dtype)
-            w_shared = T.alloc_shared((block_Q * heads, 1), accum_dtype)
+                    q_shared = T.alloc_shared((block_Q * heads, index_dim), dtype)
+                    k_shared = T.alloc_shared((block_N, index_dim), dtype)
+                    w_shared = T.alloc_shared((block_Q * heads, 1), accum_dtype)
 
-            acc_s = T.alloc_fragment((block_Q * heads, block_N), accum_dtype)
-            acc_ub = T.alloc_shared((block_Q * heads, block_N), accum_dtype)
-            out_ub = T.alloc_shared((block_Q, block_N), accum_dtype)
+                    acc_s = T.alloc_fragment((block_Q * heads, block_N), accum_dtype)
+                    acc_ub = T.alloc_shared((block_Q * heads, block_N), accum_dtype)
+                    out_ub = T.alloc_shared((block_Q, block_N), accum_dtype)
 
-            start_block_k = Metadata[cid, 0]
-            num_blocks_k = Metadata[cid, 1]
+                    start_block_k = Metadata[cid, 0]
+                    num_blocks_k = Metadata[cid, 1]
 
-            # Load Query and Weights
-            T.copy(
-                IndexQ[s_start * heads, 0], q_shared, size=[block_Q * heads, index_dim]
-            )
-            T.copy(Weights[s_start * heads, 0], w_shared, size=[block_Q * heads, 1])
-
-            for nbn_i in T.Pipelined(num_blocks_k, num_stages=num_stages):
-                curr_k_offset = (start_block_k + nbn_i) * block_N
-
-                T.copy(IndexK[curr_k_offset, 0], k_shared, size=[block_N, index_dim])
-                T.gemm(q_shared, k_shared, acc_s, initC=True, b_transpose=True)
-
-                T.copy(acc_s, acc_ub)
-                T.vrelu(acc_ub, acc_ub)
-                for h_i, j_i in T.Parallel(block_Q * heads, block_N):
-                    acc_ub[h_i, j_i] = acc_ub[h_i, j_i] * softmax_scale
-                T.vmul(acc_ub, w_shared, acc_ub)
-
-                for i in T.serial(block_Q):
-                    T.reduce_sum(
-                        acc_ub[i * heads : (i + 1) * heads, :],
-                        out_ub[i : i + 1, :],
-                        dim=0,
-                        clear=True,
-                    )
-
-                for i in T.serial(block_Q):
-                    s_idx = s_start + i
-                    if s_idx < seq_len:
-                        ks_val = CuSeqLenKS[s_idx]
-                        ke_val = CuSeqLenKE[s_idx]
-                        for j in T.serial(block_N):
-                            k_idx = curr_k_offset + j
-                            if k_idx < ks_val or k_idx >= ke_val:
-                                out_ub[i, j] = -T.infinity(accum_dtype)
-
-                if s_start < seq_len:
+                    # Load Query and Weights
                     T.copy(
-                        out_ub, Logits[s_start, curr_k_offset], size=[block_Q, block_N]
+                        IndexQ[s_start * heads, 0],
+                        q_shared,
+                        size=[block_Q * heads, index_dim],
                     )
+                    T.copy(
+                        Weights[s_start * heads, 0], w_shared, size=[block_Q * heads, 1]
+                    )
+
+                    for nbn_i in T.Pipelined(num_blocks_k, num_stages=num_stages):
+                        curr_k_offset = (start_block_k + nbn_i) * block_N
+
+                        T.copy(
+                            IndexK[curr_k_offset, 0],
+                            k_shared,
+                            size=[block_N, index_dim],
+                        )
+                        T.gemm(q_shared, k_shared, acc_s, initC=True, b_transpose=True)
+
+                        T.copy(acc_s, acc_ub)
+                        T.vrelu(acc_ub, acc_ub)
+                        for h_i, j_i in T.Parallel(block_Q * heads, block_N):
+                            acc_ub[h_i, j_i] = acc_ub[h_i, j_i] * softmax_scale
+                        T.vmul(acc_ub, w_shared, acc_ub)
+
+                        for i in T.serial(block_Q):
+                            T.reduce_sum(
+                                acc_ub[i * heads : (i + 1) * heads, :],
+                                out_ub[i : i + 1, :],
+                                dim=0,
+                                clear=True,
+                            )
+
+                        for i in T.serial(block_Q):
+                            s_idx = s_start + i
+                            if s_idx < seq_len:
+                                ks_val = CuSeqLenKS[s_idx]
+                                ke_val = CuSeqLenKE[s_idx]
+                                for j in T.serial(block_N):
+                                    k_idx = curr_k_offset + j
+                                    if k_idx < ks_val or k_idx >= ke_val:
+                                        out_ub[i, j] = -T.infinity(accum_dtype)
+
+                        if s_start < seq_len:
+                            T.copy(
+                                out_ub,
+                                Logits[s_start, curr_k_offset],
+                                size=[block_Q, block_N],
+                            )
 
     return indexer_kernel
 
@@ -143,9 +158,6 @@ def indexer_fwd_interface(
     assert seq_len % block_Q == 0, (
         f"seq_len ({seq_len}) must be a multiple of block_Q ({block_Q})"
     )
-    assert seq_kv % block_N == 0, (
-        f"seq_kv ({seq_kv}) must be a multiple of block_N ({block_N})"
-    )
 
     metadata, num_q_blocks = prepare_metadata(ks, ke, seq_len, block_Q, block_N, device)
 
@@ -162,7 +174,8 @@ def indexer_fwd_interface(
 
 
 TEST_CASES = [
-    (1, 4096, 4096, 128),
+    (1, 8192, 24, 128),
+    (1, 65536, 24, 128),
 ]
 
 

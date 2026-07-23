@@ -299,8 +299,9 @@ def sparse_mqa_bwd_interface(q, kv, attn_sink, o, do, topk_idxs, lse, sm_scale):
     block_size = 16
     padded_topk = (topk + block_size - 1) // block_size * block_size
     if padded_topk != topk:
+        pad_topk = padded_topk - topk
         pad = torch.full(
-            (B, S, padded_topk - topk),
+            (B, S, pad_topk),
             -1,
             device=topk_idxs.device,
             dtype=topk_idxs.dtype,
@@ -308,16 +309,49 @@ def sparse_mqa_bwd_interface(q, kv, attn_sink, o, do, topk_idxs, lse, sm_scale):
         topk_idxs = torch.cat([topk_idxs, pad], dim=-1).contiguous()
         topk = padded_topk
 
-    preprocess_kernel = preprocess(B, S, H, D)
-    bwd_kernel = sparse_mqa_bwd_kernel(B, S, S_kv, H, D, topk, sm_scale, block_size)
-    postprocess_kernel = postprocess(B, S_kv, D, block_N=16)
+    max_logical_cores = 32768
+    max_seq_len_per_launch = max_logical_cores // B
+    if max_seq_len_per_launch <= 0:
+        max_seq_len_per_launch = 1
 
-    delta = preprocess_kernel(o, do)
     dkv = torch.zeros_like(kv, dtype=torch.float32)
     d_attn_sink = torch.zeros_like(attn_sink)
-    dq = torch.zeros_like(q, dtype=torch.bfloat16)
-    bwd_kernel(q, kv, do, attn_sink, topk_idxs, lse, delta, dq, dkv, d_attn_sink)
+    dq_chunks = []
 
+    for seq_start in range(0, S, max_seq_len_per_launch):
+        seq_end = min(seq_start + max_seq_len_per_launch, S)
+        chunk_len = seq_end - seq_start
+
+        o_chunk = o[:, seq_start:seq_end].contiguous()
+        do_chunk = do[:, seq_start:seq_end].contiguous()
+        topk_idxs_chunk = topk_idxs[:, seq_start:seq_end].contiguous()
+        lse_chunk = lse[:, seq_start:seq_end].contiguous()
+        q_chunk = q[:, seq_start:seq_end].contiguous()
+
+        preprocess_kernel = preprocess(B, chunk_len, H, D)
+        bwd_kernel = sparse_mqa_bwd_kernel(
+            B, chunk_len, S_kv, H, D, topk, sm_scale, block_size
+        )
+
+        delta = preprocess_kernel(o_chunk, do_chunk)
+        dq_chunk = torch.zeros_like(q_chunk, dtype=torch.bfloat16)
+        bwd_kernel(
+            q_chunk,
+            kv,
+            do_chunk,
+            attn_sink,
+            topk_idxs_chunk,
+            lse_chunk,
+            delta,
+            dq_chunk,
+            dkv,
+            d_attn_sink,
+        )
+        dq_chunks.append(dq_chunk)
+
+    dq = torch.cat(dq_chunks, dim=1)
+
+    postprocess_kernel = postprocess(B, S_kv, D, block_N=16)
     dkv = postprocess_kernel(dkv)
 
     return dq, dkv, d_attn_sink

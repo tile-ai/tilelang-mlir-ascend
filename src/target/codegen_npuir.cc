@@ -132,6 +132,11 @@ std::vector<unsigned long> GetStrideFromShape(Array<tvm::PrimExpr> shape) {
     if (auto s_int = as_const_int(s)) {
       total_size *= *s_int;
       shape_int.push_back(*s_int);
+    } else {
+      // A runtime dimension has no compile-time stride.  Callers that need a
+      // dynamic layout must retain the symbolic stride expression instead of
+      // indexing the incomplete `shape_int` vector below.
+      return {};
     }
   }
   for (int i = 0; i < shape.size(); i++) {
@@ -160,7 +165,7 @@ String GetBufferStrides(Buffer buffer) {
   for (int i = 0; i < dim; i++) {
     if (i > 0)
       res = res + ", ";
-    res = res + std::to_string(strides[i]);
+    res = res + (i < strides.size() ? std::to_string(strides[i]) : "?");
   }
   res = res + "]";
   return res;
@@ -1231,7 +1236,7 @@ void CodeGenTileLangNPUIR::VisitExpr_(const CallNode *op, std::ostream &os) {
   } else if (op->op.same_as(Op::Get("tl.npuir_sync_block_wait"))) {
     tvm::tl::NpuirSyncBlockWait sync_op(op->args, this->vmap);
     SyncBlockWaitCodegen(sync_op, os);
-  } else if (op->op.same_as(Op::Get("tl.ascend_copy"))) {
+  } else if (op->op.same_as(Op::Get("tl.copy"))) {
     AscendCopyCodegen(op, os);
   } else if (op->op.same_as(Op::Get("tl.npuir_add"))) {
     BinaryVecOpCodegen(op, "add", os);
@@ -1300,7 +1305,14 @@ void CodeGenTileLangNPUIR::VisitStmt_(const AttrStmtNode *op) {
       this->PrintIndent();
       this->stream << "%" << this->block_id_ << " = arith.trunci %"
                    << this->block_id_ << "_i64 : i64 to i32\n";
-      this->core_num_ = op->value.as<IntImmNode>()->value;
+      if (const auto *extent = op->value.as<IntImmNode>()) {
+        this->core_num_ = extent->value;
+      } else {
+        // Dynamic grid extents are passed to the runtime.  `core_num_` is
+        // only used by the disabled legacy host-stub generator, so it must
+        // not force a compile-time constant in the device string backend.
+        this->core_num_ = 0;
+      }
     } else if (iv->thread_tag == "blockIdx.y" && iv->var->name_hint != "_") {
       auto vec_id_ = AllocVarID(iv->var.get());
       this->PrintIndent();
@@ -1531,17 +1543,73 @@ void CodeGenTileLangNPUIR::GenRecastFromArg(Buffer curr_buffer, String arg_name,
                                             String &recast_inst) {
   // reinterpret_cast memref from 1D to xD
   std::ostringstream res;
-  String target_strides = GetBufferStrides(curr_buffer);
   String cast_name = arg_name + "_Recast";
   // add new memref obj
   this->type_info[cast_name] = new Memref(cast_name, curr_buffer);
+
+  // reinterpret_cast requires index-typed dynamic sizes and strides.  This
+  // function is called while emitting the function signature, so the casts
+  // must be retained in `recast_inst` and inserted later in the function
+  // body, rather than emitted through PrintExpr here.
+  std::vector<String> shape_values;
+  for (size_t i = 0; i < curr_buffer->shape.size(); ++i) {
+    PrimExpr dim = curr_buffer->shape[i];
+    if (auto dim_int = as_const_int(dim)) {
+      shape_values.push_back(std::to_string(*dim_int));
+      continue;
+    }
+
+    const auto *dim_var = dim.as<VarNode>();
+    ICHECK(dim_var)
+        << "NPUIR string codegen only supports Var dynamic buffer dimensions";
+    String value_name = arg_name + "_dim_" + std::to_string(i);
+    res << "%" << value_name
+        << " = arith.index_cast %"
+        // Buffer shape Vars are not necessarily pointer-identical to the
+        // corresponding PrimFunc parameter, so GetVarID/PrintExpr cannot be
+        // used here.  The argument was emitted under its TIR name hint.
+        << dim_var->name_hint << " : ";
+    PrintType(dim.dtype(), res);
+    res << " to index\n";
+    shape_values.push_back("%" + value_name);
+  }
+
+  // A contiguous rank-N buffer has stride[i] = product(shape[i + 1:]).
+  // Build products from the index-typed dynamic dimensions above, preserving
+  // static suffixes as integer literals.
+  std::vector<String> stride_values(curr_buffer->shape.size(), "1");
+  String running_stride = "1";
+  for (int i = static_cast<int>(curr_buffer->shape.size()) - 1; i >= 0; --i) {
+    stride_values[i] = running_stride;
+    if (i == 0) {
+      continue;
+    }
+    if (running_stride == "1") {
+      running_stride = shape_values[i];
+    } else if (shape_values[i] != "1") {
+      String value_name = arg_name + "_stride_" + std::to_string(i);
+      res << "%" << value_name << " = arith.muli " << shape_values[i] << ", "
+          << running_stride << " : index\n";
+      running_stride = "%" + value_name;
+    }
+  }
+
   res << "\%" << cast_name << " = ";
   res << "memref.reinterpret_cast \%";
   res << arg_name;
   res << " to offset: [0], sizes: [";
-  PrintShape(curr_buffer->shape, ", ", res);
-  res << "], strides: ";
-  res << target_strides;
+  for (size_t i = 0; i < shape_values.size(); ++i) {
+    if (i != 0)
+      res << ", ";
+    res << shape_values[i];
+  }
+  res << "], strides: [";
+  for (size_t i = 0; i < stride_values.size(); ++i) {
+    if (i != 0)
+      res << ", ";
+    res << stride_values[i];
+  }
+  res << "]";
   res << " : ";
   res << GetMemrefInfo(arg_name);
   res << " to ";
@@ -1690,7 +1758,8 @@ void CodeGenTileLangNPUIR::AddFunction(const GlobalVar &gvar,
 
   this->stream
       << "module attributes {hivm.module_core_type = #hivm.module_core_type<"
-      << NPU_CORETYPE_STR[this->func_coretype] << ">} {\n";
+      << NPU_CORETYPE_STR[this->func_coretype]
+      << ">, memref.memref_as_ptr} {\n";
 
   if (this->func_coretype == NPU_CORETYPE::MIX ||
       this->func_coretype == NPU_CORETYPE::AIC) {
@@ -1770,15 +1839,24 @@ String CodeGenTileLangNPUIR::GetMemrefInfo(Memref *memrefObj) {
 
 void Memref::GetIntStride() {
   if (stride.empty()) {
-    stride_int = GetStrideFromShape(shape);
-    for (unsigned long s : stride_int) {
-      stride.push_back(IntImm(DataType::Int(64), s));
+    // Preserve symbolic contiguous strides for dynamic shapes.  The previous
+    // implementation dropped dynamic dimensions, then indexed the shortened
+    // vector as if it still had `shape.size()` entries, causing a host-side
+    // segmentation fault before the MLIR string was produced.
+    std::vector<PrimExpr> contiguous_stride(shape.size());
+    PrimExpr running_stride =
+        IntImm(shape.empty() ? DataType::Int(64) : shape.back().dtype(), 1);
+    for (int i = static_cast<int>(shape.size()) - 1; i >= 0; --i) {
+      contiguous_stride[i] = running_stride;
+      running_stride = shape[i] * running_stride;
     }
-  } else {
-    for (PrimExpr s : stride) {
-      if (auto s_int = as_const_int(s))
-        stride_int.push_back(*s_int);
+    for (const PrimExpr &s : contiguous_stride) {
+      stride.push_back(s);
     }
+  }
+  for (const PrimExpr &s : stride) {
+    if (auto s_int = as_const_int(s))
+      stride_int.push_back(*s_int);
   }
 }
 

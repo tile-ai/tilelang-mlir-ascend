@@ -27,6 +27,37 @@ from tilelang.profiler import Profiler, TensorSupplyType
 from tilelang.transform.pass_config import normalize_pass_configs
 
 
+def _normalize_out_idx(out_idx, total_params):
+    """Normalize ``out_idx`` to a list of non-negative indices.
+
+    Accepts ``None``, a single ``int``, or a ``list``/``tuple`` of ``int``.
+    Negative indices are converted to their positive equivalents using
+    ``total_params``.  This is the single source of truth for the canonical
+    form of ``out_idx`` and is applied consistently across the cache key,
+    the compile path, and the pickled metadata so that e.g. ``[-1]`` and
+    ``[N-1]`` cannot diverge between code paths.
+    """
+    if out_idx is None:
+        return None
+    if isinstance(out_idx, int):
+        out_idx = [out_idx]
+    elif isinstance(out_idx, (list, tuple)):
+        out_idx = list(out_idx)
+    else:
+        raise TypeError(
+            f"out_idx must be int, list, or tuple; got {type(out_idx).__name__}"
+        )
+    normalized = []
+    for i in out_idx:
+        idx = i if i >= 0 else total_params + i
+        if idx < 0 or idx >= total_params:
+            raise ValueError(
+                f"out_idx {i} is out of bounds for kernel with {total_params} parameters"
+            )
+        normalized.append(idx)
+    return normalized
+
+
 class LaunchThreadExtractor:
     def __init__(self) -> None:
         self.expressions = []
@@ -999,7 +1030,11 @@ class JitKernel_NPU:
     def __init__(self, metadata: dict, out_idx=None) -> None:
         self.params = metadata["params"]
         self.signature = metadata.get("signature", {})
-        self.out_idx = out_idx
+        # NOTE: ``self.out_idx`` is set at the end of __init__ from either
+        # the explicit ``out_idx`` argument or from ``metadata["out_idx"]``
+        # (whichever is available).  Do not set it here -- doing so used to
+        # be silently overwritten and made the constructor parameter look
+        # functional when it wasn't.
         self.param_info = metadata.get("param_info", [])
         # 1 launch path
         self.so_launcher_path = metadata.get(
@@ -1030,7 +1065,14 @@ class JitKernel_NPU:
         self.gridfunc = metadata["gridfunc"]
         self.symbolic = metadata["symbolic"]
         self.prim_func = metadata["primfunc"]
-        self.out_idx = metadata["out_idx"]
+        # Respect explicit ``out_idx`` if the caller provided one; otherwise
+        # fall back to the value pickled in ``metadata`` (which is already
+        # in canonical, non-negative form because the cache layer
+        # normalised it before storing).
+        self.out_idx = _normalize_out_idx(
+            out_idx if out_idx is not None else metadata["out_idx"],
+            len(self.param_info),
+        )
         self._launch()
         (
             self.npu_module,
@@ -1055,11 +1097,17 @@ class JitKernel_NPU:
         metadata: str,
         out_idx: Union[List[int], int],
     ):
-        if isinstance(out_idx, int):
-            out_idx = [out_idx]
+        # ``metadata["out_idx"]`` was stored at compile time and is already
+        # in canonical (non-negative, list) form -- the cache layer
+        # normalised it before hashing the key.  Do NOT let an
+        # unnormalised caller-supplied value overwrite it: that was the
+        # source of a silent bug where ``out_idx=[-1]`` plus dynamic
+        # symbolic shapes plus a disk-cache hit caused ``full_args[-1]``
+        # to index into appended symbolic values instead of the output
+        # tensor (and a kernel call returned an ``int`` instead of a
+        # ``torch.Tensor``).
         metadata["so_launcher_path"] = kernel_launcher_path
-        metadata["out_idx"] = out_idx
-        instance = cls(metadata)
+        instance = cls(metadata, out_idx=out_idx)
         instance.so_launcher_path = kernel_launcher_path
         instance.so_utils_path = kernel_utils_path
         return instance
@@ -1356,10 +1404,9 @@ class compiler_npu:
         self.original_mod = mod
         # extract_param_info
         param_info = self._extract_param_info(mod, out_idx)
-        # process negative out_idx
-        if out_idx is not None:
-            total_params = len(param_info)
-            out_idx = [i if i >= 0 else total_params + i for i in out_idx]
+        # Normalise out_idx to canonical (non-negative, list) form.
+        # Idempotent: if the cache layer already did this, this is a no-op.
+        out_idx = _normalize_out_idx(out_idx, len(param_info))
         self.metadata = {}
         self.metadata["out_idx"] = out_idx
         self.metadata["param_info"] = param_info

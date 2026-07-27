@@ -136,6 +136,7 @@ private:
   void VselectCodegen(const CallNode *op, std::ostream &os);
   void VreduceCodegen(const CallNode *op, std::ostream &os);
   void FixpipeCodegen(const CallNode *op, std::ostream &os);
+  void VarangeCodegen(const CallNode *op, std::ostream &os);
   void DotCodegen(const CallNode *op, std::ostream &os);
   void BinaryVecOpCodegen(const CallNode *op, std::string opName,
                           std::ostream &os);
@@ -154,6 +155,8 @@ private:
   Array<String> GenConvertIndex(Array<PrimExpr> exprs);
   String GenSubviewFromRegion(const CallNode *region_node);
   String GenSubviewFromRegion(Buffer buffer_data, Array<Range> range);
+  String GenRankReducedSubviewFromRegion(Buffer buffer_data, Array<Range> range,
+                                         int min_rank);
   void GenRecastFromArg(Buffer curr_buffer, String arg_name,
                         String &recast_inst);
   String GetMemrefInfo(String name);

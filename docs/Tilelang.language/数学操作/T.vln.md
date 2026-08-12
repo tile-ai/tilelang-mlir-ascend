@@ -1,11 +1,11 @@
-# tilelang.language.vLn
+# tilelang.language.vln
 
 ## 1. 概述
 
-简介： `tilelang.language.vLn`用于计算张量以欧拉数`e`为底的对数
+简介： `tilelang.language.vln`用于计算张量以欧拉数`e`为底的对数
 
 ```python
-T.vLn(src, dst)
+T.vln(src, dst)
 ```
 
 ## 2. 规格
@@ -54,7 +54,7 @@ def vec_ln(M, N, block_M, block_N, dtype="float16"):
             ub_output = T.alloc_ub((block_M, block_N), dtype)
 
             T.copy(Input[bx * block_M, by * block_N], ub_input)
-            T.vLn(ub_input, ub_output)
+            T.vln(ub_input, ub_output)
             T.copy(ub_output, Output[bx * block_M, by * block_N])
 
     return main

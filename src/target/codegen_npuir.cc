@@ -16,6 +16,7 @@
 #include <tvm/tir/index_map.h>
 #include <tvm/tir/op.h>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <utility>
@@ -132,6 +133,11 @@ std::vector<unsigned long> GetStrideFromShape(Array<tvm::PrimExpr> shape) {
     if (auto s_int = as_const_int(s)) {
       total_size *= *s_int;
       shape_int.push_back(*s_int);
+    } else {
+      // A runtime dimension has no compile-time stride.  Callers that need a
+      // dynamic layout must retain the symbolic stride expression instead of
+      // indexing the incomplete `shape_int` vector below.
+      return {};
     }
   }
   for (int i = 0; i < shape.size(); i++) {
@@ -160,7 +166,7 @@ String GetBufferStrides(Buffer buffer) {
   for (int i = 0; i < dim; i++) {
     if (i > 0)
       res = res + ", ";
-    res = res + std::to_string(strides[i]);
+    res = res + (i < strides.size() ? std::to_string(strides[i]) : "?");
   }
   res = res + "]";
   return res;
@@ -190,11 +196,11 @@ static std::string broadcastAttrCodegen(Array<PrimExpr> &buffer_shape0,
     return "";
   }
   std::vector<int> broadcastDims;
-  if (buffer_shape0.size() && buffer_shape1.size()) {
+  if (!buffer_shape0.empty() && !buffer_shape1.empty()) {
     broadcastDims = getBroadcastDim(buffer_shape0, buffer_shape1);
   }
   std::ostringstream temp;
-  if (broadcastDims.size()) {
+  if (!broadcastDims.empty()) {
     temp << " = [";
     for (auto dim : broadcastDims) {
       temp << dim;
@@ -667,6 +673,94 @@ String CodeGenTileLangNPUIR::GenSubviewFromRegion(Buffer buffer_data,
   return new_buffer_name;
 }
 
+String CodeGenTileLangNPUIR::GenRankReducedSubviewFromRegion(Buffer buffer_data,
+                                                             Array<Range> range,
+                                                             int min_rank) {
+  ICHECK(!range.empty())
+      << "GenRankReducedSubviewFromRegion requires a non-scalar region.";
+
+  Array<PrimExpr> region_shape, region_indices;
+  for (const Range &r : range) {
+    region_shape.push_back(r->extent);
+    region_indices.push_back(r->min);
+  }
+
+  const int non_singleton_dims = std::count_if(
+      region_shape.begin(), region_shape.end(), [](const PrimExpr &extent) {
+        const int64_t *value = as_const_int(extent);
+        return value == nullptr || *value != 1;
+      });
+  const int singleton_to_drop =
+      std::max(0, static_cast<int>(region_shape.size()) - non_singleton_dims -
+                      std::max(0, min_rank - non_singleton_dims));
+
+  String buffer_name = buffer_data->name;
+  String base_name = buffer_name;
+  auto *base_memref = dynamic_cast<Memref *>(type_info[buffer_name]);
+  ICHECK(base_memref) << buffer_name << " should be a memref";
+  if (base_memref->is_arg) {
+    base_name = buffer_name + "_Recast";
+    base_memref = dynamic_cast<Memref *>(type_info[base_name]);
+    ICHECK(base_memref) << base_name << " should be a memref";
+  }
+  if (singleton_to_drop == 0 && IsEqual(buffer_data->shape, region_shape) &&
+      AllZero(region_indices)) {
+    return base_name;
+  }
+
+  Array<PrimExpr> reduced_shape;
+  Array<PrimExpr> reduced_strides;
+  int dropped = 0;
+  for (int i = 0; i < static_cast<int>(region_shape.size()); ++i) {
+    const int64_t *value = as_const_int(region_shape[i]);
+    if (value != nullptr && *value == 1 && dropped < singleton_to_drop) {
+      ++dropped;
+      continue;
+    }
+    reduced_shape.push_back(region_shape[i]);
+    reduced_strides.push_back(base_memref->stride[i]);
+  }
+  if (reduced_shape.empty()) {
+    reduced_shape.push_back(region_shape.back());
+    reduced_strides.push_back(base_memref->stride.back());
+  }
+
+  Array<String> offsets = GenConvertIndex(region_indices);
+  Array<String> sizes = GenConvertIndex(region_shape);
+  const unsigned long offset = ComputeOffset(base_memref, region_indices);
+  const String new_name = base_name + "_rank_reduced";
+  auto *result_memref = new Memref(
+      new_name, reduced_shape, buffer_data->dtype, base_memref->address_space,
+      offset == static_cast<unsigned long>(-1), reduced_strides, offset);
+  const String src_type = GetMemrefInfo(base_name);
+  const String dst_type = GetMemrefInfo(result_memref);
+
+  std::ostringstream inst;
+  inst << "memref.subview %" << base_name << "[";
+  for (int i = 0; i < static_cast<int>(offsets.size()); ++i) {
+    if (i != 0)
+      inst << ", ";
+    inst << offsets[i];
+  }
+  inst << "] [";
+  for (int i = 0; i < static_cast<int>(sizes.size()); ++i) {
+    if (i != 0)
+      inst << ", ";
+    inst << sizes[i];
+  }
+  inst << "] [";
+  for (int i = 0; i < static_cast<int>(range.size()); ++i) {
+    if (i != 0)
+      inst << ", ";
+    inst << "1";
+  }
+  inst << "] : " << src_type << " to " << dst_type;
+
+  String ssa_name = SSAGetID(inst.str(), buffer_data->dtype);
+  type_info[ssa_name] = result_memref;
+  return ssa_name;
+}
+
 /// Generate hivm.hir.load or hivm.hir.store for tl.ascend_copy.
 /// before:
 ///   T.ascend_copy(T.region(A[bx, by], 1, 128, 256), T.region(A_VEC[0, 0],
@@ -677,37 +771,54 @@ String CodeGenTileLangNPUIR::GenSubviewFromRegion(Buffer buffer_data,
 void CodeGenTileLangNPUIR::AscendCopyCodegen(const CallNode *op,
                                              std::ostream &os) {
   tvm::tl::AscendCopy npuirop(op->args, this->vmap);
-  // gen memref.subview
-  String src_data_name = GenSubviewFromRegion(npuirop.src, npuirop.src_range);
-  String dst_data_name = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
+  const String src_scope = GetPtrStorageScope(npuirop.src->data);
+  const String dst_scope = GetPtrStorageScope(npuirop.dst->data);
+  String src_data_name;
+  String dst_data_name;
 
-  // gen hivm.ir.load / hivm.ir.store
+  if (src_scope == "global" && dst_scope == "shared.dyn") {
+    src_data_name =
+        GenRankReducedSubviewFromRegion(npuirop.src, npuirop.src_range, 2);
+    dst_data_name =
+        GenRankReducedSubviewFromRegion(npuirop.dst, npuirop.dst_range, 2);
+    this->PrintIndent();
+    this->stream << "hivm.hir.nd2nz {dst_continuous} ins(%" << src_data_name
+                 << " : " << GetMemrefInfo(src_data_name) << ") outs(%"
+                 << dst_data_name << " : " << GetMemrefInfo(dst_data_name)
+                 << ") init_out_buffer = false\n";
+    return;
+  }
+  if (src_scope == "wmma.accumulator" && dst_scope == "global") {
+    src_data_name =
+        GenRankReducedSubviewFromRegion(npuirop.src, npuirop.src_range, 2);
+    dst_data_name =
+        GenRankReducedSubviewFromRegion(npuirop.dst, npuirop.dst_range, 2);
+    this->PrintIndent();
+    this->stream << "hivm.hir.fixpipe {enable_nz2nd} ins(%" << src_data_name
+                 << " : " << GetMemrefInfo(src_data_name) << ") outs(%"
+                 << dst_data_name << " : " << GetMemrefInfo(dst_data_name)
+                 << ")\n";
+    return;
+  }
+
+  auto non_singleton_rank = [](const Array<Range> &ranges) {
+    return std::count_if(ranges.begin(), ranges.end(), [](const Range &range) {
+      const int64_t *value = as_const_int(range->extent);
+      return value == nullptr || *value != 1;
+    });
+  };
+  const int min_rank = std::max(non_singleton_rank(npuirop.src_range),
+                                non_singleton_rank(npuirop.dst_range));
+  src_data_name =
+      GenRankReducedSubviewFromRegion(npuirop.src, npuirop.src_range, min_rank);
+  dst_data_name =
+      GenRankReducedSubviewFromRegion(npuirop.dst, npuirop.dst_range, min_rank);
+  ICHECK(npuirop.src->dtype == npuirop.dst->dtype)
+      << "T.copy does not support element type conversion.";
   this->PrintIndent();
-  if (!dynamic_cast<Memref *>(type_info[src_data_name])) {
-    LOG(FATAL) << src_data_name << " should be a memref";
-  }
-  if (!dynamic_cast<Memref *>(type_info[dst_data_name])) {
-    LOG(FATAL) << dst_data_name << " should be a memref";
-  }
-  if (dynamic_cast<Memref *>(type_info[src_data_name])->address_space == "gm") {
-    this->stream << "hivm.hir.load";
-  } else if (dynamic_cast<Memref *>(type_info[dst_data_name])->address_space ==
-             "gm") {
-    this->stream << "hivm.hir.store";
-  } else if (dynamic_cast<Memref *>(type_info[src_data_name])->address_space ==
-                 "ub" &&
-             dynamic_cast<Memref *>(type_info[dst_data_name])->address_space ==
-                 "ub") {
-    this->stream << "hivm.hir.copy";
-  }
-  this->stream << " ins(" << "\%" << src_data_name << " : "
-               << GetMemrefInfo(src_data_name) << ")";
-  this->stream << " outs(" << "\%" << dst_data_name << " : "
-               << GetMemrefInfo(dst_data_name) << ")";
-  // TODO: error: custom op 'init_out_buffer' is unknown
-  // this->stream << " left_padding_num = %c0 : index init_out_buffer =
-  // false";
-  this->stream << "\n";
+  this->stream << "memref.copy %" << src_data_name << ", %" << dst_data_name
+               << " : " << GetMemrefInfo(src_data_name) << " to "
+               << GetMemrefInfo(dst_data_name) << "\n";
 }
 
 template <typename T>
@@ -731,7 +842,7 @@ void CodeGenTileLangNPUIR::UnaryVecOpCodegen(const CallNode *op,
                << out_data_name << " : "
                << this->type_info[out_data_name]->printType() << ")";
   auto dims = broadcastAttrCodegen(buffer_shape0, buffer_shape1);
-  if (dims != "") {
+  if (!dims.empty()) {
     this->stream << " broadcast" << dims;
   }
   this->stream << "\n";
@@ -823,7 +934,7 @@ void CodeGenTileLangNPUIR::VbrcCodegen(const CallNode *op, std::ostream &os) {
                << out_data_name << " : "
                << this->type_info[out_data_name]->printType() << ")";
   auto dims = broadcastAttrCodegen(buffer_shape0, buffer_shape1);
-  if (dims != "") {
+  if (!dims.empty()) {
     this->stream << " broadcast_dims" << dims;
   }
   this->stream << "\n";
@@ -833,10 +944,22 @@ void CodeGenTileLangNPUIR::VcastCodegen(const CallNode *op, std::ostream &os) {
   // Generate hivm.hir.vcast for tl.npuir_cast.
   tvm::tl::NpuirCast npuirop(op->args, this->vmap);
   std::string in_data_name = "", out_data_name = "";
-  Array<PrimExpr> buffer_shape0 = npuirop.src->shape,
-                  buffer_shape1 = npuirop.dst->shape;
-  in_data_name = GenSubviewFromRegion(npuirop.src, npuirop.src_range);
-  out_data_name = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
+  auto non_singleton_rank = [](const Array<Range> &ranges) {
+    return std::count_if(ranges.begin(), ranges.end(), [](const Range &range) {
+      const int64_t *value = as_const_int(range->extent);
+      return value == nullptr || *value != 1;
+    });
+  };
+  const int min_rank =
+      std::max(static_cast<int>(non_singleton_rank(npuirop.src_range)),
+               static_cast<int>(non_singleton_rank(npuirop.dst_range)));
+  in_data_name =
+      GenRankReducedSubviewFromRegion(npuirop.src, npuirop.src_range, min_rank);
+  out_data_name =
+      GenRankReducedSubviewFromRegion(npuirop.dst, npuirop.dst_range, min_rank);
+  auto *in_memref = dynamic_cast<Memref *>(this->type_info[in_data_name]);
+  auto *out_memref = dynamic_cast<Memref *>(this->type_info[out_data_name]);
+  ICHECK(in_memref && out_memref) << "vcast operands should be memrefs";
   std::string round_mode = op->args[2].as<StringImmNode>()->value;
   this->PrintIndent();
   this->stream << "hivm.hir.vcast ins(\%" << in_data_name << " : "
@@ -844,8 +967,8 @@ void CodeGenTileLangNPUIR::VcastCodegen(const CallNode *op, std::ostream &os) {
                << out_data_name << " : "
                << this->type_info[out_data_name]->printType() << ")";
   this->stream << " round_mode = <" << round_mode << ">";
-  auto dims = broadcastAttrCodegen(buffer_shape0, buffer_shape1);
-  if (dims != "") {
+  auto dims = broadcastAttrCodegen(in_memref->shape, out_memref->shape);
+  if (!dims.empty()) {
     this->stream << " broadcast" << dims;
   }
   this->stream << "\n";
@@ -936,7 +1059,7 @@ void CodeGenTileLangNPUIR::FixpipeCodegen(const CallNode *op,
   this->stream << (enable_nz2nd ? ", enable_nz2nd" : "");
   this->stream << ", pre_relu = #hivm.fixpipe_pre_relu_mode<"
                << fixpipe_pre_relu_mode[pre_relu_mode] << ">";
-  if (pre_quant_attr != "") {
+  if (!pre_quant_attr.empty()) {
     this->stream << ", pre_quant = #hivm.fixpipe_pre_quant_mode<"
                  << pre_quant_attr << ">";
   }
@@ -971,7 +1094,7 @@ std::string CodeGenTileLangNPUIR::PrintID(PrimExpr id) {
     }
     temp << id_name << " : ";
     PrintType(raw_type, temp);
-    temp << " to i64\n";
+    temp << " to i64";
     id_name = SSAGetID(temp.str(), DataType::Int(FLAG_ID_BITS));
   }
   return "%" + id_name;
@@ -1023,8 +1146,12 @@ void CodeGenTileLangNPUIR::SyncBlockSetCodegen(const T &sync_op,
   this->stream << coretype_syncblock_map[current_coretype] << ">, <";
   this->stream << sync_op.pipe_type;
   this->stream << ">, <PIPE_S>] flag = " << flag_id;
-  this->stream << " syn_instr_mode = <" << SyncBlockMode_str[sync_op.mode];
-  this->stream << ">\n";
+  // CANN 9.1 accepts the default intra-block mode but rejects the textual
+  // syn_instr_mode custom syntax.  The sparse-attention pipeline only uses
+  // that default mode.
+  ICHECK(sync_op.mode == tl::SyncBlockMode::INTRA_BLOCK)
+      << "String codegen does not support non-default sync block modes.";
+  this->stream << "\n";
 }
 
 void CodeGenTileLangNPUIR::DotCodegen(const CallNode *op, std::ostream &os) {
@@ -1047,8 +1174,14 @@ void CodeGenTileLangNPUIR::DotCodegen(const CallNode *op, std::ostream &os) {
   Array<PrimExpr> a_region_shape, b_region_shape;
   for (int i = 0; i < npuirop.src0_range.size(); i++) {
     a_region_shape.push_back(npuirop.src0_range[i].get()->extent);
+  }
+  for (int i = 0; i < npuirop.src1_range.size(); i++) {
     b_region_shape.push_back(npuirop.src1_range[i].get()->extent);
   }
+  ICHECK_GE(a_region_shape.size(), 2)
+      << "npuir_dot requires src0 to have at least two dimensions.";
+  ICHECK_GE(b_region_shape.size(), 2)
+      << "npuir_dot requires src1 to have at least two dimensions.";
   auto init_c_name = SSAGetID(PrintExpr(npuirop.initC), op->args[3]->dtype);
 
   auto GetRealName = [this](const PrimExpr &extent) {
@@ -1060,10 +1193,20 @@ void CodeGenTileLangNPUIR::DotCodegen(const CallNode *op, std::ostream &os) {
     real_name = SSAGetID(temp.str(), extent.dtype());
     return real_name;
   };
-  auto real_m_name = GetRealName(a_region_shape[0]);
-  auto real_k_name = GetRealName(b_region_shape[0]);
-  auto real_n_name = GetRealName(b_region_shape[1]);
+  const PrimExpr &a_rows = a_region_shape[a_region_shape.size() - 2];
+  const PrimExpr &a_cols = a_region_shape[a_region_shape.size() - 1];
+  const PrimExpr &b_rows = b_region_shape[b_region_shape.size() - 2];
+  const PrimExpr &b_cols = b_region_shape[b_region_shape.size() - 1];
+  auto real_m_name = GetRealName(npuirop.a_transpose ? a_cols : a_rows);
+  auto real_k_name = GetRealName(npuirop.a_transpose ? a_rows : a_cols);
+  auto real_n_name = GetRealName(npuirop.b_transpose ? b_rows : b_cols);
 
+  String a_data_name =
+      GenRankReducedSubviewFromRegion(a_buffer, npuirop.src0_range, 2);
+  String b_data_name =
+      GenRankReducedSubviewFromRegion(b_buffer, npuirop.src1_range, 2);
+  String c_data_name =
+      GenRankReducedSubviewFromRegion(c_buffer, npuirop.dst_range, 2);
   this->PrintIndent();
   this->stream << "hivm.hir.mmadL1";
   if (npuirop.a_transpose || npuirop.b_transpose) {
@@ -1073,19 +1216,50 @@ void CodeGenTileLangNPUIR::DotCodegen(const CallNode *op, std::ostream &os) {
     this->stream << (npuirop.b_transpose ? "b_transpose" : "");
     this->stream << "}";
   }
-  this->stream << " ins(%" << type_info[a_buffer->name]->var_id;
-  this->stream << ", %" << type_info[b_buffer->name]->var_id;
+  this->stream << " ins(%" << a_data_name;
+  this->stream << ", %" << b_data_name;
   this->stream << ", %" << init_c_name;
   this->stream << ", %" << real_m_name;
   this->stream << ", %" << real_k_name;
   this->stream << ", %" << real_n_name;
-  this->stream << " : " << GetMemrefInfo(a_buffer->name);
-  this->stream << ", " << GetMemrefInfo(b_buffer->name);
+  this->stream << " : " << GetMemrefInfo(a_data_name);
+  this->stream << ", " << GetMemrefInfo(b_data_name);
   this->stream << ", i1, index, index, index";
   this->stream << ")";
-  this->stream << " outs(%" << type_info[c_buffer->name]->var_id;
-  this->stream << " : " << GetMemrefInfo(c_buffer->name);
+  this->stream << " outs(%" << c_data_name;
+  this->stream << " : " << GetMemrefInfo(c_data_name);
   this->stream << ")\n";
+}
+
+void CodeGenTileLangNPUIR::VarangeCodegen(const CallNode *op,
+                                          std::ostream &os) {
+  tvm::tl::NpuirArange npuirop(op->args, this->vmap);
+  // VArange has one stride per destination dimension, so its destination must
+  // retain the original region rank.
+  String dst_data_name = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
+  auto make_index_operand = [this](const PrimExpr &expr) {
+    String value = GenConvertIndex({expr})[0];
+    if (!value.empty() && std::string(value)[0] == '%') {
+      return value;
+    }
+    return String("%") +
+           SSAGetID("arith.constant " + std::string(value) + " : index",
+                    DataType::Int(64));
+  };
+  String offset = make_index_operand(npuirop.offset);
+  std::vector<String> strides;
+  for (const PrimExpr &stride : npuirop.strides) {
+    strides.push_back(make_index_operand(stride));
+  }
+  this->PrintIndent();
+  this->stream << "hivm.hir.varange offset[" << offset << "] strides[";
+  for (size_t i = 0; i < strides.size(); ++i) {
+    if (i != 0)
+      this->stream << ", ";
+    this->stream << strides[i];
+  }
+  this->stream << "] outs(%" << dst_data_name << " : "
+               << GetMemrefInfo(dst_data_name) << ")\n";
 }
 
 void CodeGenTileLangNPUIR::BinaryVecOpCodegen(const CallNode *op,
@@ -1099,10 +1273,22 @@ void CodeGenTileLangNPUIR::BinaryVecOpCodegen(const CallNode *op,
   //   hivm.hir.vadd ins(%9, %15 : memref<1024xf32,
   //   #hivm.address_space<ub>>, memref<1024xf32, #hivm.address_space<ub>>)
   //       outs(%16 : memref<1024xf32, #hivm.address_space<ub>>)
+  const CallNode *out_region_node = op->args[2].as<CallNode>();
+  ICHECK(out_region_node) << "Vector destination must be a region.";
+  tvm::tl::RegionOp out_region(out_region_node->args, this->vmap);
+  int min_rank = out_region.GetRanges().size();
+  for (int arg_id = 0; arg_id < 2; ++arg_id) {
+    if (const auto *region_node = op->args[arg_id].as<CallNode>()) {
+      tvm::tl::RegionOp region(region_node->args, this->vmap);
+      min_rank =
+          std::min(min_rank, static_cast<int>(region.GetRanges().size()));
+    }
+  }
+
   std::string left_data_name = "", right_data_name = "";
   Array<PrimExpr> buffer_shape0, buffer_shape1;
-  auto processImm = [&](std::string &data_name, int arg_id,
-                        Array<PrimExpr> &buffer_shape) {
+  auto process_operand = [&](std::string &data_name, int arg_id,
+                             Array<PrimExpr> &buffer_shape) {
     if (auto intImm = op->args[arg_id].as<IntImm>()) {
       auto immObj = intImm.value();
       data_name = PrintExpr(immObj);
@@ -1129,15 +1315,20 @@ void CodeGenTileLangNPUIR::BinaryVecOpCodegen(const CallNode *op,
       this->type_info[data_name] = new Scalar(data_name, temp.str());
     } else {
       const CallNode *region_node = op->args[arg_id].as<CallNode>();
-      buffer_shape = region_node->args[0].as<BufferLoadNode>()->buffer->shape;
-      data_name = GenSubviewFromRegion(region_node);
+      ICHECK(region_node) << "Vector operand must be a region or scalar.";
+      tvm::tl::RegionOp region(region_node->args, this->vmap);
+      data_name = GenRankReducedSubviewFromRegion(region.GetBuffer(),
+                                                  region.GetRanges(), min_rank);
+      auto *memref = dynamic_cast<Memref *>(this->type_info[data_name]);
+      ICHECK(memref) << data_name << " should be a memref";
+      buffer_shape = memref->shape;
     }
   };
-  processImm(left_data_name, 0, buffer_shape0);
-  processImm(right_data_name, 1, buffer_shape1);
-  const CallNode *out_region_node = op->args[2].as<CallNode>();
+  process_operand(left_data_name, 0, buffer_shape0);
+  process_operand(right_data_name, 1, buffer_shape1);
   String out_data_name = "", out_addr_space = "";
-  out_data_name = GenSubviewFromRegion(out_region_node);
+  out_data_name = GenRankReducedSubviewFromRegion(
+      out_region.GetBuffer(), out_region.GetRanges(), min_rank);
   this->PrintIndent();
   this->stream << "hivm.hir.v" << opName;
   this->stream << " ins(" << "\%" << left_data_name << ", " << "\%"
@@ -1148,7 +1339,7 @@ void CodeGenTileLangNPUIR::BinaryVecOpCodegen(const CallNode *op,
   this->stream << " outs(" << "\%" << out_data_name << " : "
                << this->type_info[out_data_name]->printType() << ")";
   auto dims = broadcastAttrCodegen(buffer_shape0, buffer_shape1);
-  if (dims != "") {
+  if (!dims.empty()) {
     this->stream << " broadcast" << dims;
   }
   this->stream << "\n";
@@ -1189,7 +1380,7 @@ void CodeGenTileLangNPUIR::DebugPrintCodegen(const CallNode *op,
     tvm::tl::NpuirDevicePrintVar npuirop(op->args, this->vmap);
     auto expr = npuirop.src.as<VarNode>();
 
-    if (npuirop.hex == true)
+    if (npuirop.hex)
       this->stream << "true";
     else
       this->stream << "false";
@@ -1201,7 +1392,7 @@ void CodeGenTileLangNPUIR::DebugPrintCodegen(const CallNode *op,
     std::string data_name =
         GenSubviewFromRegion(npuirop.src, npuirop.src_range);
 
-    if (npuirop.hex == true)
+    if (npuirop.hex)
       this->stream << "true";
     else
       this->stream << "false";
@@ -1231,7 +1422,7 @@ void CodeGenTileLangNPUIR::VisitExpr_(const CallNode *op, std::ostream &os) {
   } else if (op->op.same_as(Op::Get("tl.npuir_sync_block_wait"))) {
     tvm::tl::NpuirSyncBlockWait sync_op(op->args, this->vmap);
     SyncBlockWaitCodegen(sync_op, os);
-  } else if (op->op.same_as(Op::Get("tl.ascend_copy"))) {
+  } else if (op->op.same_as(Op::Get("tl.copy"))) {
     AscendCopyCodegen(op, os);
   } else if (op->op.same_as(Op::Get("tl.npuir_add"))) {
     BinaryVecOpCodegen(op, "add", os);
@@ -1267,6 +1458,8 @@ void CodeGenTileLangNPUIR::VisitExpr_(const CallNode *op, std::ostream &os) {
     VcastCodegen(op, os);
   } else if (op->op.same_as(Op::Get("tl.npuir_reduce"))) {
     VreduceCodegen(op, os);
+  } else if (op->op.same_as(Op::Get("tl.npuir_arange"))) {
+    VarangeCodegen(op, os);
   } else if (op->op.same_as(Op::Get("tl.npuir_debug_print_var")) ||
              op->op.same_as(Op::Get("tl.npuir_debug_print_buffer_value"))) {
     DebugPrintCodegen(op, os);
@@ -1300,8 +1493,15 @@ void CodeGenTileLangNPUIR::VisitStmt_(const AttrStmtNode *op) {
       this->PrintIndent();
       this->stream << "%" << this->block_id_ << " = arith.trunci %"
                    << this->block_id_ << "_i64 : i64 to i32\n";
-      this->core_num_ = op->value.as<IntImmNode>()->value;
-    } else if (iv->thread_tag == "blockIdx.y" && iv->var->name_hint != "_") {
+      if (const auto *extent = op->value.as<IntImmNode>()) {
+        this->core_num_ = extent->value;
+      } else {
+        // Dynamic grid extents are passed to the runtime.  `core_num_` is
+        // only used by the disabled legacy host-stub generator, so it must
+        // not force a compile-time constant in the device string backend.
+        this->core_num_ = 0;
+      }
+    } else if (iv->thread_tag == "blockIdx.z" && iv->var->name_hint != "_") {
       auto vec_id_ = AllocVarID(iv->var.get());
       this->PrintIndent();
       this->stream << "%" << vec_id_
@@ -1531,17 +1731,94 @@ void CodeGenTileLangNPUIR::GenRecastFromArg(Buffer curr_buffer, String arg_name,
                                             String &recast_inst) {
   // reinterpret_cast memref from 1D to xD
   std::ostringstream res;
-  String target_strides = GetBufferStrides(curr_buffer);
   String cast_name = arg_name + "_Recast";
   // add new memref obj
   this->type_info[cast_name] = new Memref(cast_name, curr_buffer);
+
+  // reinterpret_cast requires index-typed dynamic sizes and strides.  This
+  // function is called while emitting the function signature, so the casts
+  // must be retained in `recast_inst` and inserted later in the function
+  // body, rather than emitted through PrintExpr here.
+  std::vector<String> shape_values;
+  for (size_t i = 0; i < curr_buffer->shape.size(); ++i) {
+    PrimExpr dim = curr_buffer->shape[i];
+    if (auto dim_int = as_const_int(dim)) {
+      shape_values.push_back(std::to_string(*dim_int));
+      continue;
+    }
+
+    const auto *dim_var = dim.as<VarNode>();
+    ICHECK(dim_var)
+        << "NPUIR string codegen only supports Var dynamic buffer dimensions";
+    String value_name = arg_name + "_dim_" + std::to_string(i);
+    res << "%" << value_name
+        << " = arith.index_cast %"
+        // Buffer shape Vars are not necessarily pointer-identical to the
+        // corresponding PrimFunc parameter, so GetVarID/PrintExpr cannot be
+        // used here.  The argument was emitted under its TIR name hint.
+        << dim_var->name_hint << " : ";
+    PrintType(dim.dtype(), res);
+    res << " to index\n";
+    shape_values.push_back("%" + value_name);
+  }
+
+  // A contiguous rank-N buffer has stride[i] = product(shape[i + 1:]).
+  // Build products from the index-typed dynamic dimensions above, preserving
+  // static suffixes as integer literals.
+  std::vector<String> stride_values(curr_buffer->shape.size(), "1");
+  String running_stride = "1";
+  bool running_stride_is_static = true;
+  int64_t static_running_stride = 1;
+  for (int i = static_cast<int>(curr_buffer->shape.size()) - 1; i >= 0; --i) {
+    stride_values[i] = running_stride;
+    if (i == 0) {
+      continue;
+    }
+    const int64_t *static_dim = as_const_int(curr_buffer->shape[i]);
+    if (static_dim != nullptr && running_stride_is_static) {
+      static_running_stride *= *static_dim;
+      running_stride = std::to_string(static_running_stride);
+    } else if (running_stride == "1") {
+      running_stride = shape_values[i];
+    } else if (shape_values[i] != "1") {
+      auto materialize_index_constant = [&](const String &value,
+                                            const char *suffix) {
+        if (!value.empty() && std::string(value)[0] == '%') {
+          return value;
+        }
+        String constant_name =
+            arg_name + "_stride_const_" + std::to_string(i) + "_" + suffix;
+        res << "%" << constant_name << " = arith.constant " << value
+            << " : index\n";
+        return String("%") + constant_name;
+      };
+      String value_name = arg_name + "_stride_" + std::to_string(i);
+      String lhs = materialize_index_constant(shape_values[i], "dim");
+      String rhs = materialize_index_constant(running_stride, "running");
+      res << "%" << value_name << " = arith.muli " << lhs << ", " << rhs
+          << " : index\n";
+      running_stride = "%" + value_name;
+    }
+    running_stride_is_static =
+        static_dim != nullptr && running_stride_is_static;
+  }
+
   res << "\%" << cast_name << " = ";
   res << "memref.reinterpret_cast \%";
   res << arg_name;
   res << " to offset: [0], sizes: [";
-  PrintShape(curr_buffer->shape, ", ", res);
-  res << "], strides: ";
-  res << target_strides;
+  for (size_t i = 0; i < shape_values.size(); ++i) {
+    if (i != 0)
+      res << ", ";
+    res << shape_values[i];
+  }
+  res << "], strides: [";
+  for (size_t i = 0; i < stride_values.size(); ++i) {
+    if (i != 0)
+      res << ", ";
+    res << stride_values[i];
+  }
+  res << "]";
   res << " : ";
   res << GetMemrefInfo(arg_name);
   res << " to ";
@@ -1624,9 +1901,13 @@ void CodeGenTileLangNPUIR::AddFunctionForCoreType(const GlobalVar &gvar,
   int func_body_scope = this->BeginScope();
   this->PrintIndent();
   stream << "hivm.hir.set_ffts_base_addr \%arg0\n";
-  for (String recast_inst : recast_need_insert) {
-    this->PrintIndent();
-    stream << recast_inst;
+  for (const String &recast_inst : recast_need_insert) {
+    std::istringstream recast_stream{std::string(recast_inst)};
+    std::string recast_line;
+    while (std::getline(recast_stream, recast_line)) {
+      this->PrintIndent();
+      stream << recast_line << "\n";
+    }
   }
   this->PrintStmt(f->body);
   this->EndScope(func_body_scope);
@@ -1690,7 +1971,8 @@ void CodeGenTileLangNPUIR::AddFunction(const GlobalVar &gvar,
 
   this->stream
       << "module attributes {hivm.module_core_type = #hivm.module_core_type<"
-      << NPU_CORETYPE_STR[this->func_coretype] << ">} {\n";
+      << NPU_CORETYPE_STR[this->func_coretype]
+      << ">, memref.memref_as_ptr} {\n";
 
   if (this->func_coretype == NPU_CORETYPE::MIX ||
       this->func_coretype == NPU_CORETYPE::AIC) {
@@ -1721,7 +2003,7 @@ String CodeGenTileLangNPUIR::GetMemrefInfo(String name) {
 }
 
 String CodeGenTileLangNPUIR::GetMemrefInfo(Memref *memrefObj) {
-  if (memrefObj->type_str != "")
+  if (!memrefObj->type_str.empty())
     return memrefObj->type_str;
   std::ostringstream memref_type;
   memref_type << "memref<";
@@ -1745,7 +2027,7 @@ String CodeGenTileLangNPUIR::GetMemrefInfo(Memref *memrefObj) {
     for (int i = 0; i < memrefObj->dim; i++) {
       if (i > 0)
         memref_type << ", ";
-      if (memrefObj->stride.size() > 0) {
+      if (!memrefObj->stride.empty()) {
         if (auto s_int = as_const_int(memrefObj->stride[i])) {
           memref_type << std::to_string(*s_int);
         } else {
@@ -1770,15 +2052,24 @@ String CodeGenTileLangNPUIR::GetMemrefInfo(Memref *memrefObj) {
 
 void Memref::GetIntStride() {
   if (stride.empty()) {
-    stride_int = GetStrideFromShape(shape);
-    for (unsigned long s : stride_int) {
-      stride.push_back(IntImm(DataType::Int(64), s));
+    // Preserve symbolic contiguous strides for dynamic shapes.  The previous
+    // implementation dropped dynamic dimensions, then indexed the shortened
+    // vector as if it still had `shape.size()` entries, causing a host-side
+    // segmentation fault before the MLIR string was produced.
+    std::vector<PrimExpr> contiguous_stride(shape.size());
+    PrimExpr running_stride =
+        IntImm(shape.empty() ? DataType::Int(64) : shape.back().dtype(), 1);
+    for (int i = static_cast<int>(shape.size()) - 1; i >= 0; --i) {
+      contiguous_stride[i] = running_stride;
+      running_stride = shape[i] * running_stride;
     }
-  } else {
-    for (PrimExpr s : stride) {
-      if (auto s_int = as_const_int(s))
-        stride_int.push_back(*s_int);
+    for (const PrimExpr &s : contiguous_stride) {
+      stride.push_back(s);
     }
+  }
+  for (const PrimExpr &s : stride) {
+    if (auto s_int = as_const_int(s))
+      stride_int.push_back(*s_int);
   }
 }
 

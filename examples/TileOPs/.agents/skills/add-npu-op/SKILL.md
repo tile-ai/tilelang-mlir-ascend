@@ -735,3 +735,50 @@ created:
 
 If any check fails, correct the placeholder value (or the underlying file)
 before emitting — the conductor agent will act on each prompt verbatim.
+
+## Machine Mode (migration pipeline)
+
+When this skill is invoked by an automated agent (e.g. `tileops-scaffolder`)
+rather than a human caller, the invocation prompt says so explicitly. Machine
+mode changes only the **output bookkeeping** — all Phases 0-S7 (including
+Tier 1 and the helper completeness check) run unchanged, and the per-kernel
+prompts are still emitted as the final messages.
+
+After Tier 1 and the helper completeness check pass, **write the migration
+metadata file** (in addition to emitting the prompts):
+
+```
+tileops/kernels/{family}/{op_slug}/.migration_meta.json
+```
+
+Schema (all fields required unless noted; consumed by
+`.agents/skills/add-npu-op/scripts/integrate_kernel.py` and the conductor):
+
+```json
+{
+  "op_name": "<PascalCase manifest key, e.g. SSDChunkScanFwdOp>",
+  "op_slug": "<snake_case op slug, e.g. ssd_chunk_scan>",
+  "family": "<family directory, e.g. mamba>",
+  "gpu_repo_root": "<caller-provided GPU repo root, absolute>",
+  "kernel_class_name": "<Kernel class, e.g. SSDChunkScanFwdKernel>",
+  "op_class_name": "<Op class, e.g. SSDChunkScanFwdOp>",
+  "test_path": "tests/ops/test_{test_slug}.py",
+  "test_slug": "<test slug>",
+  "bench_path": "benchmarks/ops/bench_{bench_slug}.py",
+  "bench_slug": "<bench slug>",
+  "wrapper_path": "tileops/kernels/{family}/{op_slug}/{op_slug}.py",
+  "extracted_file": "tileops/kernels/{family}/{op_slug}/{extracted_file_name}",
+  "extracted_functions": ["<function names reported by the extraction script>"],
+  "created_at": "<ISO 8601 UTC>"
+}
+```
+
+Rules:
+
+- Paths are relative to the NPU project root (`examples/TileOPs/`).
+- `extracted_functions` is exactly the function list printed by the
+  extraction script in S3 Part A.
+- The meta file is overwritten on each (idempotent) re-run.
+- Re-emitting prompts is still mandatory in machine mode (see the
+  "Mandatory constraint" above); the meta file supplements, not replaces,
+  the prompts.

@@ -1,12 +1,12 @@
-+---
-+disable: true
-+---
+---
+disable: true
+---
 
 # TileLang-NPUIR 算子自动生成系统
 
-基于 OpenCode Agent 编排的 TileLang-NPUIR 算子端到端自动开发系统。通过 **Stage-Gate（阶段门禁）** 模式调度四个专职子 Agent，将算子从一句自然语言需求自动推进到经精度与性能验证的可交付 kernel。
+基于 OpenCode Agent 编排的 TileLang-NPUIR 算子端到端自动开发系统。启动时先做**场景路由**（新算子生成 `new_op` / GPU TileLang 算子迁移 `migration`（细分 harness / plain 两个子模式）/ 已有算子定制优化 `optimize`），再通过 **Stage-Gate（阶段门禁）** 模式调度六个专职子 Agent，将算子从一句自然语言需求自动推进到经精度与性能验证的可交付 kernel。
 
-本目录（`.opencode/agents/`）存放编排 Agent 与四个阶段子 Agent 的定义；配套的领域能力沉淀在 `.agents/skills/` 下。
+本目录（`.opencode/agents/`）存放编排 Agent 与六个阶段子 Agent 的定义；配套的领域能力沉淀在 `.agents/skills/` 下。
 
 ---
 
@@ -30,11 +30,12 @@
 
 | 场景       | 说明                                                                         |
 | ---------- | ---------------------------------------------------------------------------- |
-| 新算子开发 | 从数学公式/参考 API 出发，自动设计 → 检视 → 实现 → 调优                   |
-| 算子迁移   | 已有 TileLang（GPU/CPU）实现，迁移到`target="npuir"`，函数名与签名保持不变 |
-| 中断后续跑 | 任务因环境/超时中断，从`.stage_state.json` 记录的阶段续跑                  |
+| 新算子开发（new_op） | 从数学公式/参考 API 出发，自动设计 → 检视 → 实现 →（可选）调优                   |
+| 算子迁移（migration） | 已有 TileLang（GPU/CPU）实现，迁移到`target="npuir"`，函数名与签名保持不变；GPU 仓为 TileOPs 同构工程时走 harness 子模式（脚手架 → 逐函数设计/检视/开发 → 集成），否则走 plain 子模式（同 new_op + 迁移执行规则） |
+| 已有算子定制优化（optimize） | 指向已存在的算子产物（standalone 或 TileOPs 集成包），跳过设计/开发直接调优，产物只写 `perf_opt/` 并强制精度回归 |
+| 中断后续跑 | 任务因环境/超时中断，从`.stage_state.json`（harness 迁移另查`.migration_state.json`）记录的阶段续跑                  |
 | 失败恢复   | 精度/编译失败后，在原阶段内按失败子类型路由重试                              |
-| 设计修订   | 检视不通过或实施期发现设计层错误，自动回退 Stage 1 重做设计                  |
+| 设计修订   | 检视不通过或实施期发现设计层错误，自动回退 Stage 1 重做设计（harness 迁移仅修订当前函数，`retry_count` 为全 op 共享预算）  |
 
 ### 覆盖的算子类型
 
@@ -62,23 +63,34 @@
 ### 编排模型
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│            tilelang-op-conductor (Primary)              │
-│   唯一流程 owner：状态机、门禁、修订循环、用户交互        │
-│   不做任何算子领域推理，只调度 Subagent + 维护状态        │
-└────────────┬───────────────┬───────────────┬───────────┘
-             │               │               │
-     ┌───────▼──────┐ ┌──────▼──────┐ ┌──────▼──────┐ ┌─────────────┐
-     │ Stage 1      │ │ Stage 2     │ │ Stage 3     │ │ Stage 4     │
-     │ op-designer  │ │ design-     │ │ op-         │ │ op-         │
-     │ (Subagent)   │ │ reviewer    │ │ developer   │ │ optimizer   │
-     │              │ │ (Subagent)  │ │ (Subagent)  │ │ (Subagent)  │
-     │ → DESIGN.md  │ │ → REVIEW.md │ │ → {op}.py   │ │ → perf_opt/ │
-     └──────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
-            │               │  skill:      │  skill:        │  skill:
-            │  skill:       │  tilelang-   │  tilelang-     │  tilelang-
-            │  tilelang-    │  design-     │  op-develop    │  op-optimize
-            │  op-design    │  review      │                │
+┌──────────────────────────────────────────────────────────────────────┐
+│                    tilelang-op-conductor (Primary)                   │
+│  唯一流程 owner：场景路由、状态机、门禁、修订循环、用户交互            │
+│  不做任何算子领域推理，只调度 Subagent + 维护状态                      │
+└───────────────┬──────────────────────────────────────────────────────┘
+                │ 启动时场景路由（new_op / migration harness|plain / optimize）
+                │ 结果写入 .stage_state.json 的 scenario / migration_mode / stage_plan
+      ┌─────────▼─────────┐
+      │ Stage 0 (仅 harness) │──► TileOPs 7 文件脚手架 + .migration_meta.json
+      │ tileops-scaffolder   │
+      └─────────┬─────────┘
+      ┌─────────▼────────────────────────────────────────────┐
+      │ Stage 1-3（harness 迁移按 .migration_meta.json 逐函数）│
+      │  ┌────────────┐ ┌───────────┐ ┌────────────┐         │
+      │  │ Stage 1    │ │ Stage 2   │ │ Stage 3    │         │
+      │  │ op-designer│ │ design-   │ │ op-        │         │
+      │  │ →DESIGN.md │ │ reviewer  │ │ developer  │         │
+      │  │            │ │ →REVIEW.md│ │ →{op}.py   │         │
+      │  └────────────┘ └───────────┘ └────────────┘         │
+      └─────────┬────────────────────────────────────────────┘
+      ┌─────────▼─────────┐   ┌──────────────────────────┐
+      │ Stage 4 (可选/核心) │   │ Stage 5 (仅 harness)      │
+      │ op-optimizer       │   │ op-integrator             │
+      │ →perf_opt/{op}.py  │   │ →{op_slug}_kernel/ 集成包 │
+      └────────────────────┘   └──────────────────────────┘
+             skill:              skill:
+             tilelang-op-         tilelang-error-fixer /
+             optimize             tilelang-debug-helper
 ```
 
 ### 核心设计原则
@@ -94,23 +106,41 @@
 
 ## 端到端流程
 
-### 四阶段总览
+### 阶段总览（六阶段，按场景组装）
 
-| Stage      | phase       | 子 Agent                      | 交付件               | 完成信号              |
-| ---------- | ----------- | ----------------------------- | -------------------- | --------------------- |
-| 1 算子设计 | `DESIGN`  | `@tilelang-op-designer`     | `DESIGN.md`        | `DESIGN_COMPLETED`  |
-| 2 设计检视 | `REVIEW`  | `@tilelang-design-reviewer` | `REVIEW.md`        | `REVIEW_COMPLETED`  |
-| 3 算子开发 | `DEVELOP` | `@tilelang-op-developer`    | `{op}.py`          | `DEVELOP_COMPLETED` |
-| 4 算子调优 | `TUNING`  | `@tilelang-op-optimizer`    | `perf_opt/{op}.py` | `TUNING_COMPLETED`  |
+| Stage      | phase        | 子 Agent                      | 交付件                                   | 完成信号              | 适用场景                          |
+| ---------- | ------------ | ----------------------------- | ---------------------------------------- | --------------------- | --------------------------------- |
+| 0 迁移脚手架 | `SCAFFOLD` | `@tileops-scaffolder`       | TileOPs 7 文件 + `.migration_meta.json` | `SCAFFOLD_COMPLETED` | migration-harness                |
+| 1 算子设计 | `DESIGN`   | `@tilelang-op-designer`     | `DESIGN.md`                            | `DESIGN_COMPLETED`  | new_op / migration               |
+| 2 设计检视 | `REVIEW`   | `@tilelang-design-reviewer` | `REVIEW.md`                            | `REVIEW_COMPLETED`  | new_op / migration               |
+| 3 算子开发 | `DEVELOP`  | `@tilelang-op-developer`    | `{op}.py`                              | `DEVELOP_COMPLETED` | new_op / migration               |
+| 4 算子调优 | `TUNING`   | `@tilelang-op-optimizer`    | `perf_opt/{op}.py`                     | `TUNING_COMPLETED`  | new_op（可选）/ migration-plain（可选）/ optimize（核心） |
+| 5 迁移集成 | `INTEGRATE` | `@tilelang-op-integrator`   | 集成包 + `integration_log.md`          | `INTEGRATE_COMPLETED` | migration-harness              |
+
+### 场景阶段计划（`stage_plan`）
+
+| 场景             | stage_plan               | 说明                                                       |
+| ---------------- | ------------------------ | ---------------------------------------------------------- |
+| new_op           | `[1, 2, 3, (4?)]`        | 现有流程不变；Stage 3 通过后询问是否调优                    |
+| migration-plain  | `[1, 2, 3, (4?)]`        | 同 new_op，但执行「迁移执行规则」；精度门禁 = Stage 3 内嵌 L0/L1 |
+| migration-harness | `[0, (1→2→3)×N函数, 5]` | Stage 4 跳过（bench 在 Stage 5 仅报告）；逐函数独立 Stage 1-3 |
+| optimize         | `[4, 回归]`              | 裸 kernel 直接进 Stage 4；调优后强制 L0+L1 精度回归          |
 
 ### 流程图
 
 ```mermaid
 graph TD
-    A[接收用户需求] --> B[需求完备性预检: 5 必需字段]
-    B -->|字段齐全| C[Stage 1: 算子设计 Agent]
-    B -->|字段缺失| Q[AskUserQuestion 逐字段追问]
-    Q --> B
+    A[接收用户需求] --> SR{场景路由}
+    SR -->|new_op| P[5 必需字段预检]
+    SR -->|migration + TileOPs 同构仓| S0[Stage 0: 迁移脚手架 Agent]
+    SR -->|migration 普通 GPU 仓| P2[迁移执行规则预检]
+    SR -->|optimize| O[定位 kernel + 收集调优信息]
+    S0 --> ML[逐函数 Stage 1-3]
+    P -->|字段齐全| C[Stage 1: 算子设计 Agent]
+    P -->|字段缺失| Q[AskUserQuestion 逐字段追问]
+    Q --> P
+    P2 --> C
+    ML --> C
     C --> D{设计规格交付}
     D --> E[Stage 2: 设计检视 Agent]
     E --> F{检视结果}
@@ -122,14 +152,26 @@ graph TD
     H -->|PRECISION_FAIL| G
     H -->|DESIGN_ERROR| R
     H -->|RUNTIME_FAIL| G
-    I --> J{用户是否需要调优?}
+    I -->|harness 迁移| S5{全函数 done?}
+    S5 -->|是| T[Stage 5: 迁移集成 Agent]
+    S5 -->|否| ML
+    I -->|new_op / plain| J{用户是否需要调优?}
     J -->|是| K[Stage 4: 算子调优 Agent]
     J -->|否| L[phase=DONE]
     K --> M[交付 perf_opt/op.py]
     M --> L
+    O --> K
+    T --> N[phase=DONE 附 bench 报告]
 ```
 
 ### 各阶段详情
+
+#### Stage 0 — 迁移脚手架（`tileops-scaffolder`，仅 migration-harness）
+
+- **输入**：`op_name`、`gpu_repo_root`、`family`（可选，默认 reduction）。
+- **执行**：读取并执行 `examples/TileOPs/.agents/skills/add-npu-op/SKILL.md`（机器模式）→ 移植 TileOPs 7 文件脚手架（manifest 条目、workload、kernel 包、Op class、test、bench、包导出）→ Tier 1 结构校验（import / manifest / collect-only）→ 写出 `.migration_meta.json`（`extracted_functions`、wrapper 路径、test/bench slug）。
+- **门禁**：7 文件存在 + Tier 1 通过 + meta 字段完整（≥1 个 extracted_functions）。
+- **失败路由**：结构问题 → 重试（≤3 次）；GPU 侧无 `@tilelang.jit` 实现 → `BLOCKED_SPEC`；repo 缺失 → `BLOCKED_ENVIRONMENT`；超限 → `BLOCKED_SCAFFOLD`。
 
 #### Stage 1 — 算子设计（`tilelang-op-designer`）
 
@@ -162,12 +204,21 @@ graph TD
 
 #### Stage 4 — 算子调优（`tilelang-op-optimizer`）
 
-- **进入条件**：Stage 3 `[PRECISION_PASS]` 且二次校验通过后，**conductor 必须主动询问用户**是否需要调优。
+- **进入条件**：`new_op` / `migration-plain`：Stage 3 `[PRECISION_PASS]` 且二次校验通过后，**conductor 必须主动询问用户**是否需要调优（`migration-harness` 跳过 Stage 4；`optimize` 场景调优即任务本身，进入时已收集调优信息）。
 - **输入**：`kernel_py_path`、`design_md_path`、性能目标信息（类型/目标数值/测试 shape/噪声阈值/最大迭代数）。
 - **执行**：调用 `tilelang-op-optimize` skill → 基线分析（NPU 上 `msprof op` 真实 profiling）→ 每轮迭代（选策略 → 生成优化版 → 精度回归跑 L0 → 性能测量 → 记日志）。
 - **优化策略**：调整 block size、增加 T.Pipelined 流水深度、double-buffer、v-prefix API 替换、减少中间 buffer、data reuse。
 - **中止条件**（满足任一）：迭代达上限（默认 10）/ 连续三次无提升 / 达到用户指定性能目标。
 - **调优不逆向反馈**：性能不足时由 optimizer 自完成最优版本，不回退到 Stage 3/1。
+- **optimize 场景**：裸 kernel 直接进入（`DESIGN.md` 存在则作参考）；产物只写 `perf_opt/`，基准 `{op}.py` 与 wrapper 永不修改；`TUNING_COMPLETED` 后 conductor 亲自对 `perf_opt/{op}.py` 执行回归入口（L0+L1），失败 → `mode=precision_fix` 重调度。
+
+#### Stage 5 — 迁移集成（`tilelang-op-integrator`，仅 migration-harness）
+
+- **进入条件**：全部提取函数 Stage 3 通过且二次校验完成（`.migration_state.json` 的 `functions` 全部 `done`）。
+- **输入**：`meta_path`、`op_name`、`op_slug`、`family`、`attempt_index`、`max_attempts`（默认 5）。
+- **执行**：运行 `examples/TileOPs/.agents/skills/add-npu-op/scripts/integrate_kernel.py`（复制产物 + 生成聚合 `__init__.py` + 改写 wrapper import + import 冒烟）→ `pytest tests/ops/test_{test_slug}.py`（smoke → 全量）→ bench 报告（只记录不修复）；失败时受控调试闭环（≤5 attempt，先备份后修改）。
+- **交付件**：`tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/`（集成 kernel + 聚合 `__init__.py` + `integration_log.md`），wrapper import 已改写。
+- **三态判定**：`INTEGRATE_COMPLETED`（pytest smoke+全量通过，bench 已报告）/ `[INTEGRATE_FAIL]`（conductor 重调度 ≤2 次，超限 `BLOCKED_INTEGRATION`）/ `[DESIGN_ERROR]`（失败根因函数走设计修订后全量重集成）。
 
 ### 设计修订机制
 
@@ -179,6 +230,8 @@ graph TD
 | B. 实施期设计错误 | Stage 3 Subagent     | 输出含`[DESIGN_ERROR]` 标记 + 原因 |
 
 处理流程：备份旧 `DESIGN.md` → `history_version/design_v{N}.md` → `retry_count += 1` → 若未超限则重做 Stage 1（`mode=revision`，传入 `design_error_summary` + `previous_revisions` 避免重蹈覆辙）→ 超 `max_retry` 则 `phase=FAILED`、`failure_reason=BLOCKED_DESIGN`。
+
+> harness 迁移中 `retry_count` 为**全 op 共享预算**（跨函数累计），修订只回退失败根因指向的当前函数；修订后该函数重跑 Stage 1→2→3，通过后 Stage 5 全量重集成（集成脚本幂等）。
 
 ---
 
@@ -204,7 +257,7 @@ graph TD
 编程模式：Developer
 ```
 
-#### 示例 2：迁移类任务
+#### 示例 2：迁移类任务（plain）
 
 ```
 请把这个 TileLang GPU 算子迁移到 npuir：
@@ -212,7 +265,23 @@ graph TD
 输出 shape：(M, N)
 ```
 
-#### 示例 3：续跑/恢复
+#### 示例 3：迁移类任务（harness，GPU 仓为 TileOPs 同构工程）
+
+```
+请把 GPU TileOPs 仓库 /home/user/TileOPs 中的 MambaOps 迁移到 NPU：
+GPU repo 路径：/home/user/TileOPs
+```
+
+conductor 会自动探测 `tileops/manifest` / `tests/ops` / `benchmarks/ops` 判定 harness 子模式，先跑 Stage 0 脚手架，再对 `.migration_meta.json` 中提取的每个 `@tilelang.jit` 函数独立跑 Stage 1-3，最后 Stage 5 集成进 `examples/TileOPs/` 并报告 bench。
+
+#### 示例 4：已有算子定制优化
+
+```
+请优化 examples/norm/layer_norm/layer_norm.py 的性能，
+目标：latency < 100us
+```
+
+#### 示例 5：续跑/恢复
 
 ```
 继续开发 examples/norm/layer_norm/ 的算子
@@ -267,6 +336,24 @@ examples/{project}/{op}/
 - `op_name` 决定算子目录 `examples/{project}/{op}/` 及文件名。
 - Golden 函数直接内嵌在 `{op}.py`（PyTorch CPU 参考实现），不强制独立 `golden_{op}.py`。
 
+### migration-harness 迁移目录
+
+```text
+examples/{op_slug}/               # op 级目录（project = op_slug）
+├── .migration_state.json         # conductor 维护的多函数聚合状态（仅 conductor 读写）
+└── {func}/                       # 每个提取函数一个算子目录（结构同标准目录，无 Stage 4）
+
+examples/TileOPs/                              # 集成侧
+├── tileops/manifest/{family}.yaml             # Stage 0 产物
+├── tileops/workloads/{family}.py              # Stage 0 产物
+├── tileops/kernels/{family}/{op_slug}/
+│   ├── {op_slug}.py                           # wrapper（Stage 0 移植，Stage 5 改写 import）
+│   ├── .migration_meta.json                   # Stage 0 机器模式产物
+│   └── {op_slug}_kernel/                      # Stage 5 集成包（集成 kernel + 聚合 __init__.py + integration_log.md）
+├── tests/ops/test_{test_slug}.py              # Stage 0 产物（仅含本算子用例）
+└── benchmarks/ops/bench_{bench_slug}.py       # Stage 0 产物
+```
+
 ### `{op}.py` 结构规范
 
 ```python
@@ -303,35 +390,52 @@ examples/{project}/{op}/
 
 ## 状态机与失败处理
 
-### 状态机
+### 状态机（按场景）
 
 ```
-INIT --> DESIGN --> REVIEW --> DEVELOP --> TUNING --> DONE
+[scenario=new_op / migration-plain]
+INIT --> DESIGN --> REVIEW --> DEVELOP --> TUNING(可选) --> DONE
   ^                 |
   |___ 修订循环 ____|  (retry_count < max_retry)
   |___ 超限 _______> FAILED
+
+[scenario=migration-harness]
+INIT --> SCAFFOLD --> (DEV_LOOP: 每函数 DESIGN --> REVIEW --> DEVELOP) --> INTEGRATE --> DONE
+                        ^                |
+                        |____ 修订循环 ___|  (retry_count < max_retry，仅当前函数)
+  超限/失败 ____________________________> FAILED (BLOCKED_SCAFFOLD / BLOCKED_IMPL / BLOCKED_ACCURACY / BLOCKED_INTEGRATION)
+
+[scenario=optimize]
+INIT --> TUNING --> 精度回归 --> DONE / FAILED
 ```
 
 ### `.stage_state.json` 关键字段
 
 | 字段                                 | 说明                                                                                      |
 | ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `phase`                            | `DESIGN / REVIEW / DEVELOP / TUNING / DONE / FAILED`                                    |
+| `scenario`                         | `new_op / migration / optimize`（缺省 `new_op`，向后兼容旧状态文件）                    |
+| `migration_mode`                   | 仅 migration：`harness / plain`                                                            |
+| `stage_plan`                       | 本任务激活的 Stage 列表（如 `[0,1,2,3,5]`），断点续跑按此推进                              |
+| `phase`                            | `SCAFFOLD / DESIGN / REVIEW / DEVELOP / TUNING / INTEGRATE / DONE / FAILED`             |
 | `project_name` / `operator_name` | 决定全流程目录路径                                                                        |
-| `retry_count` / `max_retry`      | 设计修订预算（路径 A+B 合并累计，默认上限 3）                                             |
+| `retry_count` / `max_retry`      | 设计修订预算（路径 A+B 合并累计，默认上限 3；harness 迁移为全 op 共享）                   |
 | `stage_retry_count`                | 各阶段子 Agent 异常重试计数（独立于`retry_count`）                                      |
 | `stage3_failure_breakdown`         | `runtime_fail` / `precision_fail` 细分                                                |
-| `failure_reason`                   | `BLOCKED_DESIGN / BLOCKED_IMPL / BLOCKED_ACCURACY / BLOCKED_ENVIRONMENT / BLOCKED_SPEC` |
+| `failure_reason`                   | `BLOCKED_DESIGN / BLOCKED_IMPL / BLOCKED_ACCURACY / BLOCKED_SCAFFOLD / BLOCKED_INTEGRATION / BLOCKED_ENVIRONMENT / BLOCKED_SPEC` |
+
+harness 迁移另有 `examples/{op_slug}/.migration_state.json`（函数级聚合状态：`phase`、每函数 `status`、集成 `attempts`），同样仅 conductor 读写。
 
 ### 重试与中止规则
 
 | Stage    | 上限                                                   | 超限后状态                                                    |
 | -------- | ------------------------------------------------------ | ------------------------------------------------------------- |
+| 0        | 3 次结构问题重试（仅 harness）                         | `BLOCKED_SCAFFOLD`（GPU 无实现 →`BLOCKED_SPEC`；repo 缺失 → `BLOCKED_ENVIRONMENT`） |
 | 1        | 3 次门禁失败                                           | `BLOCKED_DESIGN`                                            |
 | 2        | 检视不通过走`retry_count` 修订循环                   | `retry_count >= max_retry` → `BLOCKED_DESIGN`            |
 | 3        | 5 次 Subagent 调度（运行+精度合并；DESIGN_ERROR 不计） | 运行失败 →`BLOCKED_IMPL`；精度失败 → `BLOCKED_ACCURACY` |
-| 4        | 10 轮迭代                                              | `SUCCESS`（附中止原因）                                     |
-| 设计修订 | `max_retry`（默认 3）                                | `BLOCKED_DESIGN`                                            |
+| 4        | 10 轮迭代（optimize 场景含回归 `precision_fix` 重调度） | `SUCCESS`（附中止原因）                                     |
+| 5        | 2 次重调度（integrator 内部另有 5 次调试闭环，预算独立；仅 harness） | `BLOCKED_INTEGRATION`                              |
+| 设计修订 | `max_retry`（默认 3；harness 迁移为全 op 共享预算）  | `BLOCKED_DESIGN`                                            |
 
 ---
 
@@ -341,19 +445,23 @@ INIT --> DESIGN --> REVIEW --> DEVELOP --> TUNING --> DONE
 
 | 文件                            | Agent                        | 角色                                               | mode     |
 | ------------------------------- | ---------------------------- | -------------------------------------------------- | -------- |
-| `tilelang-op-conductor.md`    | `tilelang-op-conductor`    | 唯一流程 owner，调度四阶段、维护状态、处理修订循环 | primary  |
+| `tilelang-op-conductor.md`    | `tilelang-op-conductor`    | 唯一流程 owner，场景路由、调度六阶段、维护状态、处理修订循环 | primary  |
+| `tileops-scaffolder.md`       | `tileops-scaffolder`       | Stage 0 执行器（仅 harness），TileOPs 7 文件脚手架 + `.migration_meta.json` | subagent |
 | `tilelang-op-designer.md`     | `tilelang-op-designer`     | Stage 1 执行器，生成`DESIGN.md`                  | subagent |
 | `tilelang-design-reviewer.md` | `tilelang-design-reviewer` | Stage 2 执行器，生成`REVIEW.md`                  | subagent |
 | `tilelang-op-developer.md`    | `tilelang-op-developer`    | Stage 3 执行器，生成`{op}.py` + 三态判定         | subagent |
 | `tilelang-op-optimizer.md`    | `tilelang-op-optimizer`    | Stage 4 执行器，生成`perf_opt/{op}.py`           | subagent |
+| `tilelang-op-integrator.md`   | `tilelang-op-integrator`   | Stage 5 执行器（仅 harness），TileOPs 集成验证 + 三态判定 | subagent |
 
 ### Agent 间职责边界
 
-- **conductor**：状态机、门禁校验、修订决策、用户交互、失败路由——**不做算子领域推理，不编辑工件**。
+- **conductor**：场景路由、状态机、门禁校验、修订决策、用户交互、失败路由——**不做算子领域推理，不编辑工件**。
+- **scaffolder**：只执行 Stage 0 脚手架移植与结构校验，不做 kernel 的 NPU 重实现，不做运行时验证。
 - **designer**：只生成 `DESIGN.md`，不定义下游阶段。
 - **design-reviewer**：只读检视 `DESIGN.md`，给出结论，**不修改 DESIGN.md**。
 - **developer**：只生成 `{op}.py`，不修改上游工件，三态判定如实反映真实测试结果。
-- **optimizer**：只写 `perf_opt/`，调优不逆向反馈到 Stage 3/1。
+- **optimizer**：只写 `perf_opt/`，调优不逆向反馈到 Stage 3/1；optimize 场景永不修改基准 `{op}.py` 与 wrapper。
+- **integrator**：只执行 Stage 5 集成验证（integrate_kernel.py + pytest + bench 报告），失败走受控调试闭环，不做全局编排。
 
 所有 Subagent 共同约束：不得调用其他 Subagent、不得读写状态文件、不得在 Subagent 上下文直接 `AskUserQuestion`。
 
@@ -371,6 +479,8 @@ INIT --> DESIGN --> REVIEW --> DEVELOP --> TUNING --> DONE
 | `tilelang-design-review` | review 设计文档          | `REVIEW.md`                         |
 | `tilelang-op-develop`    | 实现算子、跑精度         | `{op}.py` + 三态判定                |
 | `tilelang-op-optimize`   | 性能调优                 | `perf_opt/{op}.py` + `opt_log.md` |
+
+> 另有 TileOPs 子项目内技能 `examples/TileOPs/.agents/skills/add-npu-op/`（Stage 0 脚手架与 Stage 5 集成的执行依据，配套脚本 `scripts/extract_tl_kernel.py`、`scripts/integrate_kernel.py`）。它不在仓库根 `.agents/skills/` 注册，由 `tileops-scaffolder` / `tilelang-op-integrator` 显式 Read 执行。
 
 ### 领域知识类（被上述流程或用户直接触发）
 

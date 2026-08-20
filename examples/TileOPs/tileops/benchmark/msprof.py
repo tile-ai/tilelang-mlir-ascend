@@ -386,7 +386,8 @@ def bench_kernel_msprof(
     # "main", not the op name).
     if kernel_name is None and is_op:
         kernel_name = getattr(functor, "msprof_kernel_name", None)
-    kernel_name = kernel_name or None  # normalize empty string to None
+    if kernel_name is None:
+        kernel_name = os.environ.get("TILEOPS_MSPROF_KERNEL_NAME") or None
 
     # --- Create temp workspace --------------------------------------------
     tmp_dir = tempfile.mkdtemp(prefix="tileops_msprof_")
@@ -430,6 +431,10 @@ def bench_kernel_msprof(
         else:
             prof_output_dir = os.path.join(tmp_dir, "msprof_output")
             os.makedirs(prof_output_dir, exist_ok=True)
+        # msprof refuses to profile into a group/world-writable directory
+        # (and still exits 0, producing no CSV); force owner-only permissions
+        # regardless of umask (e.g. the default 0002 yields 775).
+        os.chmod(prof_output_dir, 0o700)
 
         # --- Prepare subprocess environment --------------------------------
         env = dict(os.environ)

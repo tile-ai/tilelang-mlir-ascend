@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "codegen_npuir.h"
+#include "tir_to_tlir.h"
 #ifdef TILELANG_ENABLE_NPUIR_A5
 #include "codegen_npuir_api_a5.h"
 #include "codegen_npuir_dev_a5.h"
@@ -147,7 +148,26 @@ runtime::Module BuildTileLangNPUIRMLIRDEVA5(IRModule mod, Target target) {
 }
 #endif // TILELANG_ENABLE_NPUIR_A5
 
+runtime::Module BuildTileLangTLIR(IRModule mod, Target target) {
+  CodeGenTIRToTLIR cg;
+  Array<String> function_names;
+  for (auto kv : mod->functions) {
+    ICHECK(kv.second->IsInstance<PrimFuncNode>())
+        << "CodeGenTIRToTLIR: Can only take PrimFunc";
+    auto gvar = Downcast<GlobalVar>(kv.first);
+    auto f = Downcast<PrimFunc>(kv.second);
+    cg.AddFunction(gvar, f);
+    function_names.push_back(static_cast<std::string>(
+        f->GetAttr<String>(tvm::attr::kGlobalSymbol).value()));
+  }
+  std::string tlirCode = cg.Finish();
+  return CSourceModuleCreate(tlirCode, "c", function_names);
+}
+
 TVM_REGISTER_TARGET_KIND("npuir", kDLExtDev);
+
+TVM_REGISTER_GLOBAL("target.build.tilelang_tlir")
+    .set_body_typed(BuildTileLangTLIR);
 
 #ifdef TILELANG_ENABLE_NPUIR_A5
 TVM_REGISTER_GLOBAL("target.build.tilelang_npuir_apis")

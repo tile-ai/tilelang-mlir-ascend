@@ -308,6 +308,10 @@ private:
   // === helpers for ascend_copy lowering (member-functionized) ===
   mlir::Value CreateCastIfTypeMismatch(mlir::Value src_value,
                                        mlir::Value dst_value);
+  mlir::Value CreateStaticBackedTensor(mlir::RankedTensorType tensor_type,
+                                       mlir::Value runtime_shape_source,
+                                       mlir::Value static_bound_source,
+                                       mlir::Location loc);
   mlir::Value ReshapeTensorImpl(mlir::Value src,
                                 llvm::ArrayRef<int64_t> dstShapeStatic,
                                 llvm::ArrayRef<mlir::OpFoldResult> dstShapeOFR);
@@ -329,6 +333,8 @@ private:
     llvm::SmallVector<mlir::OpFoldResult> sizes;
     llvm::SmallVector<mlir::OpFoldResult> strides;
   };
+  mlir::Value InsertSliceWithCast(mlir::Value src_slice, mlir::Value dst_tensor,
+                                  const SliceRange &dstR, mlir::Location loc);
   struct CollapsedDims {
     llvm::SmallVector<mlir::OpFoldResult> sizes; // after dropping static-1 dims
     llvm::SmallVector<int64_t>

@@ -67,7 +67,8 @@ stages:
   with embedded L0/L1 precision gates.
 - **Stage 5 (`tilelang-op-integrator`)**: runs
   `.agents/skills/add-npu-op/scripts/integrate_kernel.py` to copy verified kernels into
-  `tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/`, rewrite wrapper imports, run
-  pytest (smoke → full), and report benchmarks.
+  `tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/` — each function's Stage 1 design
+  doc (`DESIGN.md`) is copied alongside the integrated kernel as `{func}_DESIGN.md` —
+  rewrite wrapper imports, run pytest (smoke → full), and report benchmarks.
 
 See `.opencode/agents/tilelang-op-conductor.md` for the full stage-gate orchestration.

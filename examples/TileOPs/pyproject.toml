@@ -57,8 +57,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # Auto-generated extracted kernel files: align_up is injected at runtime,
-# and the extraction script's import ordering is not ruff-controlled.
-"tileops/kernels/**/_*_kernels.py" = ["F401", "F821", "I001"]
+# and the extraction script's import ordering (incl. duplicate imports from
+# multiple contributing source files) is not ruff-controlled.
+"tileops/kernels/**/_*_kernels.py" = ["F401", "F811", "F821", "I001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["tileops", "workloads"]

@@ -115,7 +115,7 @@ disable: true
 | 2 设计检视 | `REVIEW`   | `@tilelang-design-reviewer` | `REVIEW.md`                            | `REVIEW_COMPLETED`  | new_op / migration               |
 | 3 算子开发 | `DEVELOP`  | `@tilelang-op-developer`    | `{op}.py`                              | `DEVELOP_COMPLETED` | new_op / migration               |
 | 4 算子调优 | `TUNING`   | `@tilelang-op-optimizer`    | `perf_opt/{op}.py`                     | `TUNING_COMPLETED`  | new_op（可选）/ migration-plain（可选）/ optimize（核心） |
-| 5 迁移集成 | `INTEGRATE` | `@tilelang-op-integrator`   | 集成包 + `integration_log.md`          | `INTEGRATE_COMPLETED` | migration-harness              |
+| 5 迁移集成 | `INTEGRATE` | `@tilelang-op-integrator`   | 集成包（kernel + `{func}_DESIGN.md`）+ `integration_log.md` | `INTEGRATE_COMPLETED` | migration-harness              |
 
 ### 场景阶段计划（`stage_plan`）
 
@@ -175,18 +175,22 @@ graph TD
 
 #### Stage 1 — 算子设计（`tilelang-op-designer`）
 
-- **输入**：conductor 在 Primary 上下文预检后传入的 `op_requirements` 结构（算子名、公式、I/O 规格、编程模式）。
-- **执行**：调用 `tilelang-op-design` skill → 技术约束检测（三维 Kernel、GPU 专用 API、GEMM 非整除、L0C 溢出）→ 检索 `examples/` 同类实现 → 生成 `DESIGN.md`。
-- **DESIGN.md 必含章节**：概述、编程模式选型、API 映射、数据规格与内存规划、Tiling 策略（含非整除处理）、循环与调度结构、同步策略、CV 融合设计、验证方案（含 L0 门槛测试计划）、风险点、交付清单。
-- **门禁**：13 项校验（文件存在、章节齐全、无占位符等），revision 模式额外校验"关键调整说明"。
+- **输入**：conductor 在 Primary 上下文预检后传入的 `op_requirements` 结构（算子名、公式、I/O 规格、编程模式）；迁移任务另传 `source_op_path`（源算子文件路径）与 `source_output_shape`。
+- **执行**：调用 `tilelang-op-design` skill → 技术约束检测（三维 Kernel、GPU 专用 API、GEMM 非整除、L0C 溢出、物理核数适配）→ 检索 `examples/` 同类实现 → 生成 `DESIGN.md`。
+- **迁移任务执行流**（skill Phase M0/M1，先于通用流程）：
+  1. **Phase M0 源算子三问解读**：Read 源码全文 → 语义是什么（数学语义/规约累加顺序/dtype/边界）→ 实现算法是什么（计算步骤分解/数据流/循环并行结构/host 逻辑）→ 用了哪些优化手段（SMEM tiling / mma / warp shuffle / 异步流水 / online 算法等，逐项标注硬件依赖）→ §0.1–§0.4。
+  2. **Phase M1 耦合性判定与 NPU 重设计**：算法和优化手段硬件强相关吗？能用在 NPU 上吗？→ 四态处置（保留 / 等价替换 / 重新设计 / 舍弃，依据 GPU→NPU 能力映射表）→ §0.5；对「重新设计」项按 NPU 硬件能力重设计算法并给出语义保持论证 → §0.6。
+  3. **迁移决策驱动通用流程**：§1–§11 基于重设计后的 NPU 算法展开，不得照抄源方案；golden 以 §0.1 源算子语义为依据（保证验证独立性）。
+- **DESIGN.md 必含章节**：概述、编程模式选型、API 映射、数据规格与内存规划、Tiling 策略（含非整除处理与分核策略三要素——逻辑核数计算、物理核数依据、规模判定与分核方案，见 docs/开发指南.md §3.3）、循环与调度结构、同步策略、CV 融合设计、验证方案（含 L0 门槛测试计划）、风险点、交付清单。
+- **门禁**：13 项校验（文件存在、章节齐全、无占位符等），revision 模式额外校验"关键调整说明"；**迁移任务额外校验 §0**（0.1–0.7 齐全：语义/算法/优化手段/耦合性判定/重设计/标杆实现，且 §1–§7 与迁移决策一致、golden 独立）。
 
 #### Stage 2 — 设计检视（`tilelang-design-reviewer`）
 
-- **输入**：`design_md_path`。
-- **执行**：调用 `tilelang-design-review` skill → 7 维度风险优先检视。
-- **7 维度**：API 可行性（阻塞）、内存层级规划（阻塞）、Tiling 策略（阻塞）、技术约束检测（阻塞）、循环与同步（建议）、验证方案（阻塞）、完整性与一致性（建议）。
-- **结论**：字面量 `结论: 通过` 或 `结论: 不通过`；不通过时每个阻塞级问题必须给出可执行修改建议。
-- **门禁**：结论行存在、结论与详情一致、7 维度完整、不通过时建议完整、无占位符。
+- **输入**：`design_md_path`；迁移任务另传 `source_op_path`。
+- **执行**：调用 `tilelang-design-review` skill → 风险优先检视。
+- **维度**：非迁移 7 项——API 可行性（阻塞）、内存层级规划（阻塞）、Tiling 策略（含分核策略物理核数适配核对，阻塞）、技术约束检测（阻塞）、循环与同步（建议）、验证方案（阻塞）、完整性与一致性（建议）；**迁移任务 8 项**——新增维度 0「源算子理解与迁移分析」（阻塞级）：reviewer 亲自 Read 源算子代码核对 §0（语义/算法/优化手段解读正确且完整、耦合性判定合理、NPU 重设计可行且语义保持、§1–§7 与迁移决策一致、golden 独立于 NPU 算法）。
+- **结论**：字面量 `结论: 通过` 或 `结论: 不通过`；不通过时每个阻塞级问题必须给出可执行修改建议（迁移类问题附源码证据）。
+- **门禁**：结论行存在、结论与详情一致、维度完整（迁移 8 / 非迁移 7）、维度 0 有源码证据（迁移）、不通过时建议完整、无占位符。
 
 #### Stage 3 — 算子开发（`tilelang-op-developer`）
 
@@ -207,7 +211,7 @@ graph TD
 - **进入条件**：`new_op` / `migration-plain`：Stage 3 `[PRECISION_PASS]` 且二次校验通过后，**conductor 必须主动询问用户**是否需要调优（`migration-harness` 跳过 Stage 4；`optimize` 场景调优即任务本身，进入时已收集调优信息）。
 - **输入**：`kernel_py_path`、`design_md_path`、性能目标信息（类型/目标数值/测试 shape/噪声阈值/最大迭代数）。
 - **执行**：调用 `tilelang-op-optimize` skill → 基线分析（NPU 上 `msprof op` 真实 profiling）→ 每轮迭代（选策略 → 生成优化版 → 精度回归跑 L0 → 性能测量 → 记日志）。
-- **优化策略**：调整 block size、增加 T.Pipelined 流水深度、double-buffer、v-prefix API 替换、减少中间 buffer、data reuse。
+- **优化策略**：调整 block size、分核策略调优（核数对齐物理核整数倍 / 极大规模核内串行 persistent 化）、增加 T.Pipelined 流水深度、double-buffer、v-prefix API 替换、减少中间 buffer、data reuse。
 - **中止条件**（满足任一）：迭代达上限（默认 10）/ 连续三次无提升 / 达到用户指定性能目标。
 - **调优不逆向反馈**：性能不足时由 optimizer 自完成最优版本，不回退到 Stage 3/1。
 - **optimize 场景**：裸 kernel 直接进入（`DESIGN.md` 存在则作参考）；产物只写 `perf_opt/`，基准 `{op}.py` 与 wrapper 永不修改；`TUNING_COMPLETED` 后 conductor 亲自对 `perf_opt/{op}.py` 执行回归入口（L0+L1），失败 → `mode=precision_fix` 重调度。
@@ -216,8 +220,8 @@ graph TD
 
 - **进入条件**：全部提取函数 Stage 3 通过且二次校验完成（`.migration_state.json` 的 `functions` 全部 `done`）。
 - **输入**：`meta_path`、`op_name`、`op_slug`、`family`、`attempt_index`、`max_attempts`（默认 5）。
-- **执行**：运行 `examples/TileOPs/.agents/skills/add-npu-op/scripts/integrate_kernel.py`（复制产物 + 生成聚合 `__init__.py` + 改写 wrapper import + import 冒烟）→ `pytest tests/ops/test_{test_slug}.py`（smoke → 全量）→ bench 报告（只记录不修复）；失败时受控调试闭环（≤5 attempt，先备份后修改）。
-- **交付件**：`tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/`（集成 kernel + 聚合 `__init__.py` + `integration_log.md`），wrapper import 已改写。
+- **执行**：运行 `examples/TileOPs/.agents/skills/add-npu-op/scripts/integrate_kernel.py`（复制 kernel 产物 + 复制 Stage 1 交付件 `DESIGN.md` 为 `{func}_DESIGN.md` + 生成聚合 `__init__.py` + 改写 wrapper import + import 冒烟）→ `pytest tests/ops/test_{test_slug}.py`（smoke → 全量）→ bench 报告（只记录不修复）；失败时受控调试闭环（≤5 attempt，先备份后修改）。
+- **交付件**：`tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/`（集成 kernel + `{func}_DESIGN.md` 设计文档快照 + 聚合 `__init__.py` + `integration_log.md`），wrapper import 已改写。
 - **三态判定**：`INTEGRATE_COMPLETED`（pytest smoke+全量通过，bench 已报告）/ `[INTEGRATE_FAIL]`（conductor 重调度 ≤2 次，超限 `BLOCKED_INTEGRATION`）/ `[DESIGN_ERROR]`（失败根因函数走设计修订后全量重集成）。
 
 ### 设计修订机制
@@ -349,7 +353,7 @@ examples/TileOPs/                              # 集成侧
 ├── tileops/kernels/{family}/{op_slug}/
 │   ├── {op_slug}.py                           # wrapper（Stage 0 移植，Stage 5 改写 import）
 │   ├── .migration_meta.json                   # Stage 0 机器模式产物
-│   └── {op_slug}_kernel/                      # Stage 5 集成包（集成 kernel + 聚合 __init__.py + integration_log.md）
+│   └── {op_slug}_kernel/                      # Stage 5 集成包（集成 kernel + {func}_DESIGN.md + 聚合 __init__.py + integration_log.md）
 ├── tests/ops/test_{test_slug}.py              # Stage 0 产物（仅含本算子用例）
 └── benchmarks/ops/bench_{bench_slug}.py       # Stage 0 产物
 ```
@@ -447,8 +451,8 @@ harness 迁移另有 `examples/{op_slug}/.migration_state.json`（函数级聚�
 | ------------------------------- | ---------------------------- | -------------------------------------------------- | -------- |
 | `tilelang-op-conductor.md`    | `tilelang-op-conductor`    | 唯一流程 owner，场景路由、调度六阶段、维护状态、处理修订循环 | primary  |
 | `tileops-scaffolder.md`       | `tileops-scaffolder`       | Stage 0 执行器（仅 harness），TileOPs 7 文件脚手架 + `.migration_meta.json` | subagent |
-| `tilelang-op-designer.md`     | `tilelang-op-designer`     | Stage 1 执行器，生成`DESIGN.md`                  | subagent |
-| `tilelang-design-reviewer.md` | `tilelang-design-reviewer` | Stage 2 执行器，生成`REVIEW.md`                  | subagent |
+| `tilelang-op-designer.md`     | `tilelang-op-designer`     | Stage 1 执行器，生成`DESIGN.md`；迁移场景先做源算子三问解读（语义/算法/优化手段）→ 硬件耦合性判定 → NPU 算法重设计 | subagent |
+| `tilelang-design-reviewer.md` | `tilelang-design-reviewer` | Stage 2 执行器，生成`REVIEW.md`；迁移场景额外检视维度 0（源算子理解与迁移分析，须亲自读源码核对） | subagent |
 | `tilelang-op-developer.md`    | `tilelang-op-developer`    | Stage 3 执行器，生成`{op}.py` + 三态判定         | subagent |
 | `tilelang-op-optimizer.md`    | `tilelang-op-optimizer`    | Stage 4 执行器，生成`perf_opt/{op}.py`           | subagent |
 | `tilelang-op-integrator.md`   | `tilelang-op-integrator`   | Stage 5 执行器（仅 harness），TileOPs 集成验证 + 三态判定 | subagent |
@@ -457,8 +461,8 @@ harness 迁移另有 `examples/{op_slug}/.migration_state.json`（函数级聚�
 
 - **conductor**：场景路由、状态机、门禁校验、修订决策、用户交互、失败路由——**不做算子领域推理，不编辑工件**。
 - **scaffolder**：只执行 Stage 0 脚手架移植与结构校验，不做 kernel 的 NPU 重实现，不做运行时验证。
-- **designer**：只生成 `DESIGN.md`，不定义下游阶段。
-- **design-reviewer**：只读检视 `DESIGN.md`，给出结论，**不修改 DESIGN.md**。
+- **designer**：只生成 `DESIGN.md`，不定义下游阶段；迁移场景必须先完成源算子三问解读（语义/算法/优化手段）→ 硬件耦合性判定 → NPU 算法重设计（§0），未读源码不得设计。
+- **design-reviewer**：只读检视 `DESIGN.md`，给出结论，**不修改 DESIGN.md**；迁移场景须亲自读源码核对维度 0（源算子理解与迁移分析），不得放水。
 - **developer**：只生成 `{op}.py`，不修改上游工件，三态判定如实反映真实测试结果。
 - **optimizer**：只写 `perf_opt/`，调优不逆向反馈到 Stage 3/1；optimize 场景永不修改基准 `{op}.py` 与 wrapper。
 - **integrator**：只执行 Stage 5 集成验证（integrate_kernel.py + pytest + bench 报告），失败走受控调试闭环，不做全局编排。
@@ -475,8 +479,8 @@ harness 迁移另有 `examples/{op_slug}/.migration_state.json`（函数级聚�
 
 | Skill                      | 触发                     | 产物                                  |
 | -------------------------- | ------------------------ | ------------------------------------- |
-| `tilelang-op-design`     | 设计算子、生成 DESIGN.md | `DESIGN.md`                         |
-| `tilelang-design-review` | review 设计文档          | `REVIEW.md`                         |
+| `tilelang-op-design`     | 设计算子、生成 DESIGN.md（迁移场景含源算子三问解读 + 耦合性判定 + NPU 重设计） | `DESIGN.md`                         |
+| `tilelang-design-review` | review 设计文档（迁移场景含维度 0 源算子理解与迁移分析） | `REVIEW.md`                         |
 | `tilelang-op-develop`    | 实现算子、跑精度         | `{op}.py` + 三态判定                |
 | `tilelang-op-optimize`   | 性能调优                 | `perf_opt/{op}.py` + `opt_log.md` |
 

@@ -90,7 +90,7 @@ conductor 在调度本 Agent 时会传入 `mode` 参数，决定本次行为：
 |------|----------|------------------|
 | L0 + L1 全过（L2/Boundary 告警仅记录） | `[PRECISION_PASS]` | → complete_stage(3) → 二次校验 → 询问调优 |
 | L0 或 L1 未过 | `[PRECISION_FAIL]` | → precision_fix 重试 |
-| 设计层错误（API 不可用 / L0C 溢出 / 内存层级冲突 / 同步冲突 / 动态边界） | `[DESIGN_ERROR]` + 原因 | → 设计修订循环 |
+| 设计层错误（API 不可用 / L0C 溢出 / 内存层级冲突 / 同步冲突 / 动态边界 / 分核策略缺陷——核内串行边界依赖动态值、逻辑核数远超物理核数致串行调度开销剧增） | `[DESIGN_ERROR]` + 原因 | → 设计修订循环 |
 | 无标记且 exit code ≠ 0 | 运行失败（RUNTIME_FAIL） | → retry_impl 重试 |
 
 ---
@@ -119,6 +119,7 @@ conductor 在调度本 Agent 时会传入 `mode` 参数，决定本次行为：
 | L0C/UB 溢出 | 编译期或运行期报容量超限 | 返回 `[DESIGN_ERROR]` + 原因 |
 | 精度不达标 | `assert_close` 失败 | 返回 `[PRECISION_FAIL]` + max_diff/失败 shape |
 | 内存层级越级 | stderr 提示 GM/L1/UB/L0 访问违规 | 返回 `[DESIGN_ERROR]` + 原因 |
+| 分核策略缺陷 | 按 DESIGN.md §5 分核方案实现时发现：核内串行任务数/循环边界依赖动态 shape 或运行时核数（违反静态边界约束），或逻辑核数远超物理核数被串行调度导致跑测显著超时 | 返回 `[DESIGN_ERROR]` + 原因（docs/开发指南.md §3.3） |
 | 环境问题 | `ImportError` 指向 tilelang/torch_npu 未安装或未 `source set_env.sh` | 返回 RUNTIME_FAIL，提示检查环境 |
 
 ---

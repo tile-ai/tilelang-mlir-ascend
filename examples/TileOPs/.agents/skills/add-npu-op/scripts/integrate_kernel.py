@@ -2,10 +2,14 @@
 
 Copies the per-function kernel files produced by the tilelang-op-conductor
 pipeline (``examples/{project}/{func}/{func}.py``) into the TileOPs kernel
-package (``tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/``), generates
+package (``tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/``), copies
+each function's Stage 1 design doc (``DESIGN.md`` co-located with the kernel
+product) into the same package as ``{func}_DESIGN.md``, generates
 the aggregation ``__init__.py``, rewrites the wrapper import to point at the
 integrated package, and runs an import smoke test. Idempotent: re-running
 overwrites integrated copies and leaves an already-rewritten wrapper intact.
+A function without a co-located ``DESIGN.md`` is warned about (not fatal)
+and its kernel is still integrated.
 
 Usage:
     python integrate_kernel.py --meta .migration_meta.json
@@ -91,6 +95,18 @@ def find_conductor_file(
         f"[error] ambiguous conductor product for '{func}': {matches}; "
         f"pass --func-dir {func}=<path> to disambiguate"
     )
+
+
+def find_design_doc(kernel_src: Path) -> Path | None:
+    """Locate the Stage 1 DESIGN.md for one kernel function.
+
+    The conductor pipeline writes ``DESIGN.md`` into the same directory as
+    the kernel product (``examples/{op_slug}/{func}/DESIGN.md``), so the
+    kernel source's parent directory is the canonical location. Returns None
+    when no design doc is co-located (warned, not fatal).
+    """
+    candidate = kernel_src.parent / "DESIGN.md"
+    return candidate if candidate.is_file() else None
 
 
 def parse_wrapper_imports(wrapper_path: Path, extracted_module: str) -> list[str]:
@@ -277,16 +293,30 @@ def main() -> None:
 
     target_dir = tileops_root / "tileops" / "kernels" / family / op_slug / f"{op_slug}_kernel"
     integrated: dict[str, Path] = {}
+    design_integrated: dict[str, Path] = {}
     print(f"[plan] op_slug={op_slug} family={family} target={target_dir}")
-    for _, src in sources.items():
+    for func, src in sources.items():
         dst = target_dir / src.name
         integrated[src.stem] = dst
         print(f"[copy] {src} -> {dst}")
+        design_src = find_design_doc(src)
+        design_dst: Path | None = None
+        if design_src is not None:
+            design_dst = target_dir / f"{func}_DESIGN.md"
+            design_integrated[func] = design_dst
+            print(f"[copy] {design_src} -> {design_dst}")
+        else:
+            print(
+                f"[warn] no DESIGN.md co-located with '{func}' product "
+                f"(looked in {src.parent}); design doc not integrated"
+            )
         if not args.dry_run:
             target_dir.mkdir(parents=True, exist_ok=True)
             for cache in target_dir.glob("__pycache__"):
                 shutil.rmtree(cache)
             shutil.copy2(src, dst)
+            if design_src is not None and design_dst is not None:
+                shutil.copy2(design_src, design_dst)
 
     init_path = target_dir / "__init__.py"
     init_text = gen_init_py(wrapper_names, integrated, op_slug)
@@ -321,6 +351,9 @@ def main() -> None:
         "family": family,
         "functions": functions,
         "sources": {f: str(p) for f, p in sources.items()},
+        "design_docs": {
+            f: (str(design_integrated[f]) if f in design_integrated else None) for f in functions
+        },
         "target_dir": str(target_dir),
         "wrapper": str(wrapper_path),
         "wrapper_rewritten": rewritten,

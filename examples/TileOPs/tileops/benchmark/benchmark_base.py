@@ -79,8 +79,8 @@ def _workload_contract(op_name: str) -> tuple[str, frozenset[str]]:
 def bench_kernel(
     fn: Callable,
     args: tuple[Any, ...] = (),
-    n_warmup: int = 10,
-    n_repeat: int = 50,
+    n_warmup: int = 5,
+    n_repeat: int = 10,
     n_trials: int = 3,
 ) -> float:
     """Benchmark a kernel with device-event timing.

@@ -36,9 +36,11 @@ from tileops.kernels.kernel_base import Kernel
 from tileops.kernels.reduction._primitives import (
     DEFAULT_ALIGNMENT,
     MAX_SINGLE_TILE_COLS,
+    UB_SAFETY_RESERVE_BYTES,
     align_up,
     compute_tile_n,
     device_smem_budget,
+    ub_slab_units,
 )
 
 from ._logsumexp_kernel_single._logsumexp_kernel_single import _logsumexp_kernel_single
@@ -88,6 +90,14 @@ def _logsumexp_fwd_wrapped(
     tile_n: int,
     x: torch.Tensor,
 ) -> torch.Tensor:
+    # The tiled kernel requires tile-aligned N. Pad with -inf on the host:
+    # logsumexp([x, -inf...]) == logsumexp(x).
+    if tile_n > 0 and N % tile_n != 0:
+        n_padded = _compute_padded_cols(N, tile_n)
+        x_pad = torch.full((M, n_padded), float("-inf"), dtype=x.dtype, device=x.device)
+        x_pad[:, :N] = x
+        x = x_pad
+        N = n_padded
     return _logsumexp_kernel(M, N, dtype_str, tile_n)(block_m)(x)
 
 
@@ -156,6 +166,11 @@ class LogSumExpKernel(Kernel):
         self.N_padded = align_up(N, DEFAULT_ALIGNMENT)
         self._elem_bytes = _elem_bytes(dtype)
         self._smem_budget = device_smem_budget(device_index)
+        self._ub_units = ub_slab_units(self._elem_bytes, dtype_slabs=2, fp32_slabs=1)
+        self._ub_budget = max(
+            self._smem_budget - UB_SAFETY_RESERVE_BYTES,
+            16 * 1024,
+        )
 
         # Build self.kernel BEFORE init_config: the config selection
         # logic references self._tile_n which is derived from the kernel.
@@ -192,36 +207,48 @@ class LogSumExpKernel(Kernel):
     def _tile_n_for_block_m(self, block_m: int) -> int:
         """Return tile_n for a given block_m (0 means no tiling needed).
 
-        Uses the device's actual shared memory budget (not the
+        Uses the device's actual on-chip memory budget (not the
         conservative 48 KiB default) so that large-N workloads can
         use fewer, larger tiles or even the single-tile fast path.
+
+        On npuir Developer mode, fragments are allocated in UB alongside
+        shared buffers, so the budget is divided by the combined UB slab
+        count and excludes a small safety reserve.
 
         Both paths are subject to the MAX_SINGLE_TILE_COLS column
         cap (TileLang's vectorizer fails at the 32768 column boundary).
         """
-        budget = self._smem_budget
-        # Single-tile path: cap by column count and smem budget.
+        budget = self._ub_budget
+        # Single-tile path: cap by column count and UB budget.
         if self.N_padded <= MAX_SINGLE_TILE_COLS:
-            tile_n = compute_tile_n(block_m, self._elem_bytes, self.N_padded, budget=budget)
+            tile_n = compute_tile_n(
+                block_m,
+                self._elem_bytes,
+                self.N_padded,
+                budget=budget,
+                num_buffers=self._ub_units,
+            )
             if tile_n == self.N_padded:
                 return 0
-        # Tiled path (logsumexp uses 1 shared buffer).
-        # Cap the smem budget so tile_n stays within the column limit.
-        col_budget = MAX_SINGLE_TILE_COLS * block_m * self._elem_bytes
+        # Tiled path keeps shared dtype + dtype fragment + fp32 fragment in UB.
+        # Scale the column cap by num_buffers because compute_tile_n divides
+        # the effective budget by that same factor.
+        col_budget = MAX_SINGLE_TILE_COLS * self._ub_units * block_m * self._elem_bytes
         effective_budget = min(budget, col_budget)
         return compute_tile_n(
             block_m,
             self._elem_bytes,
             self.N_padded,
             budget=effective_budget,
+            num_buffers=self._ub_units,
         )
 
     @property
     def default_config(self) -> dict:
-        """Select default block_m based on shared memory budget.
+        """Select default block_m based on the on-chip memory budget.
 
         For the single-tile path (tile_n == 0), prefer the largest
-        block_m that fits in shared memory.
+        block_m that fits in UB.
 
         For the tiled path, prefer the block_m that minimises the
         number of N-tiles (maximises tile_n) to reduce global memory

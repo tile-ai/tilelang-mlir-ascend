@@ -21,6 +21,7 @@ __all__ = [
     "DEFAULT_ALIGNMENT",
     "MAX_SINGLE_TILE_COLS",
     "SHARED_MEMORY_BUDGET_BYTES",
+    "UB_SAFETY_RESERVE_BYTES",
     "align_up",
     "compute_tile_n",
     "device_smem_budget",
@@ -29,6 +30,7 @@ __all__ = [
     "make_softmax_epilogue",
     "make_welford_update",
     "tune_by_forward",
+    "ub_slab_units",
 ]
 
 # 256-element alignment (512 bytes for fp16/bf16) required by T.copy()
@@ -47,6 +49,28 @@ MAX_SINGLE_TILE_COLS: int = 32512
 # Default shared memory budget per SM (48 KiB) used to compute the maximum
 # block_m that fits within a single thread block's shared memory allocation.
 SHARED_MEMORY_BUDGET_BYTES: int = 48 * 1024
+
+# Bytes subtracted from the device on-chip budget before tile-size selection.
+#
+# On the NPU (npuir target, Developer mode) every ``T.alloc_shared`` AND
+# ``T.alloc_fragment`` is planned into the Unified Buffer by the BishengIR
+# PlanMemory pass, which additionally aligns each allocation and counts small
+# ``(block_m, 1)``-class fragments against the same budget.  This reserve
+# absorbs those per-kernel overheads that the slab-based cost model does not
+# model explicitly.
+UB_SAFETY_RESERVE_BYTES: int = 8 * 1024
+
+
+def ub_slab_units(elem_bytes: int, dtype_slabs: int = 1, fp32_slabs: int = 0) -> int:
+    """Return large UB buffer usage as elem-sized slab units.
+
+    On npuir Developer mode, both ``T.alloc_shared`` and
+    ``T.alloc_fragment`` are planned into UB.  This helper converts a
+    kernel's large ``(block_m, tile_n)`` buffer inventory into the
+    ``num_buffers`` unit expected by :func:`compute_tile_n`.
+    """
+    total_bytes = dtype_slabs * elem_bytes + fp32_slabs * 4
+    return (total_bytes + elem_bytes - 1) // elem_bytes
 
 
 def device_smem_budget(device_index: int | None = None) -> int:

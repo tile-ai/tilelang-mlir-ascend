@@ -249,7 +249,8 @@ sequenceDiagram
   - 修订（`mode=revision`）：`last_design_path`（被修订的旧 design 备份路径）、`design_error_summary`（检视不通过原因 + 修改建议，或 `[DESIGN_ERROR]` 原因）、`revision_index`、`previous_revisions`（历史备份列表）
   - 所有模式均传 `project_name`、`op_name`，Subagent 据此确定工件落盘到 `examples/{project}/{op}/`
   - 所有模式均须透传「Tiling 与分核策略编排规则」中 Stage 1 行的分核策略设计要求（标准文本）
-- **输出/交付件**：`DESIGN.md`（迁移任务含 §0 源算子解读与迁移分析：语义/算法/优化手段三问解读 + 硬件耦合性判定 + NPU 算法重设计；Tiling 策略章节含分核策略三要素，见「Tiling 与分核策略编排规则」）
+  - 所有模式均须透传「弃选论证证据规则」（标准文本）：§1.6.1 否决项与 §1.6.3 弃选候选的每条负向论断（API 不支持/代价高/无先例/无链支撑）必须附已亲自核对的 `docs/`、`testing/`、`examples/` 路径与具体限制条款，或显式标注「未文档化假设 + 估算依据」；弃选候选所依赖的 API 必须先枚举名字，再在 `docs/Tilelang.language/` 全部子目录（含 `创建操作/`、`索引与元素操作/`、`条件操作/`、`排序操作/`、`逻辑操作/`、`原子操作/` 等 AGENTS.md 路由未映射目录）检索——禁止凭先验（尤其 GPU 直觉）在检索前否决候选
+- **输出/交付件**：`DESIGN.md`（迁移任务含 §0 源算子解读与迁移分析：语义/算法/优化手段三问解读 + 硬件耦合性判定 + NPU 算法重设计；**所有任务含 §1.6 算法优化分析：数学等价优化（更少计算量/访存量，逐项含等价性论证）+ 循环/标量计算的向量化替代分析（替代不了的逐项给充分理由）+ §1.6.3 向量化轴与布局决策（弃选候选的 repack 代价必须写明机制层级——核内 UB 级/GM 级/host 级——与 API 文档依据；负向论断必须附已核对佐证或显式『未文档化假设』标注；**判定裕度依赖未实证常数（吞吐比/跨步代价/转置效率）时须启用实验裁决模式：主选方案（进 Stage 3）+ 备选方案（结构完整可实现，含 buffer/循环/转置链/dtype/分核参数）+ 实验裁决计划（代表 shape、指标、判定阈值、回写路径），备选进入 Stage 4 A/B 清单，shape 特化工厂算子须评估按 shape 分派可行性**）**；Tiling 策略章节含分核策略三要素，见「Tiling 与分核策略编排规则」）
 - **完成信号**：`DESIGN_COMPLETED`，携带 `design_md_path`
 
 ### Stage 2 — 设计检视 Agent（`@tilelang-design-reviewer`）
@@ -258,7 +259,8 @@ sequenceDiagram
 - **输入**：`design_md_path`、`project_name`、`op_name`；迁移任务另传 `source_op_path`（用于核对 §0 解读与源码一致性）
 - **输出/交付件**：`REVIEW.md`
   - 必须包含明确的 `结论: 通过` 或 `结论: 不通过`，以及不通过时的具体修改建议。
-  - 迁移任务执行 8 维度检视（含维度 0「源算子理解与迁移分析」：语义/算法/优化手段解读核对、耦合性判定合理性、NPU 重设计可行性与设计一致性、golden 独立性）。
+  - 迁移任务执行 9 维度检视（含维度 0「源算子理解与迁移分析」：语义/算法/优化手段解读核对、耦合性判定合理性、NPU 重设计可行性与设计一致性、golden 独立性；非迁移任务执行 8 维度，维度 0 标 n/a）。
+  - 所有任务执行维度 8「算法优化分析」（阻塞级）：数学等价优化的完整性（逐项「原式 → 优化后公式 → 等价性论证 → 收益量化」）与等价论证正确性（独立推演）、循环/标量计算的向量化替代覆盖完整性（与 §3.3/§6 交叉核对）、不可替代理由充分性、替代 API 佐证、与 §3.1/§6 一致性、**弃选论证前提核对（对 §1.6.1 否决项与 §1.6.3 弃选候选的每条负向论断，亲自打开所引 API 文档核对代价机制前提；未引证或与文档矛盾 → 维度 8 fail）**。
   - 所有任务维度 3「Tiling 策略」须含分核策略核对（三要素齐全、核数与 block 取值自洽、核内串行边界静态；标准要点见「Tiling 与分核策略编排规则」）。
 - **完成信号**：`REVIEW_COMPLETED`
 - **编排层动作**：
@@ -317,7 +319,7 @@ DESIGN.md 的 Tiling 策略章节（§5）必须同时包含：
 | 2 调度 reviewer | prompt 透传分核检视要点 | "维度 3（Tiling 策略）须核对分核策略三要素齐全、核数与 block 取值自洽、核内串行边界静态。" |
 | 2 结论路由 | 维度 3 对分核策略判 fail → 设计修订路径 A（`design_error_summary` 含分核问题与建议） | — |
 | 3 调度 developer | prompt 提醒按 DESIGN.md §5 分核方案实现（对齐或核内串行），不得擅自改回逻辑核超发 | 分核类设计缺陷返回 `[DESIGN_ERROR]` → 设计修订路径 B |
-| 4 调度 optimizer | prompt 透传分核调优维度提示 | "分核策略调优是可选优化策略：调整 block 使核数对齐物理核整数倍（消除负载不均）/ 极大规模下核内串行 persistent 化（摊薄核启动开销）。" |
+| 4 调度 optimizer | prompt 透传分核调优维度提示 | "分核策略调优是可选优化策略：调整 block 使核数对齐物理核整数倍（消除负载不均）/ 极大规模下核内串行 persistent 化（摊薄核启动开销）。" 另：DESIGN.md §1.6 含实验裁决三件套（主选+备选+裁决计划）时，A/B 实测为调优必做项——按裁决计划对代表 shape 实测主选 vs 备选（perf_opt/ 下产出备选变体，基准不动），实测出裁决所依赖的未知常数，按判定阈值裁决；备选胜出（全局或按 shape 分片）则采纳备选变体，实测数据与裁决结论回写 DESIGN.md（触发设计修订）；主选胜出则以实测数字固化 §1.6.3 判定依据。 |
 
 ### 分核相关失败路由
 
@@ -475,7 +477,7 @@ examples/TileOPs/                              # migration-harness 集成侧
 | TileOPs 7 文件脚手架 | Stage 0 | Stage 1（规格来源）、Stage 5（集成目标） | manifest workloads、wrapper/Kernel class、test/bench 路径 |
 | `.migration_meta.json` | Stage 0 | conductor（函数循环）、Stage 5（集成参数） | op_slug / family / extracted_functions / wrapper_path / test_slug / bench_slug |
 | `.migration_state.json` | conductor | conductor | harness 多函数聚合状态（见「场景路由」） |
-| `DESIGN.md` | Stage 1 | Stage 2（检视）、Stage 3（开发） | 算子名、计算语义、I/O 规格、编程模式、API 映射、tiling 策略（含分核策略三要素：逻辑核数计算、物理核数依据、规模判定与分核方案）、loop 结构、内存层级、同步策略、技术约束检测结论、精度容忍度、**L0 门槛测试计划**；迁移任务另含 §0（源算子语义/算法/优化手段解读、耦合性判定、NPU 重设计、源算子路径与输出 shape） |
+| `DESIGN.md` | Stage 1 | Stage 2（检视）、Stage 3（开发） | 算子名、计算语义、I/O 规格、算法优化分析（§1.6：优化后公式 + 向量化结论）、编程模式、API 映射、tiling 策略（含分核策略三要素：逻辑核数计算、物理核数依据、规模判定与分核方案）、loop 结构、内存层级、同步策略、技术约束检测结论、精度容忍度、**L0 门槛测试计划**；迁移任务另含 §0（源算子语义/算法/优化手段解读、耦合性判定、NPU 重设计、源算子路径与输出 shape） |
 | `REVIEW.md` | Stage 2 | conductor（修订决策）、Stage 1（修订输入） | `结论: 通过/不通过`、不通过时的具体修改建议；迁移任务另含维度 0 各检查项结论与源码证据 |
 | `{op}.py` | Stage 3 | Stage 3（自迭代）、Stage 4 | `@tilelang.jit` kernel + 内嵌 PyTorch golden + 分层测试套件 + main 入口 |
 | `README.md` | Stage 3 | 用户 | 实现说明 |
@@ -551,6 +553,8 @@ INIT --> TUNING --> 精度回归 --> DONE / FAILED
 | 同步策略与编程模式冲突 | Developer 模式下要求手动 set_flag/wait_flag |
 | 设计的 loop 结构依赖动态边界 | 与 Ascend "只支持静态循环边界" 约束冲突 |
 | 精度调试多次后定位到根因是设计 | Stage 3 多次精度调试后 Developer 报告"修复实现层无解" |
+| 公式优化破坏语义（等价论证不成立） | Stage 2 维度 8 判 fail（§1.6.1 变形实际改变语义 / 累加顺序 / dtype 而无论证），或 Stage 3 精度失败根因指向优化后公式 |
+| 标量/循环未向量化且无理由 | Stage 2 维度 8 判 fail（§1.6.2 缺分析或保留理由不充分，如逐元素标量循环、标量累加可用向量归约替代而未替代） |
 | 迁移：源算子语义理解偏差 | Stage 2 维度 0 判 fail（§0.1/0.2 与源码不一致，如累加顺序 / 中间 dtype / 输出 shape 错误） |
 | 迁移：照搬源硬件方案 | Stage 3 编译失败根因为三维 Kernel / GPU 专用 API / warp shuffle 类未重设计结构 |
 | 迁移：NPU 重设计不可行 | Stage 2 维度 0 判 fail（§0.6 重设计违反分形 / 容量 / 一维 Kernel 约束，或语义保持论证缺失） |
@@ -572,7 +576,7 @@ INIT --> TUNING --> 精度回归 --> DONE / FAILED
    - `revision_index`：`retry_count` 当前值
    - `previous_revisions`：历史备份路径列表
    - 迁移任务：`source_op_path`（revision 也必须传入——若错误指向 §0，designer 需重新读源码重做迁移分析）
-7. Stage 1 完成新 `DESIGN.md` 后按正常流程进入 Stage 2 重新检视（迁移任务重新执行含维度 0 的 8 维度检视）。
+7. Stage 1 完成新 `DESIGN.md` 后按正常流程进入 Stage 2 重新检视（迁移任务重新执行含维度 0 的 9 维度检视；所有任务均含维度 8 算法优化分析）。
 
 ### 边界与防护
 
@@ -594,8 +598,8 @@ INIT --> TUNING --> 精度回归 --> DONE / FAILED
 | Stage | 必需工件 | 门禁校验标准 | 执行失败类型 | 失败路由 |
 |-------|---------|-------------|---------|---------|
 | 0 | `op_name` + `gpu_repo_root` | TileOPs 7 文件存在 + Tier 1 通过（import / manifest / collect-only）+ `.migration_meta.json` 字段完整（含 ≥1 个 extracted_functions） | 结构校验失败 / GPU 无实现 / repo 缺失 | 结构 → `fail_stage(0)` 重试；无 TileLang 实现 → `BLOCKED_SPEC`；repo 缺失 → `BLOCKED_ENVIRONMENT`；超限 → `BLOCKED_SCAFFOLD` |
-| 1 | 用户需求（迁移任务：另含 `source_op_path`） | `DESIGN.md` 含算子名、I/O 规格、编程模式、API 映射、tiling 策略（**含分核策略三要素：逻辑核数计算、物理核数依据、规模判定与分核方案**，见「Tiling 与分核策略编排规则」）、内存层级、同步策略、验证方案（含 L0 计划）、技术约束检测结论；**迁移任务另须含 §0**（0.1 语义 / 0.3 算法解读 / 0.4 优化手段 / 0.5 耦合性判定 / 0.6 NPU 重设计，且 §1–§7 与迁移决策一致、golden 独立） | 必须字段缺失 / 用户中途取消 / 迁移源码不可读 | `fail_stage(1)` → 重试 Stage 1（计 `stage_retry_count`）；迁移源码不可读 → `BLOCKED_SPEC` |
-| 2 | `DESIGN.md`（迁移任务：另含 `source_op_path`） | `REVIEW.md` 存在且含明确 `结论: 通过` 或 `结论: 不通过`；迁移任务维度数 = 8（含维度 0 源算子理解与迁移分析，且结论附源码核对证据），非迁移 = 7 | 检视不通过 | 设计修订循环（路径 A，计 `retry_count`） |
+| 1 | 用户需求（迁移任务：另含 `source_op_path`） | `DESIGN.md` 含算子名、I/O 规格、编程模式、算法优化分析（**§1.6 数学等价优化（更少计算量/访存量，逐项含原式→优化后→等价论证→收益）+ 向量化替代分析（循环/标量点全覆盖，不可替代有充分理由），且与 §3.1/§6 一致**；**§1.6.1 否决项与 §1.6.3 弃选行必须含 `docs/`/`testing/`/`examples/` 佐证路径或『未文档化』显式标注——grep 机械核对，缺证即门禁失败**）、API 映射、tiling 策略（**含分核策略三要素：逻辑核数计算、物理核数依据、规模判定与分核方案**，见「Tiling 与分核策略编排规则」）、内存层级、同步策略、验证方案（含 L0 计划）、技术约束检测结论；**迁移任务另须含 §0**（0.1 语义 / 0.3 算法解读 / 0.4 优化手段 / 0.5 耦合性判定 / 0.6 NPU 重设计，且 §1–§7 与迁移决策一致、golden 独立） | 必须字段缺失 / 用户中途取消 / 迁移源码不可读 | `fail_stage(1)` → 重试 Stage 1（计 `stage_retry_count`）；迁移源码不可读 → `BLOCKED_SPEC` |
+| 2 | `DESIGN.md`（迁移任务：另含 `source_op_path`） | `REVIEW.md` 存在且含明确 `结论: 通过` 或 `结论: 不通过`；迁移任务维度数 = 9（含维度 0 源算子理解与迁移分析，且结论附源码核对证据），非迁移 = 8（含维度 8 算法优化分析，且结论附独立推演证据）；**维度 8 含弃选论证前提核对证据（逐条负向论断的 API 文档核对结论，缺即门禁失败）** | 检视不通过 | 设计修订循环（路径 A，计 `retry_count`） |
 | 3 | `DESIGN.md`（检视通过）| 真实跑测完成三态判定，且 **L0/L1 全过**（`[PRECISION_PASS]`）才视为门禁通过；L2/Boundary 告警不影响门禁 | 编译/运行/精度失败 / `[DESIGN_ERROR]` | 分类路由（见「Stage 3 失败子类型路由」） |
 | 4 | `{op}.py`（精度通过） + 用户调优信息（optimize 场景：kernel 路径 + 回归入口） | 单轮性能迭代完成；optimize 场景额外要求 `perf_opt/{op}.py` 回归 L0+L1 通过 | 性能不足 / 回归失败 | Stage 4 内继续迭代（调优 Agent 自完成，不回退）；optimize 回归失败 → `mode=precision_fix` 重调度 |
 | 5 | 全函数 Stage 3 通过 + `.migration_meta.json` | 集成包存在（kernel + 每函数 `{func}_DESIGN.md`）+ wrapper import 已改写 + TileOPs pytest smoke+全量真实通过 + bench 已记录 | 集成前置失败 / 精度失败 / `[DESIGN_ERROR]` / 环境 | `[INTEGRATE_FAIL]` → 重调度 integrator（≤2 次）；`[DESIGN_ERROR]` → 该函数设计修订后重集成；超限 → `BLOCKED_INTEGRATION` |

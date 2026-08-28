@@ -176,21 +176,22 @@ graph TD
 #### Stage 1 — 算子设计（`tilelang-op-designer`）
 
 - **输入**：conductor 在 Primary 上下文预检后传入的 `op_requirements` 结构（算子名、公式、I/O 规格、编程模式）；迁移任务另传 `source_op_path`（源算子文件路径）与 `source_output_shape`。
-- **执行**：调用 `tilelang-op-design` skill → 技术约束检测（三维 Kernel、GPU 专用 API、GEMM 非整除、L0C 溢出、物理核数适配）→ 检索 `examples/` 同类实现 → 生成 `DESIGN.md`。
+- **执行**：调用 `tilelang-op-design` skill → 技术约束检测（三维 Kernel、GPU 专用 API、GEMM 非整除、L0C 溢出、物理核数适配）→ 检索 `examples/` 同类实现 → **算法级优化设计**（Phase 2：数学等价优化 + 向量化替代分析 → §1.6）→ 生成 `DESIGN.md`。
 - **迁移任务执行流**（skill Phase M0/M1，先于通用流程）：
   1. **Phase M0 源算子三问解读**：Read 源码全文 → 语义是什么（数学语义/规约累加顺序/dtype/边界）→ 实现算法是什么（计算步骤分解/数据流/循环并行结构/host 逻辑）→ 用了哪些优化手段（SMEM tiling / mma / warp shuffle / 异步流水 / online 算法等，逐项标注硬件依赖）→ §0.1–§0.4。
   2. **Phase M1 耦合性判定与 NPU 重设计**：算法和优化手段硬件强相关吗？能用在 NPU 上吗？→ 四态处置（保留 / 等价替换 / 重新设计 / 舍弃，依据 GPU→NPU 能力映射表）→ §0.5；对「重新设计」项按 NPU 硬件能力重设计算法并给出语义保持论证 → §0.6。
-  3. **迁移决策驱动通用流程**：§1–§11 基于重设计后的 NPU 算法展开，不得照抄源方案；golden 以 §0.1 源算子语义为依据（保证验证独立性）。
-- **DESIGN.md 必含章节**：概述、编程模式选型、API 映射、数据规格与内存规划、Tiling 策略（含非整除处理与分核策略三要素——逻辑核数计算、物理核数依据、规模判定与分核方案，见 docs/开发指南.md §3.3）、循环与调度结构、同步策略、CV 融合设计、验证方案（含 L0 门槛测试计划）、风险点、交付清单。
-- **门禁**：13 项校验（文件存在、章节齐全、无占位符等），revision 模式额外校验"关键调整说明"；**迁移任务额外校验 §0**（0.1–0.7 齐全：语义/算法/优化手段/耦合性判定/重设计/标杆实现，且 §1–§7 与迁移决策一致、golden 独立）。
+  3. **迁移决策驱动通用流程**：§1–§11 基于重设计后的 NPU 算法展开，不得照抄源方案；算法级优化（Phase 2 → §1.6）在 §0.6 重设计结果之上继续深挖，不止步于源公式直译；golden 以 §0.1 源算子语义为依据（保证验证独立性）。
+- **DESIGN.md 必含章节**：概述（**含 §1.6 算法优化分析——数学等价优化（更少计算量/访存量，逐项含原式→优化后→等价论证→收益）+ 向量化替代分析（循环/标量点全覆盖，不可替代有充分理由）**）、编程模式选型、API 映射、数据规格与内存规划、Tiling 策略（含非整除处理与分核策略三要素——逻辑核数计算、物理核数依据、规模判定与分核方案，见 docs/开发指南.md §3.3）、循环与调度结构、同步策略、CV 融合设计、验证方案（含 L0 门槛测试计划）、风险点、交付清单。
+- **门禁**：14 项校验（文件存在、章节齐全（含 §1.6 算法优化分析）、无占位符等），revision 模式额外校验"关键调整说明"；**迁移任务额外校验 §0**（0.1–0.7 齐全：语义/算法/优化手段/耦合性判定/重设计/标杆实现，且 §1–§7 与迁移决策一致、golden 独立）。
 
 #### Stage 2 — 设计检视（`tilelang-design-reviewer`）
 
 - **输入**：`design_md_path`；迁移任务另传 `source_op_path`。
 - **执行**：调用 `tilelang-design-review` skill → 风险优先检视。
-- **维度**：非迁移 7 项——API 可行性（阻塞）、内存层级规划（阻塞）、Tiling 策略（含分核策略物理核数适配核对，阻塞）、技术约束检测（阻塞）、循环与同步（建议）、验证方案（阻塞）、完整性与一致性（建议）；**迁移任务 8 项**——新增维度 0「源算子理解与迁移分析」（阻塞级）：reviewer 亲自 Read 源算子代码核对 §0（语义/算法/优化手段解读正确且完整、耦合性判定合理、NPU 重设计可行且语义保持、§1–§7 与迁移决策一致、golden 独立于 NPU 算法）。
+- **维度**：非迁移 8 项——API 可行性（阻塞）、内存层级规划（阻塞）、Tiling 策略（含分核策略物理核数适配核对，阻塞）、技术约束检测（阻塞）、循环与同步（建议）、验证方案（阻塞）、完整性与一致性（建议）、**算法优化分析（阻塞）**；**迁移任务 9 项**——新增维度 0「源算子理解与迁移分析」（阻塞级）：reviewer 亲自 Read 源算子代码核对 §0（语义/算法/优化手段解读正确且完整、耦合性判定合理、NPU 重设计可行且语义保持、§1–§7 与迁移决策一致、golden 独立于 NPU 算法）。
+- **维度 8「算法优化分析」**（所有任务，阻塞级）：核对 §1.6.1 数学等价优化逐项四要素（原式 → 优化后公式 → 等价性论证 → 收益量化，等价性经独立推演）与 §1.6.2 向量化替代覆盖完整性（与 §3.3/§6 交叉核对、不可替代项理由充分、替代 API 有佐证）。
 - **结论**：字面量 `结论: 通过` 或 `结论: 不通过`；不通过时每个阻塞级问题必须给出可执行修改建议（迁移类问题附源码证据）。
-- **门禁**：结论行存在、结论与详情一致、维度完整（迁移 8 / 非迁移 7）、维度 0 有源码证据（迁移）、不通过时建议完整、无占位符。
+- **门禁**：结论行存在、结论与详情一致、维度完整（迁移 9 / 非迁移 8）、维度 0 有源码证据（迁移）、维度 8 有推演证据、不通过时建议完整、无占位符。
 
 #### Stage 3 — 算子开发（`tilelang-op-developer`）
 
@@ -451,8 +452,8 @@ harness 迁移另有 `examples/{op_slug}/.migration_state.json`（函数级聚�
 | ------------------------------- | ---------------------------- | -------------------------------------------------- | -------- |
 | `tilelang-op-conductor.md`    | `tilelang-op-conductor`    | 唯一流程 owner，场景路由、调度六阶段、维护状态、处理修订循环 | primary  |
 | `tileops-scaffolder.md`       | `tileops-scaffolder`       | Stage 0 执行器（仅 harness），TileOPs 7 文件脚手架 + `.migration_meta.json` | subagent |
-| `tilelang-op-designer.md`     | `tilelang-op-designer`     | Stage 1 执行器，生成`DESIGN.md`；迁移场景先做源算子三问解读（语义/算法/优化手段）→ 硬件耦合性判定 → NPU 算法重设计 | subagent |
-| `tilelang-design-reviewer.md` | `tilelang-design-reviewer` | Stage 2 执行器，生成`REVIEW.md`；迁移场景额外检视维度 0（源算子理解与迁移分析，须亲自读源码核对） | subagent |
+| `tilelang-op-designer.md`     | `tilelang-op-designer`     | Stage 1 执行器，生成`DESIGN.md`；必做算法级优化（数学等价优化 + 向量化替代）；迁移场景先做源算子三问解读（语义/算法/优化手段）→ 硬件耦合性判定 → NPU 算法重设计 | subagent |
+| `tilelang-design-reviewer.md` | `tilelang-design-reviewer` | Stage 2 执行器，生成`REVIEW.md`；含维度 8 算法优化分析检视（须独立推演）；迁移场景额外检视维度 0（源算子理解与迁移分析，须亲自读源码核对） | subagent |
 | `tilelang-op-developer.md`    | `tilelang-op-developer`    | Stage 3 执行器，生成`{op}.py` + 三态判定         | subagent |
 | `tilelang-op-optimizer.md`    | `tilelang-op-optimizer`    | Stage 4 执行器，生成`perf_opt/{op}.py`           | subagent |
 | `tilelang-op-integrator.md`   | `tilelang-op-integrator`   | Stage 5 执行器（仅 harness），TileOPs 集成验证 + 三态判定 | subagent |
@@ -461,8 +462,8 @@ harness 迁移另有 `examples/{op_slug}/.migration_state.json`（函数级聚�
 
 - **conductor**：场景路由、状态机、门禁校验、修订决策、用户交互、失败路由——**不做算子领域推理，不编辑工件**。
 - **scaffolder**：只执行 Stage 0 脚手架移植与结构校验，不做 kernel 的 NPU 重实现，不做运行时验证。
-- **designer**：只生成 `DESIGN.md`，不定义下游阶段；迁移场景必须先完成源算子三问解读（语义/算法/优化手段）→ 硬件耦合性判定 → NPU 算法重设计（§0），未读源码不得设计。
-- **design-reviewer**：只读检视 `DESIGN.md`，给出结论，**不修改 DESIGN.md**；迁移场景须亲自读源码核对维度 0（源算子理解与迁移分析），不得放水。
+- **designer**：只生成 `DESIGN.md`，不定义下游阶段；必做算法级优化设计（数学等价优化 + 循环/标量向量化替代分析 → §1.6）；迁移场景必须先完成源算子三问解读（语义/算法/优化手段）→ 硬件耦合性判定 → NPU 算法重设计（§0），未读源码不得设计。
+- **design-reviewer**：只读检视 `DESIGN.md`，给出结论，**不修改 DESIGN.md**；含维度 8 算法优化分析检视（等价性论证独立推演，不放水）；迁移场景须亲自读源码核对维度 0（源算子理解与迁移分析），不得放水。
 - **developer**：只生成 `{op}.py`，不修改上游工件，三态判定如实反映真实测试结果。
 - **optimizer**：只写 `perf_opt/`，调优不逆向反馈到 Stage 3/1；optimize 场景永不修改基准 `{op}.py` 与 wrapper。
 - **integrator**：只执行 Stage 5 集成验证（integrate_kernel.py + pytest + bench 报告），失败走受控调试闭环，不做全局编排。
@@ -479,8 +480,8 @@ harness 迁移另有 `examples/{op_slug}/.migration_state.json`（函数级聚�
 
 | Skill                      | 触发                     | 产物                                  |
 | -------------------------- | ------------------------ | ------------------------------------- |
-| `tilelang-op-design`     | 设计算子、生成 DESIGN.md（迁移场景含源算子三问解读 + 耦合性判定 + NPU 重设计） | `DESIGN.md`                         |
-| `tilelang-design-review` | review 设计文档（迁移场景含维度 0 源算子理解与迁移分析） | `REVIEW.md`                         |
+| `tilelang-op-design`     | 设计算子、生成 DESIGN.md（必含算法级优化：数学等价优化 + 向量化替代分析；迁移场景含源算子三问解读 + 耦合性判定 + NPU 重设计） | `DESIGN.md`                         |
+| `tilelang-design-review` | review 设计文档（所有任务含维度 8 算法优化分析；迁移场景含维度 0 源算子理解与迁移分析） | `REVIEW.md`                         |
 | `tilelang-op-develop`    | 实现算子、跑精度         | `{op}.py` + 三态判定                |
 | `tilelang-op-optimize`   | 性能调优                 | `perf_opt/{op}.py` + `opt_log.md` |
 

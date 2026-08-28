@@ -101,6 +101,14 @@ When any skill answers technical questions, it must route references by docs dir
     docs/Tilelang.language/线性代数操作/
     docs/Tilelang.language/内存操作/
 
+- Layout/creation ops (transpose/arange/infinity/broadcast):
+    docs/Tilelang.language/创建操作/
+    docs/Tilelang.language/shape操作/
+
+- Comparison and selection ops (vcmp/T.min/T.max/if_then_else/select):
+    docs/Tilelang.language/比较操作/
+    docs/Tilelang.language/条件操作/
+
 - Pipeline and sync (sync_block_set/wait/pipe_barrier/set_flag/wait_flag):
     docs/Tilelang.language/同步管道操作/
 
@@ -125,3 +133,5 @@ When any skill answers technical questions, it must route references by docs dir
 - If multiple mappings match, select by priority and keep at most 3 primary doc references.
 - Always include at least 1 concrete API doc under docs/Tilelang.language/ when the question is API-related.
 - If API docs and examples differ, API docs are source of truth and examples are secondary.
+- If a question involves an API not covered by any mapping above, enumerate `ls docs/Tilelang.language/` and check ALL subdirectories (including 创建操作/索引与元素操作/条件操作/排序操作/逻辑操作/原子操作/编译器提示操作) before concluding the API is unsupported or undocumented.
+- Negative claims (API does not exist / not supported / too costly / no precedent) must cite the concrete doc path and the limiting clause read from it, or be explicitly marked as "undocumented assumption" with the estimation basis. Never reject a design candidate from memory or GPU prior before the retrieval.

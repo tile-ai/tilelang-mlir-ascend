@@ -22,7 +22,7 @@ description: "对精度已通过的 TileLang-NPUIR 算子做 Stage 4 性能调�
 
 按阶段读取，不要在启动时一次性读取所有资源：
 
-- Phase 0 加载上下文时读取：[hardware-context.md](references/hardware-context.md)
+- Phase 0 加载上下文时读取：[hardware-context.md](references/hardware-context.md)、[pattern-library.md](references/pattern-library.md)（**必读**：已验证性能模式/代价表/编译器陷阱版本戳/证伪协议）
 - Phase 1 性能采集时读取：[profile-collection.md](references/profile-collection.md)
 - Phase 2 每轮现象分析时读取：[iteration-diagnosis.md](references/iteration-diagnosis.md)
 - Phase 2 生成候选优化点时按需读取：[bottleneck-patterns.md](references/bottleneck-patterns.md)
@@ -39,15 +39,20 @@ description: "对精度已通过的 TileLang-NPUIR 算子做 Stage 4 性能调�
 
 ### Phase 0：加载上下文
 
-1. 读取 `{op}.py`、`DESIGN.md` 和 [hardware-context.md](references/hardware-context.md)。
+1. 读取 `{op}.py`、`DESIGN.md` 和 [hardware-context.md](references/hardware-context.md)、[pattern-library.md](references/pattern-library.md)。
 2. 判断算子类型：`cube / vector / mix`。
-3. 搜索同类算子或历史优化实现，尤其关注：
+3. **首轮必查项（来自 pattern-library，不得跳过）**：
+   - **向量化轴与布局重估**：核对当前实现的向量化轴与核内布局——即使上游设计已选定，其结论可能基于旧工具链或未枚举重排布局变体（I/O layout 是契约、核内布局是设计变量；含 ≥2 个非 batch 维的逐元素/窗口/规约类算子须对照 pattern-library §1 评估「原生布局+最内连续轴」vs「核内重排布局+高整除性轴（如 C 轴融合转置链）」两条路线）；
+   - **编译器陷阱版本戳核对**：pattern-library §2 的陷阱结论绑定工具链版本——若 tilelang 源码被修改/重编译过，相关结论自动视为待重验，不得直接引用；
+   - 若 `DESIGN.md` 含 §1.6.3（向量化轴与数据布局决策），本轮调优须对照该决策与实测现象（标量占比、带宽利用率）——现象与决策矛盾时优先重验布局路线；
+   - **实验裁决执行（DESIGN 含实验裁决三件套时必做）**：若 `DESIGN.md` §1.6 含「主选 + 备选 + 实验裁决计划」（判定裕度依赖未实证常数的备选方案），A/B 实测是本轮调优的必做项，不是可选项——按裁决计划执行：① 在 `perf_opt/` 下实现备选变体（基准 `{op}.py` 与 wrapper 不动）；② 按计划的代表 shape 与主选同口径对比（msprof op + 必要时 event）；③ 实测/反解裁决所依赖的未知常数（如转置吞吐、跨步代价）；④ 按计划判定阈值裁决——备选胜出（全局或按 shape 分片）则采纳备选变体为候选 best，主选胜出则以实测数字固化设计判定；⑤ 实测数据与裁决结论写入 `opt_log.md`，并报告 conductor 以触发设计修订回写（DESIGN.md 的判定依据从"先例/下界估算"升级为"实测数字"；新实测常数追加回 pattern-library.md，见 Phase 4）。
+4. 搜索同类算子或历史优化实现，尤其关注：
    - `T.serial`
    - `T.Pipelined`
    - multi-buffer
    - 片上 buffer 生命周期复用
    - dtype-aware 参数
-4. 记录可参考的结构性策略，但不要照搬；必须用当前算子的 profile 验证。
+5. 记录可参考的结构性策略，但不要照搬；必须用当前算子的 profile 验证。
 
 ### Phase 1：采集初始 baseline
 
@@ -108,9 +113,10 @@ Phase 2 是多轮闭环。优化点分析不做成一次性前置步骤；每轮
 3. 判断本次调优是否暴露出 skill 流程问题。
 4. 判断是否需要提出新的 `BP_xxx`，或更新已有 `BP_xxx`。
 5. 把复盘写入 `perf_opt/opt_log.md` 的 `Skill Retrospective` 章节。
-6. 如果项目流程要求 `Optimize.md`，从最终 `opt_log.md` 摘要最终结果、关键有效优化点、中止原因、遗留问题和复盘摘要。
-7. 不自动修改 skill 文档；只在最终报告里列出建议和 BP proposal。
-8. 返回 `TUNING_COMPLETED`。
+6. **回写 pattern-library.md（例外授权）**：本次调优产出的新模式（含代码形态与实测代价）、新代价数据、编译器陷阱新实证/证伪更正，**必须**追加到 `references/pattern-library.md` 对应章节（含任务溯源与工具链版本戳）——该文件是数据积累文件而非流程文档，本条是"不自动修改 skill 文档"禁令的唯一例外。流程/结构层面的改进仍只提 BP proposal，不自动改。
+7. 如果项目流程要求 `Optimize.md`，从最终 `opt_log.md` 摘要最终结果、关键有效优化点、中止原因、遗留问题和复盘摘要。
+8. 不自动修改 skill 流程文档（SKILL.md 及 references 除 pattern-library.md 外）；只在最终报告里列出建议和 BP proposal。
+9. 返回 `TUNING_COMPLETED`。
 
 ## 核心防呆
 
@@ -142,6 +148,13 @@ autotune 只负责在给定搜索空间中选参数，不是最终裁判。若�
 ### 经验结论不要过度泛化
 
 具体策略细节以 [bottleneck-patterns.md](references/bottleneck-patterns.md) 为准。某个优化点在当前环境失败，只能记录为当前 workload / TileLang-NPUIR / CANN / Developer 模式下的实测结论。
+
+### 证伪协议（否定一个 API/模式前必须遵守）⭐
+
+1. **必须用文档合法形态测试**：否定任何 API/模式前，先查 `docs/Tilelang.language/` 确认其合法参数与形式，穷举代表性写法后再下结论。禁止以单一非法形态（如 3-cycle permutation、非文档规定的循环形式）的编译失败否定整个 API 类别——实测教训：曾因此误判"T.transpose 链/C 轴累加不可用"，掩盖了 2–13x 收益（详见 pattern-library §2 证伪协议条目）。
+2. **编译器约束结论必须绑定工具链版本戳**：记录 tilelang build/commit 信息；工具链变更后旧结论自动视为待重验。
+3. **证伪更正须留痕**：推翻旧结论时在 opt_log.md 写明"误判根因 + 合法形态 + 新数据"，并同步更新 pattern-library.md §2 的状态列。
+4. **诊断信号强制触发换轴分析**：msprof 显示热点段标量执行占比 > 50% 时，强制评估向量化轴/布局重排候选（pattern-library §1），不得只在原轴上微调参数。
 
 ## 日志最小要求
 

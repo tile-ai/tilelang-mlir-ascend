@@ -80,13 +80,10 @@ def sparse_mla_fwd(
 
             acc_o = T.alloc_shared([H_per_block, D], accum_dtype)
             acc_s = T.alloc_shared([H_per_block, BI], accum_dtype)
-            acc_s_tmp = T.alloc_shared([H_per_block, BI], accum_dtype)
             S_shared = T.alloc_shared([H_per_block, BI], dtype)
             sumexp = T.alloc_shared([H_per_block, 1], accum_dtype)
-            sumexp_tmp = T.alloc_shared([H_per_block, 1], accum_dtype)
             sumexp_i = T.alloc_shared([H_per_block, 1], accum_dtype)
             alpha = T.alloc_shared([H_per_block, 1], accum_dtype)
-            alpha_tmp = T.alloc_shared([H_per_block, 1], accum_dtype)
             m_i = T.alloc_shared([H_per_block, 1], accum_dtype)
             m_i_prev = T.alloc_shared([H_per_block, 1], accum_dtype)
 
@@ -129,12 +126,12 @@ def sparse_mla_fwd(
                 T.vmax(m_i, m_i_prev, m_i)
                 for h_i in T.Parallel(H_per_block):
                     alpha[h_i, 0] = m_i_prev[h_i, 0] - m_i[h_i, 0]
-                T.vexp2(alpha, alpha, alpha_tmp)
+                T.vexp2(alpha, alpha)
                 for h_i, bi_i in T.Parallel(H_per_block, BI):
                     acc_s[h_i, bi_i] = (
                         acc_s[h_i, bi_i] * sm_scale - m_i[h_i, 0] * sm_scale
                     )
-                T.vexp2(acc_s, acc_s, acc_s_tmp)
+                T.vexp2(acc_s, acc_s)
                 T.reduce_sum(acc_s, sumexp_i, dim=1)  # is this a accumulate operator?
                 for h_i in T.Parallel(H_per_block):
                     sumexp[h_i, 0] = sumexp[h_i, 0] * alpha[h_i, 0] + sumexp_i[h_i, 0]
@@ -147,7 +144,7 @@ def sparse_mla_fwd(
             # Rescale
             for h_i, d_i in T.Parallel(H_per_block, D):
                 acc_o[h_i, d_i] /= sumexp[h_i, 0]
-            T.vlog2(sumexp, sumexp, sumexp_tmp)
+            T.vlog2(sumexp, sumexp)
             for h_i in T.Parallel(H_per_block):
                 sumexp[h_i, 0] = sumexp[h_i, 0] + m_i[h_i, 0] * sm_scale
 

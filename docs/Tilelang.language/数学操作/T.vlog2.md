@@ -2,90 +2,81 @@
 
 ## 1. OP概述
 
-简介：`tilelang.language.vlog2`
+简介：`tilelang.language.vlog2`执行逐元素底数为2的对数计算 $log_2(src)$
 
-* ​**表达式级 `T.log2(x)`**​：对标 `tvm.tir.log2`，对单个 `PrimExpr` 做逐元素 log⁡2(x)。
-* ​**NPU tile 级 `T.vlog2(src, dst, tmp)`**​：在 UB 等 on-chip buffer 上，对张量 tile 做逐元素 log⁡2 运算，底层用 **`ln` + `mul(1/ln2)`** 组合实现，编译到 NPUIR 算子。
+由于底层不支持硬件级别的log2操作，实际上使用的是 $B = ln(A) \times \frac{1}{ln2}$。
+该复合展开在 codegen 阶段完成，所需的中间结果 $ln(A)$ 由 codegen 根据输入 region 分析大小后自动分配临时 buffer，**不再体现在用户接口中**。
 
 ```python
-T.vlog2(src, dst, tmp)
+T.vlog2(input, output)
 ```
 
-## 2. 规格
+## 2. OP规格
 
 ### 2.1 参数说明
 
-| 参数名   | 类型       | 描述   |
-|-------|----------|------|
-| `src` | `tensor` | 源张量  |
-| `dst` | `tensor` | 目的张量 |
-| `tmp` | `tensor` | 中间缓存，用于保存 ln(src) |
+| 参数名 | 类型 | 说明 |
+| - | - | - |
+| `input`  | `tensor` | 输入tensor |
+| `output` | `tensor` | 输出tensor |
 
-### 2.2 OP 规格
+注意：旧版本需要第三个参数 `tmpBuffer`，现已废弃。临时 buffer 由 codegen 内部分配，用户无需也无法显式指定。
 
-#### 2.2.1 DataType 支持
+### 2.2 支持规格
 
-|              | int8 | int16 | int32 | uint8 | uint16 | uint32 | uint64 | int64 | fp16 | fp32 | fp64 | bf16 | bool |
-|:-------------|:----:|:-----:|:-----:|:-----:|:------:|:------:|:------:|:-----:|:----:|:----:|:----:|:----:|:----:|
-| Ascend A2/A3 |  ×   |   ×   |   ×   |   ×   |   ×    |   ×    |   ×    |   ×   |  √   |  √   |  ×   |  ×   |  ×
+#### 2.2.1 DataType支持
 
-#### 2.2.2 Shape 支持
+|   | uint8 | int8 | uint16 | int16 | uint32 | int32 | uint64 | int64 | fp16 | fp32 | bf16 | bool/int1 |
+| - | - | - | - | - | - | - | - | - | - | - | - | - |
+| Ascend | × | × | × | × | × | × | × | × | √ | √ | × | × |
 
-仅支持 1-5D tensor
+#### 2.2.2 Shape支持
 
-### 2.3 使用方法
+input 与 output 形状需要一致。input 与 output 可以指向同一 buffer（原地计算），codegen 分配的临时 buffer 与 input/output 不存在别名。
 
-​**NPU tile 级示例（`examples/log2.py`）**​：
+### 2.3 特殊限制说明
+
+无
+
+### 2.4 使用方法
+
+以下示例展示了对形状为(M,N)的输入tensor进行vlog2计算：
 
 ```python
 @tilelang.jit(target="npuir")
-def vlog2_kernel(M, N, block_M, block_N, dtype="float16"):
+def vec_log2(M, N, block_M, block_N):
     m_num = M // block_M
     n_num = N // block_N
-    block_size = 8
+    BLOCK_SIZE = 8
 
     @T.prim_func
     def main(
-        src: T.Tensor((M, N), dtype),
-        dst: T.Tensor((M, N), dtype),
+        A: T.Tensor((M, N), dtype),
+        B: T.Tensor((M, N), dtype),
     ):
-        with T.Kernel(block_size, is_npu=True) as (cid, _):
-            src_ub = T.alloc_ub((block_M, block_N), dtype)
-            dst_ub = T.alloc_ub((block_M, block_N), dtype)
-            tmp_ub = T.alloc_ub((block_M, block_N), dtype)
-
-            for i in T.serial(T.ceildiv(m_num * n_num, block_size)):
-                block_id = i * block_size + cid
+        with T.Kernel(BLOCK_SIZE, is_npu=True) as (cid, _):
+            A_VEC = T.alloc_ub((block_M, block_N), dtype)
+            B_VEC = T.alloc_ub((block_M, block_N), dtype)
+            for i in T.serial(T.ceildiv(m_num * n_num, BLOCK_SIZE)):
+                block_id = i * BLOCK_SIZE + cid
                 if block_id < m_num * n_num:
                     block_id_m = block_id // n_num
                     block_id_n = block_id % n_num
                     bx = block_id_m * block_M
                     by = block_id_n * block_N
-
-                    T.copy(src[bx, by], src_ub)
-                    T.vlog2(src_ub, dst_ub, tmp_ub)
-                    T.copy(dst_ub, dst[bx, by])
+                    T.copy(A[bx, by], A_VEC)
+                    T.vlog2(A_VEC, B_VEC)
+                    T.copy(B_VEC, B[bx, by])
 
     return main
 ```
 
-**表达式级 T.log2 在 TIR 中的用法（`test_tilelang_kernel_mha_bwd.py`）**：
-
-```python
-@tilelang.jit(target="npuir")
-def log2_expr_example(block_M):
-    @T.prim_func
-    def update_logsum(
-        logsum: T.Tensor((block_M,), "float32"),
-        scores_max: T.Tensor((block_M,), "float32"),
-    ):
-        scale = 0.5
-        for i in T.Parallel(block_M):
-            logsum[i] = T.log2(logsum[i]) + scores_max[i] * scale
-
-    return update_logsum
-```
-
 ## 3. Tilelang Op到Ascend NPU IR Op的转换
 
-**tilelang::vlog2**将被转换为`hivm::VLnOp` + `hivm::VMulOp`
+`tilelang::npuir_log2` 在 frontend 仅产生一个 `tl.npuir_log2(A, B)` 调用。在 codegen 阶段，该 op 被展开为：
+
+1. 由 codegen 分析 `A` 的 region，分配与 `A` 同 shape/dtype 的临时 buffer `tmp`；
+2. `tmp = ln(A)`，对应 `hivm::VLnOp`（A5 dev 模式下对应 `math::LogOp`，A5 expert 模式下对应 `linalg::ElemwiseUnaryOp[log]`）；
+3. `B = tmp * (1/ln2)`，对应 `hivm::VMulOp`（A5 dev 模式下对应 `arith::MulFOp`，A5 expert 模式下对应 `linalg::ElemwiseBinaryOp[mul]`）。
+
+临时 buffer `tmp` 不出现在 TIR 语义中，仅存活于 codegen 生成的 MLIR 内，由后续 buffer 规划 pass 统一管理生命周期。

@@ -1283,7 +1283,7 @@ private:
       "tl.npuir_mul",  "tl.npuir_sub",  "tl.npuir_div",   "tl.npuir_sigmoid",
       "tl.npuir_ln",   "tl.npuir_sqrt", "tl.npuir_rsqrt", "tl.npuir_min",
       "tl.npuir_max",  "tl.npuir_brc",  "tl.npuir_cmp",   "tl.npuir_select",
-      "tl.npuir_cast",
+      "tl.npuir_cast", "tl.npuir_exp2", "tl.npuir_log2",
   };
 
   bool IsScalar(const PrimExpr &expr) {

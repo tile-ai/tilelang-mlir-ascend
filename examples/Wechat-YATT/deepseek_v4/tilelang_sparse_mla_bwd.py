@@ -176,7 +176,6 @@ def sparse_mqa_bwd_kernel(
             dQ_shared = T.alloc_shared([block_H, D], dtype)
 
             acc_p = T.alloc_fragment([block_H, BS], accum_dtype)
-            tmp_p = T.alloc_fragment([block_H, BS], accum_dtype)
             acc_dp = T.alloc_fragment([block_H, BS], accum_dtype)
             acc_dq = T.alloc_fragment([block_H, D], accum_dtype)
             acc_dkv = T.alloc_fragment([BS, D], accum_dtype)
@@ -184,7 +183,6 @@ def sparse_mqa_bwd_kernel(
 
             Delta_shared = T.alloc_shared([block_H], accum_dtype)
             AttnSink_shared = T.alloc_shared([block_H], accum_dtype)
-            tmp_AttnSink = T.alloc_shared([block_H], accum_dtype)
             Lse_shared = T.alloc_shared([block_H], accum_dtype)
 
             T.copy(Q[by, s_i, bz * block_H : (bz + 1) * block_H, :D], Q_shared)
@@ -219,7 +217,7 @@ def sparse_mqa_bwd_kernel(
                         - Lse_shared[h_i]
                     )
 
-                T.vexp2(acc_p, acc_p, tmp_p)
+                T.vexp2(acc_p, acc_p)
                 T.copy(acc_p, P_shared_cast)
 
                 # dP = P * (dO @ KV^T - Delta)
@@ -265,7 +263,7 @@ def sparse_mqa_bwd_kernel(
             T.copy(AttnSink[bz * block_H : (bz + 1) * block_H], AttnSink_shared)
             T.vmul(AttnSink_shared, 1.44269504, AttnSink_shared)
             T.vsub(AttnSink_shared, Lse_shared, AttnSink_shared)
-            T.vexp2(AttnSink_shared, AttnSink_shared, tmp_AttnSink)
+            T.vexp2(AttnSink_shared, AttnSink_shared)
             T.vmul(AttnSink_shared, Delta_shared, AttnSink_shared)
             T.vmul(AttnSink_shared, -1, AttnSink_shared)
             T.atomic_add(dAttnSink[bz * block_H : (bz + 1) * block_H], AttnSink_shared)

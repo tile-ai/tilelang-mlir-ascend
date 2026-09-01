@@ -236,6 +236,8 @@ private:
   void VsinCodegen(const CallNode *op);
   void VerfCodegen(const CallNode *op);
   void VtanhCodegen(const CallNode *op);
+  void Vexp2Codegen(const CallNode *op);
+  void Vlog2Codegen(const CallNode *op);
   void VcumsumCodegen(const CallNode *op);
   void VsortCodegen(const CallNode *op);
   void VAtomicAddCodegen(const CallNode *op);

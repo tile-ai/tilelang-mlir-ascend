@@ -139,9 +139,8 @@ def sparse_mqa_fwd(
                     scores_sum[i, 0] += T.exp(attn_sink_shared[i, 0] - scores_max[i, 0])
                 # lse_log2 = log2(denominator) + scores_max * log2(e), for bwd kernel
                 lse_buf = T.alloc_fragment((block_heads, 1), accum_dtype)
-                lse_tmp = T.alloc_fragment((block_heads, 1), accum_dtype)
                 T.copy(scores_sum, lse_buf)
-                T.vlog2(lse_buf, lse_buf, lse_tmp)
+                T.vlog2(lse_buf, lse_buf)
                 for i in T.Parallel(block_heads):
                     lse_buf[i, 0] = lse_buf[i, 0] + scores_max[i, 0] * LOG2E
                 T.copy(

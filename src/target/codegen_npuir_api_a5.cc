@@ -2202,6 +2202,102 @@ void CodeGenTileLangNPUIRAPIA5::VtanhCodegen(const CallNode *op) {
   }
 }
 
+// Generate vector exp2 in codegen (Expert A5 mode).
+//
+// before(TileLang/TIR semantic):
+//   B = tl.npuir_exp2(A)
+//   No native vector exp2 exists, so lower to B = exp(A * ln(2)) with a
+//   compiler-managed temporary buffer whose size is analyzed from src.
+//
+// after(MLIR Lowering):
+//   - materialize ln(2) constant and broadcast it
+//   - allocate temporary buffer typed/shaped like src
+//   - compute A * ln(2) via linalg elemwise mul into the temporary
+//   - compute exp(tmp) via linalg elemwise exp into dst
+void CodeGenTileLangNPUIRAPIA5::Vexp2Codegen(const tvm::tir::CallNode *op) {
+  tvm::tl::NpuirExp2 npuirop(op->args, this->vmap);
+  Value src = GenSubviewFromRegion(npuirop.src, npuirop.src_range);
+  Value dst = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
+  mlir::Location loc = builder.getUnknownLoc();
+  auto elem_type = getElementTypeOrSelf(src.getType());
+
+  // ln(2): exp2(x) = exp(x * ln(2)).
+  Value ln2 = builder.create<mlir::arith::ConstantOp>(
+      loc, mlir::FloatAttr::get(elem_type, std::log(2.0)));
+
+  auto broadcast = [&](mlir::Value value) -> mlir::Value {
+    Value buf = mlir::utils::createTmpBufferOrTensorWithTargetType(
+        builder, loc, src, elem_type);
+    builder.create<mlir::linalg::FillOp>(loc, TypeRange{}, value, buf);
+    return buf;
+  };
+
+  Value ln2Tensor = broadcast(ln2);
+  // Compiler-managed temporary buffer for A * ln(2), sized/typed like src.
+  Value tmp = mlir::utils::createTmpBufferOrTensorWithTargetType(
+      builder, loc, src, elem_type);
+
+  // Step 1: tmp = A * ln(2)
+  builder.create<mlir::linalg::ElemwiseBinaryOp>(
+      loc, TypeRange{}, ValueRange{src, ln2Tensor}, ValueRange{tmp},
+      ArrayRef{builder.getNamedAttr(
+          "fun",
+          builder.getAttr<linalg::BinaryFnAttr>(linalg::BinaryFn::mul))});
+  // Step 2: dst = exp(tmp)
+  builder.create<mlir::linalg::ElemwiseUnaryOp>(
+      loc, TypeRange{}, ValueRange{tmp}, ValueRange{dst},
+      ArrayRef{builder.getNamedAttr(
+          "fun", builder.getAttr<linalg::UnaryFnAttr>(linalg::UnaryFn::exp))});
+}
+
+// Generate vector log2 in codegen (Expert A5 mode).
+//
+// before(TileLang/TIR semantic):
+//   B = tl.npuir_log2(A)
+//   No native vector log2 exists, so lower to B = ln(A) * (1/ln(2)) with a
+//   compiler-managed temporary buffer whose size is analyzed from src.
+//
+// after(MLIR Lowering):
+//   - materialize 1/ln(2) constant and broadcast it
+//   - allocate temporary buffer typed/shaped like src
+//   - compute ln(A) via linalg elemwise log into the temporary
+//   - compute tmp * (1/ln(2)) via linalg elemwise mul into dst
+void CodeGenTileLangNPUIRAPIA5::Vlog2Codegen(const tvm::tir::CallNode *op) {
+  tvm::tl::NpuirLog2 npuirop(op->args, this->vmap);
+  Value src = GenSubviewFromRegion(npuirop.src, npuirop.src_range);
+  Value dst = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
+  mlir::Location loc = builder.getUnknownLoc();
+  auto elem_type = getElementTypeOrSelf(src.getType());
+
+  // 1/ln(2): log2(x) = ln(x) * (1/ln(2)).
+  Value inv_ln2 = builder.create<mlir::arith::ConstantOp>(
+      loc, mlir::FloatAttr::get(elem_type, 1.0 / std::log(2.0)));
+
+  auto broadcast = [&](mlir::Value value) -> mlir::Value {
+    Value buf = mlir::utils::createTmpBufferOrTensorWithTargetType(
+        builder, loc, src, elem_type);
+    builder.create<mlir::linalg::FillOp>(loc, TypeRange{}, value, buf);
+    return buf;
+  };
+
+  Value invLn2Tensor = broadcast(inv_ln2);
+  // Compiler-managed temporary buffer for ln(A), sized/typed like src.
+  Value tmp = mlir::utils::createTmpBufferOrTensorWithTargetType(
+      builder, loc, src, elem_type);
+
+  // Step 1: tmp = ln(A)
+  builder.create<mlir::linalg::ElemwiseUnaryOp>(
+      loc, TypeRange{}, ValueRange{src}, ValueRange{tmp},
+      ArrayRef{builder.getNamedAttr(
+          "fun", builder.getAttr<linalg::UnaryFnAttr>(linalg::UnaryFn::log))});
+  // Step 2: dst = tmp * (1/ln(2))
+  builder.create<mlir::linalg::ElemwiseBinaryOp>(
+      loc, TypeRange{}, ValueRange{tmp, invLn2Tensor}, ValueRange{dst},
+      ArrayRef{builder.getNamedAttr(
+          "fun",
+          builder.getAttr<linalg::BinaryFnAttr>(linalg::BinaryFn::mul))});
+}
+
 void CodeGenTileLangNPUIRAPIA5::BarrierCodegen(const CallNode *op) {
   tvm::tl::NpuirPipeBarrier npuirop(op->args, this->vmap);
   mlir::hivm::PipeAttr pipAttrType = mlir::hivm::PipeAttr::get(
@@ -3168,6 +3264,10 @@ mlir::Value CodeGenTileLangNPUIRAPIA5::VisitExpr_(const CallNode *op) {
     VreduceCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_sigmoid"))) {
     VsigmoidCodegen(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_exp2"))) {
+    Vexp2Codegen(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_log2"))) {
+    Vlog2Codegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_cumsum"))) {
     VcumsumCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_sort"))) {

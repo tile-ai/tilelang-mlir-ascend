@@ -167,7 +167,6 @@ def bwd(
             dQ_tail_shared = T.alloc_shared([block_H, D_tail], dtype)
 
             acc_p = T.alloc_shared([block_H, BS], accum_dtype)
-            tmp = T.alloc_shared([block_H, BS], accum_dtype)
             acc_dp = T.alloc_shared([block_H, BS], accum_dtype)
             acc_dq = T.alloc_shared([block_H, D], accum_dtype)
             acc_dq_tail = T.alloc_shared([block_H, D_tail], accum_dtype)
@@ -231,7 +230,7 @@ def bwd(
                         - Lse_reshape[by, s_i, bz * block_H + h_i, 0]
                     )
                 T.reshape(acc_p_reshape, acc_p)
-                T.vexp2(acc_p, acc_p, tmp)
+                T.vexp2(acc_p, acc_p)
 
                 T.copy(acc_p, P_shared_cast)
 

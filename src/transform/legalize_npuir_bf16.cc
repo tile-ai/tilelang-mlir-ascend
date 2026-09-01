@@ -81,9 +81,9 @@ private:
       return false;
     }
     std::vector<std::string> unary_ops = {
-        "tl.npuir_exp", "tl.npuir_relu", "tl.npuir_sigmoid",
-        "tl.npuir_ln",  "tl.npuir_sqrt", "tl.npuir_rsqrt",
-        "tl.npuir_abs", "tl.npuir_rec",  "tl.npuir_reduce"};
+        "tl.npuir_exp",    "tl.npuir_relu",  "tl.npuir_sigmoid", "tl.npuir_ln",
+        "tl.npuir_sqrt",   "tl.npuir_rsqrt", "tl.npuir_abs",     "tl.npuir_rec",
+        "tl.npuir_reduce", "tl.npuir_exp2",  "tl.npuir_log2"};
     return std::any_of(unary_ops.begin(), unary_ops.end(),
                        [&](const std::string &op_name) {
                          return call->op.same_as(Op::Get(op_name));

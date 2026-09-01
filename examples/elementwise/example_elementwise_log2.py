@@ -28,7 +28,6 @@ def kernel_log2(M, N, block_M, block_N, dtype="float16"):
         with T.Kernel(BLOCK_SIZE, is_npu=True) as (cid, _):
             A_VEC = T.alloc_ub((block_M, block_N), dtype)
             B_VEC = T.alloc_ub((block_M, block_N), dtype)
-            Tmp = T.alloc_ub((block_M, block_N), dtype)
 
             for i in T.serial(T.ceildiv(m_num * n_num, BLOCK_SIZE)):
                 block_id = i * BLOCK_SIZE + cid
@@ -39,7 +38,7 @@ def kernel_log2(M, N, block_M, block_N, dtype="float16"):
                     by = block_id_n * block_N
 
                     T.copy(A[bx, by], A_VEC)
-                    T.vlog2(A_VEC, B_VEC, Tmp)
+                    T.vlog2(A_VEC, B_VEC)
                     T.copy(B_VEC, B[bx, by])
 
     return main

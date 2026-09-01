@@ -4033,6 +4033,88 @@ void CodeGenTileLangNPUIRDEVA5::VtanhCodegen(const CallNode *op) {
   }
 }
 
+// Generate vector exp2 in codegen (Developer A5 mode).
+//
+// before(TileLang/TIR semantic):
+//   B = tl.npuir_exp2(A)
+//   No native vector exp2 exists, so lower to B = exp(A * ln(2)). The
+//   intermediate is carried as an SSA value; ln(2) is broadcast to a tensor.
+//
+// after(MLIR Lowering):
+//   - materialize ln(2) constant and broadcast it
+//   - compute A * ln(2) via arith::MulF (SSA value)
+//   - compute exp(tmp) via math::Exp (SSA value)
+//   - store the final result into destination vector
+void CodeGenTileLangNPUIRDEVA5::Vexp2Codegen(const tvm::tir::CallNode *op) {
+  tvm::tl::NpuirExp2 npuirop(op->args, this->vmap);
+  Value src = GetVarValue(npuirop.src);
+  Value dst = GetVarValue(npuirop.dst);
+  auto dst_type = dst.getType().cast<mlir::RankedTensorType>();
+  auto elem_type = dst_type.getElementType();
+  mlir::Location loc = builder.getUnknownLoc();
+
+  auto broadcast = [&](mlir::Value value) -> mlir::Value {
+    auto empty = builder.create<mlir::tensor::EmptyOp>(loc, dst_type.getShape(),
+                                                       elem_type);
+    auto fill =
+        builder.create<mlir::linalg::FillOp>(loc, value, empty.getResult());
+    return fill.getResult(0);
+  };
+
+  // ln(2): exp2(x) = exp(x * ln(2)).
+  Value ln2 = builder.create<mlir::arith::ConstantOp>(
+      loc, mlir::FloatAttr::get(elem_type, std::log(2.0)));
+  Value ln2Tensor = broadcast(ln2);
+
+  // Step 1: tmp = x * ln(2)
+  auto mulOp = builder.create<mlir::arith::MulFOp>(loc, src, ln2Tensor);
+  // Step 2: dst = exp(tmp)
+  auto expOp = builder.create<mlir::math::ExpOp>(loc, mulOp.getResult());
+  SetVarValue(npuirop.dst, expOp.getResult());
+}
+
+// Generate vector log2 in codegen (Developer A5 mode).
+//
+// before(TileLang/TIR semantic):
+//   B = tl.npuir_log2(A)
+//   No native vector log2 exists, so lower to B = ln(A) * (1/ln(2)). The
+//   intermediate is carried as an SSA value; 1/ln(2) is broadcast to a
+//   tensor.
+//
+// after(MLIR Lowering):
+//   - materialize 1/ln(2) constant and broadcast it
+//   - compute ln(A) via math::Log (SSA value)
+//   - compute tmp * (1/ln(2)) via arith::MulF (SSA value)
+//   - store the final result into destination vector
+void CodeGenTileLangNPUIRDEVA5::Vlog2Codegen(const tvm::tir::CallNode *op) {
+  tvm::tl::NpuirLog2 npuirop(op->args, this->vmap);
+  Value src = GetVarValue(npuirop.src);
+  Value dst = GetVarValue(npuirop.dst);
+  auto dst_type = dst.getType().cast<mlir::RankedTensorType>();
+  auto elem_type = dst_type.getElementType();
+  mlir::Location loc = builder.getUnknownLoc();
+
+  auto broadcast = [&](mlir::Value value) -> mlir::Value {
+    auto empty = builder.create<mlir::tensor::EmptyOp>(loc, dst_type.getShape(),
+                                                       elem_type);
+    auto fill =
+        builder.create<mlir::linalg::FillOp>(loc, value, empty.getResult());
+    return fill.getResult(0);
+  };
+
+  // 1/ln(2): log2(x) = ln(x) * (1/ln(2)).
+  Value inv_ln2 = builder.create<mlir::arith::ConstantOp>(
+      loc, mlir::FloatAttr::get(elem_type, 1.0 / std::log(2.0)));
+  Value invLn2Tensor = broadcast(inv_ln2);
+
+  // Step 1: tmp = ln(x)
+  auto logOp = builder.create<mlir::math::LogOp>(loc, src);
+  // Step 2: dst = tmp * (1/ln(2))
+  auto mulOp =
+      builder.create<mlir::arith::MulFOp>(loc, logOp.getResult(), invLn2Tensor);
+  SetVarValue(npuirop.dst, mulOp.getResult());
+}
+
 void CodeGenTileLangNPUIRDEVA5::VfloordivCodegen(const CallNode *op) {
   auto loc = builder.getUnknownLoc();
 
@@ -4286,6 +4368,10 @@ mlir::Value CodeGenTileLangNPUIRDEVA5::VisitExpr_(const CallNode *op) {
     VreduceCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_sigmoid"))) {
     VsigmoidCodegen(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_exp2"))) {
+    Vexp2Codegen(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_log2"))) {
+    Vlog2Codegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_atomic_add"))) {
     VAtomicAddCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_cumsum"))) {
@@ -5049,6 +5135,14 @@ void CodeGenTileLangNPUIRDEVA5::LoopCarriedVarCollector::VisitExpr_(
     CheckVar(npuirop.dst->data.get());
   } else if (call->op.same_as(Op::Get("tl.npuir_exp"))) {
     tvm::tl::NpuirExp npuirop(call->args, outer_->vmap);
+    CheckVar(npuirop.src->data.get());
+    CheckVar(npuirop.dst->data.get());
+  } else if (call->op.same_as(Op::Get("tl.npuir_exp2"))) {
+    tvm::tl::NpuirExp2 npuirop(call->args, outer_->vmap);
+    CheckVar(npuirop.src->data.get());
+    CheckVar(npuirop.dst->data.get());
+  } else if (call->op.same_as(Op::Get("tl.npuir_log2"))) {
+    tvm::tl::NpuirLog2 npuirop(call->args, outer_->vmap);
     CheckVar(npuirop.src->data.get());
     CheckVar(npuirop.dst->data.get());
   } else if (call->op.same_as(Op::Get("tl.npuir_ln"))) {

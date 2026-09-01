@@ -3372,6 +3372,106 @@ void CodeGenTileLangNPUIRDEV::VtanhCodegen(const CallNode *op) {
   }
 }
 
+// Generate vector exp2 in codegen.
+//
+// before(TileLang/TIR semantic):
+//   B = tl.npuir_exp2(A)
+//   The hardware lacks a native vector exp2 instruction, so the op is
+//   lowered here to B = exp(A * ln(2)) using a compiler-managed temporary
+//   buffer. The temporary size is analyzed from the source region and does
+//   not appear in the user-facing API.
+//
+// after(MLIR Lowering):
+//   - materialize ln(2) scalar constant
+//   - allocate a temporary buffer typed/shaped like src
+//   - compute A * ln(2) via hivm::VMul into the temporary
+//   - compute exp(tmp) via hivm::VExp into the destination
+//   - store the final result into destination vector
+void CodeGenTileLangNPUIRDEV::Vexp2Codegen(const CallNode *op) {
+  tvm::tl::NpuirExp2 npuirop(op->args, this->vmap);
+  auto loc = builder.getUnknownLoc();
+
+  Value dstVal = GetVarValue(npuirop.dst);
+  Value src = GenExtractSliceFromRegion(npuirop.src, npuirop.src_range);
+
+  auto srcTensorType = src.getType().cast<RankedTensorType>();
+  mlir::Type elementType = srcTensorType.getElementType();
+  mlir::Type dstType = dstVal.getType();
+  mlir::TypeRange resultType(&dstType, 1);
+
+  // ln(2) constant: exp2(x) = exp(x * ln(2)).
+  Value ln2 = builder.create<mlir::arith::ConstantOp>(
+      loc, builder.getFloatAttr(elementType, std::log(2.0)));
+
+  // Compiler-managed temporary buffer for A * ln(2), sized/typed like src.
+  Value tmp = mlir::utils::createTmpBufferOrTensorWithTargetType(
+      builder, loc, src, elementType);
+
+  // Step 1: tmp = A * ln(2)
+  tmp = builder
+            .create<mlir::hivm::VMulOp>(loc, src.getType(),
+                                        ValueRange{src, ln2}, ValueRange{tmp})
+            ->getResult(0);
+
+  // Step 2: B = exp(tmp)
+  Value result =
+      builder
+          .create<mlir::hivm::VExpOp>(loc, dstVal.getType(), ValueRange{tmp},
+                                      ValueRange{dstVal})
+          ->getResult(0);
+  SetVarValue(npuirop.dst, result);
+}
+
+// Generate vector log2 in codegen.
+//
+// before(TileLang/TIR semantic):
+//   B = tl.npuir_log2(A)
+//   The hardware lacks a native vector log2 instruction, so the op is
+//   lowered here to B = ln(A) * (1/ln(2)) using a compiler-managed temporary
+//   buffer. The temporary size is analyzed from the source region and does
+//   not appear in the user-facing API.
+//
+// after(MLIR Lowering):
+//   - materialize 1/ln(2) scalar constant
+//   - allocate a temporary buffer typed/shaped like src
+//   - compute ln(A) via hivm::VLn into the temporary
+//   - compute tmp * (1/ln(2)) via hivm::VMul into the destination
+//   - store the final result into destination vector
+void CodeGenTileLangNPUIRDEV::Vlog2Codegen(const CallNode *op) {
+  tvm::tl::NpuirLog2 npuirop(op->args, this->vmap);
+  auto loc = builder.getUnknownLoc();
+
+  Value dstVal = GetVarValue(npuirop.dst);
+  Value src = GenExtractSliceFromRegion(npuirop.src, npuirop.src_range);
+
+  auto srcTensorType = src.getType().cast<RankedTensorType>();
+  mlir::Type elementType = srcTensorType.getElementType();
+  mlir::Type dstType = dstVal.getType();
+  mlir::TypeRange resultType(&dstType, 1);
+
+  // 1/ln(2) constant: log2(x) = ln(x) * (1/ln(2)).
+  Value inv_ln2 = builder.create<mlir::arith::ConstantOp>(
+      loc, builder.getFloatAttr(elementType, 1.0 / std::log(2.0)));
+
+  // Compiler-managed temporary buffer for ln(A), sized/typed like src.
+  Value tmp = mlir::utils::createTmpBufferOrTensorWithTargetType(
+      builder, loc, src, elementType);
+
+  // Step 1: tmp = ln(A)
+  tmp = builder
+            .create<mlir::hivm::VLnOp>(loc, src.getType(), ValueRange{src},
+                                       ValueRange{tmp})
+            ->getResult(0);
+
+  // Step 2: B = tmp * (1/ln(2))
+  Value result = builder
+                     .create<mlir::hivm::VMulOp>(loc, dstVal.getType(),
+                                                 ValueRange{tmp, inv_ln2},
+                                                 ValueRange{dstVal})
+                     ->getResult(0);
+  SetVarValue(npuirop.dst, result);
+}
+
 /// Generate hivm.hir.vreduce for tl.npuir_reshape.
 /// before:
 ///    T.npuir_reshape(A, B)
@@ -3688,6 +3788,10 @@ mlir::Value CodeGenTileLangNPUIRDEV::VisitExpr_(const CallNode *op) {
     VreduceCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_sigmoid"))) {
     VsigmoidCodegen(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_exp2"))) {
+    Vexp2Codegen(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_log2"))) {
+    Vlog2Codegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_atomic_add"))) {
     VAtomicAddCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_cumsum"))) {
@@ -4459,6 +4563,14 @@ void CodeGenTileLangNPUIRDEV::LoopCarriedVarCollector::VisitExpr_(
     CheckVar(npuirop.dst->data.get());
   } else if (call->op.same_as(Op::Get("tl.npuir_exp"))) {
     tvm::tl::NpuirExp npuirop(call->args, outer_->vmap);
+    CheckVar(npuirop.src->data.get());
+    CheckVar(npuirop.dst->data.get());
+  } else if (call->op.same_as(Op::Get("tl.npuir_exp2"))) {
+    tvm::tl::NpuirExp2 npuirop(call->args, outer_->vmap);
+    CheckVar(npuirop.src->data.get());
+    CheckVar(npuirop.dst->data.get());
+  } else if (call->op.same_as(Op::Get("tl.npuir_log2"))) {
+    tvm::tl::NpuirLog2 npuirop(call->args, outer_->vmap);
     CheckVar(npuirop.src->data.get());
     CheckVar(npuirop.dst->data.get());
   } else if (call->op.same_as(Op::Get("tl.npuir_ln"))) {

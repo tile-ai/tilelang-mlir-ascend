@@ -103,8 +103,8 @@ def lighting_indexer_bwd(
 
             d_q = T.alloc_fragment([pad_heads, index_dim], accum_dtype)
             d_q_out_shared = T.alloc_shared([pad_heads, index_dim], dtype)
-            d_w_acc = T.alloc_fragment([pad_heads, 1], accum_dtype)
-            d_w_shared = T.alloc_shared([pad_heads, 1], accum_dtype)
+            d_w_acc = T.alloc_fragment([1, pad_heads], accum_dtype)
+            d_w_partial = T.alloc_fragment([1, pad_heads], accum_dtype)
             d_k = T.alloc_fragment([block_I, index_dim], accum_dtype)
             d_k_shared = T.alloc_shared([block_I, index_dim], accum_dtype)
             d_w_block = T.alloc_fragment([block_I, pad_heads], accum_dtype)
@@ -199,10 +199,14 @@ def lighting_indexer_bwd(
 
                 # d_w[k, h] = grad[k] * relu(scores[k,h])
                 T.vmul(grad_broadcast, scores_relu, d_w_block)
-                # Reduce over block_I dim into d_w_acc[h]
-                for i in T.serial(block_I):
-                    for h_idx in T.serial(pad_heads):
-                        d_w_acc[h_idx, 0] = d_w_acc[h_idx, 0] + d_w_block[i, h_idx]
+                # Reduce over block_I rows: partial[h] = sum_i d_w_block[i, h].
+                # Use a vector T.reduce_sum (dim=0) instead of a scalar
+                # read-modify-write accumulation: the latter triggers an
+                # MPU-invalid MTE fault in this MIX (Cube+Vector) kernel
+                # (see mpu_invalid_error_analysis.md / the fwd-kernel fix).
+                # Accumulate the per-block partials into d_w_acc across ks via vadd.
+                T.reduce_sum(d_w_block, d_w_partial, dim=0, clear=True)
+                T.vadd(d_w_acc, d_w_partial, d_w_acc)
 
                 # Correct gradient: gated = grad * mask(scores>0) * weights
                 # NOT gated = grad * scores_relu * weights (the latter has an
@@ -246,10 +250,8 @@ def lighting_indexer_bwd(
                 d_q_out_shared[0:heads, 0:index_dim], dIndexQ[bx, 0:heads, 0:index_dim]
             )
 
-            # Write dW — transpose [H,1] → [1,H] and tile-copy
-            T.copy(d_w_acc, d_w_shared)
-            for h in T.serial(pad_heads):
-                d_w_shared_1xH[0, h] = d_w_shared[h, 0]
+            # Write dW — d_w_acc is already [1, pad_heads]; tile-copy via shared
+            T.copy(d_w_acc, d_w_shared_1xH)
             T.copy(d_w_shared_1xH[0:1, 0:heads], dWeights[bx : bx + 1, 0:heads])
 
     return main
@@ -347,4 +349,5 @@ def _smoke_bwd():
 
 if __name__ == "__main__":
     os.environ.setdefault("TILELANG_ASCEND_MODE", "Developer")
+    tilelang.cache.clear_cache()
     _smoke_bwd()

@@ -8,7 +8,7 @@
 
 ## 组件依赖
 
-容器基于 `quay.io/ascend/cann:8.5.0-a3-ubuntu22.04-py3.11` 构建，预装以下组件：
+容器基于 `quay.io/ascend/cann:9.0.0-a3-ubuntu22.04-py3.11` 构建，预装以下组件：
 
 ### 系统工具
 
@@ -39,7 +39,7 @@
 
 ### NPU 运行时
 
-- **CANN**: 8.5.0（基础镜像内置）
+- **CANN**: 9.0.0（基础镜像内置）
 - **AscendNPU-IR**: 预编译二进制
 
 ## 构建镜像
@@ -140,7 +140,7 @@ bash install_npuir.sh --bishengir-path=/build/AscendNPU-IR/build/install
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `CHIP_TYPE` | `A3` | Ascend 芯片类型 |
-| `CANN_VERSION` | `8.5.0` | CANN 版本 |
+| `CANN_VERSION` | `9.0.0` | CANN 版本 |
 | `REGION` | `ChinaMainland` | 地区设置（影响 Git 镜像） |
 
 ## 故障排除

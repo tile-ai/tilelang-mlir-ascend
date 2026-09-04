@@ -6,7 +6,7 @@ on:
       cann_version:
         description: 'CANN version'
         type: string
-        default: '8.5.0'
+        default: '9.0.0'
       checkout-ref:
         description: 'Git ref to checkout'
         type: string
@@ -21,7 +21,7 @@ on:
       cann_version:
         description: 'CANN version'
         required: false
-        default: '8.5.0'
+        default: '9.0.0'
 
 env:
   REGISTRY: quay.io

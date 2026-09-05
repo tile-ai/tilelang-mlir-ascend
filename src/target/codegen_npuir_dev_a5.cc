@@ -2900,14 +2900,51 @@ void CodeGenTileLangNPUIRDEVA5::VAtomicAddCodegen(const CallNode *op) {
 
 void CodeGenTileLangNPUIRDEVA5::VgatherCodegen(const CallNode *op) {
   tvm::tl::NpuirGather npuirop(op->args, this->vmap);
-  Value src = GenSubviewFromRegion(npuirop.src, npuirop.src_range);
-  Value dst = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
-  Value indices = GenSubviewFromRegion(npuirop.indices, npuirop.indices_range);
+
+  auto genRegionValue = [&](const Buffer &buffer,
+                            const Array<Range> &range) -> mlir::Value {
+    mlir::Value base = GetVarValue(buffer);
+    ICHECK(base) << "tl.npuir_gather: missing MLIR value for buffer "
+                 << buffer->name;
+    if (base.getType().isa<mlir::MemRefType>()) {
+      return GenSubviewFromRegion(buffer, range);
+    }
+    if (base.getType().isa<mlir::RankedTensorType>()) {
+      return GenExtractSliceFromRegion(buffer, range);
+    }
+    ICHECK(false) << "tl.npuir_gather: expected tensor or memref buffer";
+    return mlir::Value();
+  };
+
+  Value src = genRegionValue(npuirop.src, npuirop.src_range);
+  Value indices = genRegionValue(npuirop.indices, npuirop.indices_range);
+
+  mlir::Value dstBase = GetVarValue(npuirop.dst);
+  ICHECK(dstBase) << "tl.npuir_gather: missing MLIR value for dst buffer "
+                  << npuirop.dst->name;
+  Value dst = genRegionValue(npuirop.dst, npuirop.dst_range);
+  bool dstIsTensor = dstBase.getType().isa<mlir::RankedTensorType>();
+  bool dstIsMemref = dstBase.getType().isa<mlir::MemRefType>();
+  ICHECK(dstIsTensor || dstIsMemref)
+      << "tl.npuir_gather: expected tensor or memref dst";
+
+  Value gatherInit = dst;
+  bool needInsertSlice = false;
+  if (dstIsTensor) {
+    gatherInit = NeedGenInsertSlice(npuirop.dst, npuirop.dst_range, dst);
+    needInsertSlice = (gatherInit != dstBase);
+  }
 
   auto newGatherOp = builder.create<hfusion::GatherOp>(
-      builder.getUnknownLoc(), src, indices, dst,
+      builder.getUnknownLoc(), src, indices, gatherInit,
       src.getType().cast<ShapedType>().getRank() - 1);
-  SetVarValue(npuirop.dst, newGatherOp->getResult(0));
+  if (newGatherOp->getNumResults() > 0) {
+    mlir::Value result = newGatherOp->getResult(0);
+    if (dstIsTensor && needInsertSlice) {
+      result = ReshapeCastAndInsertSlice(result, dstBase, npuirop.dst_range);
+    }
+    SetVarValue(npuirop.dst, result);
+  }
 }
 
 void CodeGenTileLangNPUIRDEVA5::EnsureTritonIndirectLoadDecl(

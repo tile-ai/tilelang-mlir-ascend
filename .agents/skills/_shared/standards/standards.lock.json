@@ -1,0 +1,13 @@
+{
+  "files": {
+    "README.md": "12ff0b172084edb6ff2bd30e661ee6dcd614539c8e1c7dbf9f1d9296ec22119f",
+    "algorithm-research.md": "e35527e0567e3ca2652bcf5b4707999fab60be9f0ea620738bd1fb08a52d9aca",
+    "core-split-strategy.md": "2357610a436ce51e793087633cb42c60f595fb61b221185fa021fcd128a2b597",
+    "final-report-template.md": "5a5d60f0c473f8d8adb3d863f48d5172e17c3d14b9fb2dc3852a34cf53a59810",
+    "gate-and-retry.md": "317b42763dd88359c6f638bdc484c425f9227897a440919ebceb5e1dd37bcaf0",
+    "negative-claim-evidence.md": "148f23df09498bcdcad6ba8420a3f20e3a79dbddae8518989586da8de49206ce",
+    "perf-feedback.md": "9952319404ff431de0226f7c9fe48ad6aea827f95019c231c277ea49e56495a2",
+    "signal-registry.md": "0d7ae7a94f228b6dcad0b34b3dc2aa9a8df3148b65a6f3966c631d04bbee4e84",
+    "stage3-routing.md": "8271f67ff1dcf86b062a459c2087b60d2c6974883dfde578709981d6489fcb20"
+  }
+}

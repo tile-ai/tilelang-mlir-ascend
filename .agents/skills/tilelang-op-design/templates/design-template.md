@@ -396,14 +396,14 @@ block_num = (M // block_M) * (N // block_N)
 
 ### 5.5 分核策略（物理核数适配）⭐
 
-> 依据 docs/开发指南.md §3.3：AI Core 物理核数有限，实际数目必须通过 `NPUUtils.get().get_aicore_num()` 接口实查（Cube/混合算子直接使用返回值；纯 Vector 算子核数翻倍，即 `get_aicore_num() * 2`），超发的逻辑内核会被运行时串行调度并引入额外核启动开销；内核总数非物理核数整数倍会造成负载不均（如启动 21 个内核将导致其中一个物理核执行两倍任务）。
+> 三要素判定标准与实查要求的权威版本：`.agents/skills/_shared/standards/core-split-strategy.md`（依据 docs/开发指南.md §3.3）。一句话：物理核数必须 `NPUUtils.get().get_aicore_num()` 实查并记录查询代码与返回值（Cube/混合直接用返回值、纯 Vector 翻倍），禁止文档假设/经验值；逻辑核超发会被串行调度并引入核启动开销，核数非整数倍造成负载不均。
 
-- **物理核数**: {实际查询值——`from tilelang.utils import NPUUtils; NPUUtils.get().get_aicore_num()`（Cube/混合算子直接使用返回值；纯 Vector 算子核数翻倍，即 `get_aicore_num() * 2`）；必须记录查询代码与实际返回值，禁止以文档假设或经验值（如 20~24）替代实查}
+- **物理核数**: {实际查询值 + 查询代码与实际返回值记录——实查与记录要求见标准文件 §1 要素②}
 - **逻辑核数**: num_logical_kernels = ceil(M/block_M) × ceil(N/block_N) = {值}
 - **规模判定**: {逻辑核数 ≤ 物理核数（无需适配，附依据）/ 中等规模（可通过调整 block 对齐）/ 极大规模（无法通过 block 缩减，需核内串行）}
 - **分核方案**:
-  - {中等规模：block_M/block_N 调整取值与核数对齐依据——内核总数接近物理核数整数倍（按实查核数取 1×/2×/3×），说明为何不会产生负载不均}
-  - {极大规模：固定启动内核数 = 物理核数；核内串行 `T.serial` 处理多个逻辑块任务，num_local_tasks = T.ceildiv(num_logical_kernels - kernel_id, num_physical_kernels)；循环边界必须为静态值}
+  - {中等规模：block_M/block_N 调整取值与核数对齐依据——内核总数接近物理核数整数倍，说明为何不会产生负载不均}
+  - {极大规模：固定启动内核数 = 物理核数；核内串行 `T.serial` 处理多个逻辑块任务；循环边界必须为静态值}
   - {逻辑核数 ≤ 物理核数：无需适配的依据}
 
 ---

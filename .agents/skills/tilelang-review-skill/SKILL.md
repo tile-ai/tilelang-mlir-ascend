@@ -29,6 +29,30 @@ Before answering, follow AGENTS.md section "Docs Auto Routing Rules (Mandatory)"
 - docs/Tilelang算子调试指南.md
 - docs/开发指南.md
 
+## Documentation drift check (agent/skill markdown changes)
+
+When the change set touches `.opencode/agents/`, `.agents/skills/` (including
+`_shared/standards/`), or the conductor orchestration docs, run the shared
+standards drift checker before review conclusion:
+
+```bash
+python3 .agents/tools/standards_check.py check
+```
+
+- Exit 0: no drift. Exit 1: inspect the single-line JSON `failures[]`:
+  - `SC-INLINE-DUP` — a consumer inlined canonical rule text instead of
+    referencing `.agents/skills/_shared/standards/*.md` (reject: single
+    source of truth violated);
+  - `SC-HASH-MISMATCH` / `SC-UNTRACKED` — a standard file was edited
+    without regenerating the lock (require the author to run
+    `standards_check.py update`, and to confirm consumers of the changed
+    standard were synchronized);
+  - `SC-DANGLING-REF` / `SC-REF-PATH` / `SC-FP-STALE` — broken references
+    (reject).
+- Review focus for standards edits: the mechanical gate rules in
+  `.agents/tools/gate_lint.py` must be updated in the same change when the
+  edited standard carries a mechanically checkable subset.
+
 ## References
 
 - references/checklist.txt

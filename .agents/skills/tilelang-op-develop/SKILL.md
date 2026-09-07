@@ -1,13 +1,13 @@
 ---
 name: tilelang-op-develop
-description: "根据冻结的 DESIGN.md 生成算子实现（{op}.py：kernel + golden），执行测试并返回三态判定。触发：实现算子、生成 kernel、算子开发、跑精度。"
+description: "根据冻结的 DESIGN.md 生成算子实现（{op}.py：kernel + golden），执行测试并返回四出口判定。触发：实现算子、生成 kernel、算子开发、跑精度。"
 ---
 
 # TileLang-NPUIR 算子开发与验证
 
 ## 1. 目标
 
-根据 Stage 1 冻结的 `DESIGN.md` 与 Stage 2 通过的 `REVIEW.md`，生成算子实现文件 `{op}.py`（含 `@tilelang.jit` kernel + 内嵌 PyTorch golden + main 入口），执行测试，并返回三态判定供 conductor 路由。
+根据 Stage 1 冻结的 `DESIGN.md` 与 Stage 2 通过的 `REVIEW.md`，生成算子实现文件 `{op}.py`（含 `@tilelang.jit` kernel + 内嵌 PyTorch golden + main 入口），执行测试，并返回四出口判定（[PRECISION_PASS] / [PRECISION_FAIL] / [DESIGN_ERROR] / RUNTIME_FAIL）供 conductor 路由。
 
 > **环境前提**：本 skill 运行在已具备 NPU 设备的环境中，`tilelang` 与 `torch_npu` 可正常导入。kernel 编译与执行在 NPU 上真实进行，精度校验为真实结果。
 
@@ -19,7 +19,7 @@ description: "根据冻结的 DESIGN.md 生成算子实现（{op}.py：kernel + 
 |------|------|
 | `design_md_path` | 冻结的 `DESIGN.md`（含 L0 测试计划） |
 | `review_md_path` | Stage 2 通过的 `REVIEW.md`（设计已检视通过） |
-| `mode` | `first_impl` / `retry_impl` / `precision_fix`（由 conductor 传入） |
+| `mode` | 调度模式，由 conductor 传入；枚举唯一出处 `_shared/standards/signal-registry.md` §2 |
 | `attempt_index` | 当前 Stage 3 attempt 序号 |
 | `last_failure_summary` | 重试时传入的失败信息（stderr 摘要 / 精度失败详情） |
 | `design_revision_count` | 设计修订次数（用于回退后清零判断） |
@@ -47,7 +47,7 @@ description: "根据冻结的 DESIGN.md 生成算子实现（{op}.py：kernel + 
 2. L0 通过后扩展 L1/L2/Boundary 并跑全量 `--level all`。
 3. 收集结果：max_diff、失败用例 shape、层级。
 
-### Phase 5：三态判定与返回
+### Phase 5：四出口判定与返回
 
 | 条件 | 返回标记 |
 |------|----------|

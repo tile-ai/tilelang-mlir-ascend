@@ -10,9 +10,11 @@ description: "对精度已通过的 TileLang-NPUIR 算子做 Stage 4 性能调�
 对 Stage 3 精度通过的 `{op}.py` 做真实性能调优，产出：
 
 - `examples/{project}/{op}/perf_opt/{op}.py`
-- `examples/{project}/{op}/perf_opt/opt_log.md`
+- `examples/{project}/{op}/perf_opt/opt_log.md`（每轮含候选 vs current best 对比表）
+- `examples/{project}/{op}/perf_opt/perf_records.jsonl`（**结构化性能记录，append-only**：每轮每实验分支一行，字段契约唯一出处 `_shared/standards/signal-registry.md` §5——gate 4 据此做 winner 对账）
 - `perf_opt/profiles/` 下的 raw `msprof op` 数据
 - `perf_opt/logs/` 下的实验 stdout/stderr 过程日志
+- `examples/{project}/{op}/perf_opt/perf_feedback.md`（可选，仅 `[DESIGN_LIMIT]` 设计层天花板时产出，见 Phase 3）
 
 若项目流程要求交付摘要，可额外生成 `examples/{project}/{op}/Optimize.md`，但它只能从 `perf_opt/opt_log.md` 摘要，不重复记录全过程。
 
@@ -27,6 +29,7 @@ description: "对精度已通过的 TileLang-NPUIR 算子做 Stage 4 性能调�
 - Phase 2 每轮现象分析时读取：[iteration-diagnosis.md](references/iteration-diagnosis.md)
 - Phase 2 生成候选优化点时按需读取：[bottleneck-patterns.md](references/bottleneck-patterns.md)
 - Phase 2 候选优化点包含 autotune 时读取：[autotune.md](references/autotune.md)
+- Phase 3 判定设计层天花板时读取：[perf-feedback.md](../_shared/standards/perf-feedback.md)（`[DESIGN_LIMIT]` 触发条件与 `perf_feedback.md` 固定 schema——单一事实源）
 - Phase 4 调优复盘时读取：[skill-retrospective.md](references/skill-retrospective.md)（产出按 vp_type D/P/R/C 标注 + 证据三件套，供任务终态 `tilelang-skill-evolver` 蒸馏）
 
 按需参考同类 skill：
@@ -43,9 +46,9 @@ description: "对精度已通过的 TileLang-NPUIR 算子做 Stage 4 性能调�
 2. 判断算子类型：`cube / vector / mix`。
 3. **首轮必查项（来自 pattern-library，不得跳过）**：
    - **向量化轴与布局重估**：核对当前实现的向量化轴与核内布局——即使上游设计已选定，其结论可能基于旧工具链或未枚举重排布局变体（I/O layout 是契约、核内布局是设计变量；含 ≥2 个非 batch 维的逐元素/窗口/规约类算子须对照 pattern-library §1 评估「原生布局+最内连续轴」vs「核内重排布局+高整除性轴（如 C 轴融合转置链）」两条路线）；
-   - **编译器陷阱版本戳核对**：pattern-library §2 的陷阱结论绑定工具链版本——若 tilelang 源码被修改/重编译过，相关结论自动视为待重验，不得直接引用；
+   - **编译器陷阱版本戳与 origin_task 核对**：pattern-library §2 的陷阱结论绑定工具链版本与来源任务（origin_task）——若 tilelang 源码被修改/重编译过，相关结论自动视为待重验，不得直接引用；引用命中条目时在 opt_log 中标注其 origin_task，据此判别可信度；
    - 若 `DESIGN.md` 含 §1.6.3（向量化轴与数据布局决策），本轮调优须对照该决策与实测现象（标量占比、带宽利用率）——现象与决策矛盾时优先重验布局路线；
-   - **实验裁决执行（DESIGN 含实验裁决三件套时必做）**：若 `DESIGN.md` §1.6 含「主选 + 备选 + 实验裁决计划」（判定裕度依赖未实证常数的备选方案），A/B 实测是本轮调优的必做项，不是可选项——按裁决计划执行：① 在 `perf_opt/` 下实现备选变体（基准 `{op}.py` 与 wrapper 不动）；② 按计划的代表 shape 与主选同口径对比（msprof op）；③ 实测/反解裁决所依赖的未知常数（如转置吞吐、跨步代价）；④ 按计划判定阈值裁决——备选胜出（全局或按 shape 分片）则采纳备选变体为候选 best，主选胜出则以实测数字固化设计判定；⑤ 实测数据与裁决结论写入 `opt_log.md`，并报告 conductor 以触发设计修订回写（DESIGN.md 的判定依据从"先例/下界估算"升级为"实测数字"；新实测常数追加回 pattern-library.md，见 Phase 4）。
+   - **实验裁决执行（DESIGN 含实验裁决三件套时必做）**：若 `DESIGN.md` §1.6 含「主选 + 备选 + 实验裁决计划」（判定裕度依赖未实证常数的备选方案），A/B 实测是本轮调优的必做项，不是可选项——按裁决计划执行：① 在 `perf_opt/` 下实现备选变体（基准 `{op}.py` 与 wrapper 不动）；② 按计划的代表 shape 与主选同口径对比（msprof op）；③ 实测/反解裁决所依赖的未知常数（如转置吞吐、跨步代价）；④ 按计划判定阈值裁决——备选胜出（全局或按 shape 分片）则采纳备选变体为候选 best，主选胜出则以实测数字固化设计判定；⑤ 实测数据与裁决结论写入 `opt_log.md`；若裁决构成设计层天花板（备选结构性胜出满足 [perf-feedback.md](../_shared/standards/perf-feedback.md) §1 触发条件，或实测推翻设计判定假设），按其 §2 产出 `perf_feedback.md` 并在返回中附 `[DESIGN_LIMIT]` 信号交 conductor 受控路由（附录补记回写 DESIGN.md / 设计修订路径 C）；新实测常数追加回 pattern-library.md，见 Phase 4。
 4. 搜索同类算子或历史优化实现，尤其关注：
    - `T.serial`
    - `T.Pipelined`
@@ -64,6 +67,7 @@ description: "对精度已通过的 TileLang-NPUIR 算子做 Stage 4 性能调�
 -> 串行运行 msprof op
 -> 校验 profile 有效性
 -> 记录 Performance Test Data
+-> 追加 perf_records.jsonl（round 0，candidate_id=baseline，parent_id=null）
 ```
 
 要求：
@@ -71,6 +75,7 @@ description: "对精度已通过的 TileLang-NPUIR 算子做 Stage 4 性能调�
 - 普通 shape、tile、axis 数值差异不算 dispatch path，除非它触发真实代码分支。
 - 每个 dispatch path 默认只采一个代表 workload。
 - 无效 profile 不能进入诊断。
+- **baseline 采集完成后即向 `perf_opt/perf_records.jsonl` 追加首行**（append-only，字段契约见 `_shared/standards/signal-registry.md` §5）——后续每轮的对比表与 gate 4 对账都以它为基准。
 
 ### Phase 2：优化闭环
 
@@ -80,16 +85,17 @@ Phase 2 是多轮闭环。优化点分析不做成一次性前置步骤；每轮
 
 1. 固定本轮 base：当前 best 版本和它的最新 profile。
 2. 读取 [iteration-diagnosis.md](references/iteration-diagnosis.md) 与 [bottleneck-patterns.md](references/bottleneck-patterns.md)（**每轮必读**——模式库是候选优化点的直接来源，且模式库只有在被读的位置上才不会遗忘），基于 base profile 整理当前现象。
-3. 从同一个 base 派生多个实验分支：`perf_opt/{op}_opt_v{iter}_{opt_id}.py`。
-4. 每个实验分支只改一个主要优化点。
-5. 每个实验分支跑 L0 精度回归。
-6. 对精度通过的分支，用 `msprof op` 采集目标 kernel 性能。
-7. 若结构性分支正确性通过且方向有效，先围绕该结构暴露的关键参数做一轮 coarse autotune 或等价手动粗搜；再检查 autotune top-k 与 winner 邻域，必要时做手动/脚本精搜，最后把精搜 winner 作为该结构分支的候选版本复测。
-8. 在同一 `(dispatch_path, workload_id)` 内比较 valid 分支；按本轮主指标（`msprof op Task Duration(us)`）选择候选 winner；Task Duration 打平时用负载均衡、资源占用和代码复杂度决胜。
-9. 候选 winner 更新为全局 current best 前，必须确认必测 dispatch 没有超过噪声阈值的性能回退；若只在部分 dispatch 提升但其它必测 dispatch 明显回退，不更新全局 current best，并记录 rollback/defer 原因。
-10. 若所有分支无提升、无效或阻塞，current best 保持不变。
-11. 记录本轮现象、候选优化点、实验分支、性能、精度、必测 dispatch 非回退检查和 winner/rollback 结论。
-12. 未满足终止条件则进入下一轮，重新分析当前现象。
+3. **先看表再分析**（B2 结构化回流）：从 `perf_opt/perf_records.jsonl` 汇总「候选 vs current best」对比表（Task Duration(us)、AICore 利用率、memory 指标（msprof 可得）、L0 结果）作为本轮分析上下文——把「读散文日志复盘」变成「看表决策」，也直接提升 `[DESIGN_LIMIT]` 设计层归因的证据质量。
+4. 从同一个 base 派生多个实验分支：`perf_opt/{op}_opt_v{iter}_{opt_id}.py`。
+5. 每个实验分支只改一个主要优化点。
+6. 每个实验分支跑 L0 精度回归。
+7. 对精度通过的分支，用 `msprof op` 采集目标 kernel 性能；**验证完成后向 `perf_records.jsonl` 追加一行**（含 `parent_id` = 派生来源候选；append-only，禁止改写/删除既有行）。
+8. 若结构性分支正确性通过且方向有效，先围绕该结构暴露的关键参数做一轮 coarse autotune 或等价手动粗搜；再检查 autotune top-k 与 winner 邻域，必要时做手动/脚本精搜，最后把精搜 winner 作为该结构分支的候选版本复测。
+9. 在同一 `(dispatch_path, workload_id)` 内比较 valid 分支；按本轮主指标（`msprof op Task Duration(us)`）选择候选 winner；Task Duration 打平时用负载均衡、资源占用和代码复杂度决胜。
+10. 候选 winner 更新为全局 current best 前，必须确认必测 dispatch 没有超过噪声阈值的性能回退；若只在部分 dispatch 提升但其它必测 dispatch 明显回退，不更新全局 current best，并记录 rollback/defer 原因。
+11. 若所有分支无提升、无效或阻塞，current best 保持不变。
+12. 记录本轮现象、候选优化点、实验分支、性能、精度、必测 dispatch 非回退检查和 winner/rollback 结论；**本轮记录必须含第 3 步的结构化对比表**（数据来自 perf_records.jsonl 与 raw profile——gate 4 `S4-OPTLOG-COMPTABLE` 机械校验其存在性）。
+13. 未满足终止条件则进入下一轮，重新分析当前现象。
 
 终止条件：
 
@@ -102,8 +108,9 @@ Phase 2 是多轮闭环。优化点分析不做成一次性前置步骤；每轮
 ### Phase 3：产物收束
 
 1. 选 current best 作为 `perf_opt/{op}.py`。
-2. 确认 `perf_opt/opt_log.md` 已完整记录过程和最终结论。
+2. 确认 `perf_opt/opt_log.md` 已完整记录过程和最终结论；**Final Summary 必须含 `final_latency: {N} us` 行**——N 取自 perf_records.jsonl 中 winner 的 `duration_us` 记录（gate 4 `S4-PERF-RECORDS-RECON` 按 ≤1% 偏差对账，把最终加速比从「自述」变为「可对账」）。
 3. TileOPs 集成算子（算子目录为 `tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/`）：`perf_opt/` 建在该目录下；wrapper 的 baseline/perf_opt 双 import 切换块由 conductor 在回归通过后翻转采纳（perf_opt 默认激活），本 skill 不修改 wrapper。若 tuned kernel 与基准 kernel 的默认参数不同（如 block_size），须在 `perf_opt/{op}.py` 中以模块级常量暴露 tuned 默认值，供 wrapper 切换块成对引用。
+4. **设计层天花板判定（[DESIGN_LIMIT]，可选产出）**：读取 [perf-feedback.md](../_shared/standards/perf-feedback.md)，逐条核对触发条件——① 性能天花板由算法/设计层决定（非 tiling/参数可解，归因到 DESIGN.md 具体假设）；② 结构性加速估计 > 2x 或实测与设计假设直接矛盾。**两项同时满足** → 按其 §2 固定 schema 产出 `perf_opt/perf_feedback.md`（实测章节必须为 msprof op 口径，反馈结论含建议路由），返回时附 `[DESIGN_LIMIT]` 信号；任一不满足 → **禁止产出**该文件（参数级不足留在迭代内，不触发逆向反馈）。
 
 ### Phase 4：调优复盘与最终交付
 
@@ -160,14 +167,16 @@ autotune 只负责在给定搜索空间中选参数，不是最终裁判。若�
 `perf_opt/opt_log.md` 至少记录：
 
 - Performance Test Data：每个 dispatch 的 workload、target kernel、Task Duration、raw profile。
-- Iteration Log：每轮现象、候选优化点、实验分支、latency、精度、`config_no_gain/family_no_gain` 范围、必测 dispatch 非回退检查、winner/rollback。
+- Iteration Log：每轮现象、候选优化点、实验分支、latency、精度、`config_no_gain/family_no_gain` 范围、必测 dispatch 非回退检查、winner/rollback；**每轮含「候选 vs current best」对比表**（Task Duration(us)、AICore 利用率、memory 指标、L0 结果——B2 结构化回流，gate 4 `S4-OPTLOG-COMPTABLE` 校验存在性）。
 - Autotune Log：若使用 autotune，则记录 search space、best config、正确性、winner 的 `msprof op` 复测结果。
-- Final Summary：best 版本、最终 latency、总提升、中止原因。
+- Final Summary：best 版本、**`final_latency: {N} us` 行**（与 perf_records.jsonl 可对账，`S4-PERF-RECORDS-RECON`）、总提升、中止原因。
 - Skill Retrospective：skill 流程问题、建议修改、`BP_xxx` proposal。
+
+`perf_opt/perf_records.jsonl`：每轮每分支一行（baseline 为 round 0 首行），append-only，字段契约唯一出处 `_shared/standards/signal-registry.md` §5；gate 4 `S4-PERF-RECORDS-*` 机械校验。
 
 产物布局要求：
 
-- `perf_opt/` 顶层只放最终 `{op}.py`、实验分支 `{op}_opt_v*.py`、`opt_log.md`、`profiles/`、`logs/` 和必要 runner/helper 脚本。
+- `perf_opt/` 顶层只放最终 `{op}.py`、实验分支 `{op}_opt_v*.py`、`opt_log.md`、`perf_records.jsonl`、`perf_feedback.md`（仅 `[DESIGN_LIMIT]` 时）、`profiles/`、`logs/` 和必要 runner/helper 脚本。
 - 实验 stdout/stderr 写入 `perf_opt/logs/{stage_or_round}/`。
 - 不在 `perf_opt/` 顶层生成 `op*.log`、`probe*.log`、`final*.log` 或 `debug_log.md`。
 
@@ -185,6 +194,8 @@ autotune 只负责在给定搜索空间中选参数，不是最终裁判。若�
 - log: examples/{project}/{op}/perf_opt/opt_log.md
 - summary_doc: examples/{project}/{op}/Optimize.md 或 none
 - verdict: TUNING_COMPLETED
+- design_limit_signal: none 或 [DESIGN_LIMIT]
+- perf_feedback: none 或 examples/{project}/{op}/perf_opt/perf_feedback.md
 - iterations: {N}
 - primary_metric: msprof_task_duration
 - baseline_latency: {v} us

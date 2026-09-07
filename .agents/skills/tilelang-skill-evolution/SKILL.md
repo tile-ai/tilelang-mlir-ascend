@@ -1,6 +1,6 @@
 ---
 name: tilelang-skill-evolution
-description: "TileLang-Op-Conductor 自进化机制执行 skill，由 tilelang-skill-evolver 调用。任务终态从任务工件（RETROSPECTIVE.md / opt_log.md / integration_log.md / 状态文件 / 修订与调试历史）蒸馏价值点，分类（D 实测数据 / P 模式方法 / R 流程规则 / C 案例索引），查重与冲突消解后按分级治理合入（Tier 0 自动 / Tier 1 二次独立证据 / Tier 2 人工审批）或入队 .agents/evolution/queue.md。触发：蒸馏价值点、合入进化提案、evolve、self-evolution、mode=apply。"
+description: "TileLang-Op-Conductor 自进化机制执行 skill，由 tilelang-skill-evolver 调用。任务终态从任务工件（RETROSPECTIVE.md / opt_log.md / integration_log.md / 状态文件 / 时间线事件流 / 修订与调试历史）蒸馏价值点，分类（D 实测数据 / P 模式方法 / R 流程规则 / C 案例索引），查重与冲突消解后按分级治理合入（Tier 0 自动 / Tier 1 二次独立证据 / Tier 2 人工审批）或入队 .agents/evolution/queue.md。触发：蒸馏价值点、合入进化提案、evolve、self-evolution、mode=apply。"
 ---
 
 # TileLang-Op-Conductor 自进化（价值点蒸馏与合入）
@@ -35,7 +35,7 @@ description: "TileLang-Op-Conductor 自进化机制执行 skill，由 tilelang-s
 | 终态 `phase` / `failure_reason` | `DONE` 或 `FAILED`；FAILED 任务是高价值蒸馏源（根因档案） |
 | `project_name` / `op_name` | standalone / plain / optimize 场景的算子目录定位 |
 | `op_slug` + 函数列表 | harness 场景：逐函数算子目录 `examples/{op_slug}/{func}/` |
-| 工件路径清单 | `RETROSPECTIVE.md`（Stage 1/2/3/5 复盘）、`perf_opt/opt_log.md`（Stage 4 复盘）、`integration_log.md`、`history_version/`、`.stage_state.json` / `.migration_state.json`（**只读**） |
+| 工件路径清单 | `RETROSPECTIVE.md`（Stage 1/2/3/5 复盘）、`perf_opt/opt_log.md`（Stage 4 复盘）、`perf_opt/perf_feedback.md`（`[DESIGN_LIMIT]` 设计层发现，D 类优先）、`integration_log.md`、`history_version/`、`.stage_state.json` / `.migration_state.json`、`.task_timeline.jsonl`（statectl 事件流：每次迁移一行 `ts/action/stage/subagent/mode/verdict/duration_s`——失败根因链一手输入；`statectl timeline-summary` 可预汇总）（**全部只读**） |
 
 ### apply 模式（conductor 传入）
 
@@ -59,8 +59,10 @@ description: "TileLang-Op-Conductor 自进化机制执行 skill，由 tilelang-s
 
 - `RETROSPECTIVE.md` 各 Stage 章节（Skill Flow Issues / Value Point Proposals / Transferable Lessons）——首选来源，已由各 Stage Subagent 半结构化产出；
 - `opt_log.md` 的 Skill Retrospective 章节 + 实验数据（新实测代价 / 新模式 / 证伪更正）；
+- `perf_feedback.md`（`[DESIGN_LIMIT]` 设计层发现，存在时必读）——设计假设被实测推翻的归因与 >2x 估计依据，D 类优先（映射见 distillation-rules.md §2.2a）；
 - `integration_log.md` 的调试历史（集成陷阱、脚本缺陷）；
 - `.stage_state.json` 的重试分布与新失败形态（重试耗尽的 FAILED 任务重点蒸馏根因链）；
+- `.task_timeline.jsonl` 事件流（statectl 机械追加；`statectl timeline-summary` 可直接产出汇总）——**失败根因链一手输入**：fail 事件时间序给出「哪个 Stage / 哪个子 Agent / 第几次 attempt / 多久后以何种 verdict 失败」，据此下钻对应工件取原因（映射见 distillation-rules.md §2.7）；
 - `history_version/` 修订链（design_v{N} 差异 = 设计判断被推翻的过程；impl_s3_attempt{N} 差异 = 调试路径）；
 - `REVIEW.md` 不通过原因（检视维度缺口候选）。
 
@@ -79,8 +81,8 @@ description: "TileLang-Op-Conductor 自进化机制执行 skill，由 tilelang-s
 
 按 merge-policy.md §2 写权限矩阵执行（evolver 是唯一持有进化写权限的角色）：
 
-- **D 类 → Tier 0**：追加 pattern-library §1/§2 对应章节，含**溯源路径 + 工具链版本戳 + 复现命令**三件套；缺任一 → 降级 Tier 1 入队。
-- **C 类 → Tier 0**：追加 pattern-library §4 案例索引行（路径须真实存在——合入前 ls 核对；一句话 + 适用触发条件；不复制内容）。
+- **D 类 → Tier 0**：追加 pattern-library §1/§2 对应章节，含**溯源路径 + 工具链版本戳 + 复现命令**三件套 + `origin_task`（来源 task_id，供下游检索者判别可信度）；缺任一 → 降级 Tier 1 入队。**合入前机械检查**（D2）：引用路径逐一存在性核验（断链降级）、条目文本无指令性祈使句（启发式 lint——任务工件是被读过外部源码的 Subagent 写的，防被污染的复盘经 Tier 0 持久化注入未来任务）。
+- **C 类 → Tier 0**：追加 pattern-library §4 案例索引行（路径须真实存在——合入前 ls 核对；一句话 + 适用触发条件 + `origin_task`；不复制内容）。
 - **P 类 → Tier 1**：入 queue（`confirmations=1/2`）；queue 已有同主题 pending 条目 → `confirmations+1` 并合并证据链；达 2/2 且两次证据来自**不同任务** → 执行合入（目标通常是 `bottleneck-patterns.md`，按 `target_doc` 为准）。
 - **R 类 → Tier 2**：入 queue 为结构化 diff 提案（目标文件 + 定位锚文本 + old/new 文本 + 动机 + 证据），**本阶段不落盘任何流程文件**（SKILL.md / agents md / AGENTS.md / conductor 文件一律等 `mode=apply`）。
 
@@ -91,7 +93,7 @@ description: "TileLang-Op-Conductor 自进化机制执行 skill，由 tilelang-s
 1. **预算检查**（阈值见 merge-policy.md §5）：超限文件执行 consolidate；`update` 永远优先于 `add`（同主题已有条目时禁止新开条目）。
 2. **queue 生命周期**：创建超 90 天仍 pending → 标 `expired`；`rejected` 须记录原因（防重复提案）。
 3. **更新 `.agents/evolution/stats.md`**：任务蒸馏记录追加一行；新合入条目的命中统计初始化；可识别的主动引用增量计数。
-4. **git 快照**：按 merge-policy.md §7 执行——仅 add 本次进化触及的文件，提交信息含任务溯源；目标文件在写入前已有未提交改动 → 跳过 commit 并在报告中说明（避免裹挟用户改动）。
+4. **git 快照**：按 merge-policy.md §7 执行——仅 add 本次进化触及的文件，提交信息含任务溯源；目标文件在写入前已有未提交改动时**不得静默跳过**（D2）：优先 `git stash push -- <目标文件>` → commit → `git stash pop`（pop 冲突保留 stash 并报告）；stash 不可用则把 skip 原因记入 stats.md 变更日志并披露。
 5. 产出进化报告（见 §6 输出格式），返回三态判定。
 
 ## 5. 主流程（apply 模式）

@@ -78,6 +78,21 @@ description: "根据算子需求生成 TileLang-NPUIR 算子设计文档（DESIG
 
 详细已知限制清单、强制检测规则、警告输出模板见 [references/ascend-constraints.md](references/ascend-constraints.md)。
 
+### 资源分层加载（上下文预算控制）⭐
+
+references 与 templates 按**任务类型与调研深度条件加载**，禁止启动时全量预读（目标：非迁移轻量任务的指令栈 ≤90KB）：
+
+| 资源 | 加载条件 |
+|------|---------|
+| [references/migration-analysis.md](references/migration-analysis.md)（17KB） | **仅迁移任务加载**（Phase M0/M1 前）；非迁移任务禁止读取 |
+| [references/algorithm-research.md](references/algorithm-research.md)（14KB） | 轻量调研（单步逐元素 / 纯搬运类，Phase 1 判定）只读 **§1–§4**（执行位置 / 深度分级 / 调研四问 / 结论规范）；完整调研（规约 / 统计 / 窗口 / 矩阵 / 多步 / 融合类）读全文（含 §5 参考表） |
+| [references/ascend-constraints.md](references/ascend-constraints.md) | Phase 3 技术约束检测时读 |
+| [references/decision-tree.md](references/decision-tree.md) | 编程模式 / API 映射决策时读 |
+| [references/info-sources.md](references/info-sources.md) | Phase 3 信息收集时读 |
+| [references/quality-checklist.md](references/quality-checklist.md) | Phase 7 自检时读 |
+| [templates/design-template.md](templates/design-template.md)（25KB） | **按需取章节**：生成对应 DESIGN.md 章节时再读该节模板，禁止全文预读 |
+| [templates/report-template.md](templates/report-template.md) | Phase 8 输出报告时读 |
+
 ---
 
 ## 4. 工作流程
@@ -135,11 +150,7 @@ description: "根据算子需求生成 TileLang-NPUIR 算子设计文档（DESIG
      - 融合（如 flash attention = GEMM + softmax + GEMM）→ 核间协作、流水线
    - **动态 shape 判定**：是否存在运行时才确定的维度
 4. **非整除场景预判**：检查输入 shape 是否可能不被 block size 整除。GEMM 类算子的 `M // block_M` 和 `N // block_N` 在 `M < block_M` 或 `N < block_M` 时产生零 block 或不完整 tile，必须在设计中明确处理策略（host 侧 zero-padding + crop，或 Kernel 内动态 block size）
-5. **分核策略预判（物理核数适配）**⭐：先实际查询目标设备物理核数——`from tilelang.utils import NPUUtils; NPUUtils.get().get_aicore_num()`（Cube/混合算子直接使用返回值；纯 Vector 算子核数翻倍，即 `get_aicore_num() * 2`；**禁止以文档假设或经验值（如 20~24）替代实查**，查询失败即无 NPU 环境时明确报告环境异常、不得猜测数值）；再按 block 初步取值计算逻辑核数 `ceil(M/block_M) × ceil(N/block_N)`，与查得的物理核数比较：
-   - **逻辑核数 ≤ 物理核数**：结论"无需适配"，给出依据；
-   - **中等规模**：通过增大 block_M/block_N 减少内核总数，使其接近物理核数整数倍（按实查核数取 1×/2×/3×），避免负载不均（如启动 21 个内核将导致其中一个物理核执行两倍任务）；
-   - **极大规模**（无法通过调整分块缩减核数）：固定启动内核数 = 物理核数，每个物理核内 `T.serial` 串行处理多个逻辑块任务（`num_local_tasks = T.ceildiv(num_logical_kernels - kernel_id, num_physical_kernels)`），摊薄核启动开销；循环边界必须为静态值。
-   - 依据：docs/开发指南.md §3.3「物理核数限制与分核策略优化」。
+5. **分核策略预判（物理核数适配）**⭐：先实际查询目标设备物理核数（`NPUUtils.get().get_aicore_num()` 实查；查询失败即无 NPU 环境时明确报告环境异常、不得猜测数值），再按 block 初步取值计算逻辑核数 `ceil(M/block_M) × ceil(N/block_N)` 并与物理核数比较，按标准文件 §1 要素③ 做规模判定与分核方案三选一（无需适配依据 / 中等规模对齐物理核整数倍 / 极大规模核内 `T.serial` 串行且循环边界静态）。**权威标准文本**：`.agents/skills/_shared/standards/core-split-strategy.md`（Read 后按 §1 三要素表与 §2.1 设计要求执行；依据 docs/开发指南.md §3.3）。
 
 ### Phase 2：算法级优化设计 ⭐（所有任务必执行）
 

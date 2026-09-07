@@ -18,7 +18,7 @@
 
 | Tier | 对象 | distill 模式下的写入者 | 验证门 | 审批 | 回滚 |
 |------|------|----------------------|--------|------|------|
-| **Tier 0** | D 类（数据条目）、C 类（案例索引行） | evolver 直接写 pattern-library | 证据三件套齐备（缺一降级 Tier 1） | 无需（事实陈述，可被后续实测自动纠正） | git revert |
+| **Tier 0** | D 类（数据条目）、C 类（案例索引行） | evolver 直接写 pattern-library | 证据三件套齐备（缺一降级 Tier 1）+ **合入前机械检查**（D2）：引用路径逐一存在性核验（断链降级）、条目文本无指令性祈使句（启发式 lint）、条目带 `origin_task`（来源 task_id） | 无需（事实陈述，可被后续实测自动纠正） | git revert |
 | **Tier 1** | P 类（模式方法条目） | evolver（计数达 2/2 后合入） | 证据链齐全入队 + **2 次独立证据**（须来自不同任务） | 无需（二次确认即 ExpeL 式投票） | git revert |
 | **Tier 2** | R 类（流程规则：SKILL.md / `.opencode/agents/*.md` / AGENTS.md / conductor 规则 / 其他 skill references 的流程性内容） | evolver 仅生成 diff 提案入队；**apply 模式**经用户批准后写入 | 结构化 diff 提案（锚文本 + old/new + 动机 + 证据） | **人工**（用户在 Primary 上下文批准 → conductor 调度 `mode=apply`） | git revert / 拒绝提案 |
 
@@ -41,8 +41,9 @@
 
 **任何模式下禁止写**：
 
-- 任务算子工件（`DESIGN.md` / `{op}.py` / `REVIEW.md` / `opt_log.md` / `integration_log.md` / `RETROSPECTIVE.md` / `history_version/`——**只读**）；
+- 任务算子工件（`DESIGN.md` / `{op}.py` / `REVIEW.md` / `opt_log.md` / `perf_feedback.md` / `integration_log.md` / `RETROSPECTIVE.md` / `history_version/`——**只读**）；
 - `.stage_state.json` / `.migration_state.json`（conductor 专属，只读）；
+- `.task_timeline.jsonl`（statectl 事件流，只读——失败根因链一手输入）；
 - `docs/`、`examples/`、`testing/`、`src/`（仓库本体代码与文档）；
 - `SKILL.md` 文件本体（任何 skill 的主流程文档，包括 optimize 的——optimize SKILL.md Phase 4 对调优 Agent 的"pattern-library 例外授权"同理适用于 evolver，但同样只覆盖数据文件，不覆盖 SKILL.md）。
 
@@ -109,6 +110,6 @@
 
 1. **快照范围**：仅 add 本次进化实际写入的文件——`pattern-library.md` / `bottleneck-patterns.md` 等 target 文件 + `.agents/evolution/queue.md` + `.agents/evolution/stats.md`。**不包含**任务算子工件（那些属于用户的任务提交）。
 2. **提交信息**：`evolution: {一句话摘要} (task: {task_id})`；apply 模式：`evolution: apply {proposal_id 列表} (approved by user)`。
-3. **前置守卫**：写入前检查 `git status --porcelain -- <目标文件>`——目标文件在本次进化写入之前**已有未提交改动** → 跳过 commit，报告中说明"文件 {path} 进化前已有未提交改动，快照跳过，请人工 review 后提交"。
+3. **前置守卫（目标文件脏时不静默跳过——快照是进化的回滚保障，D2 修订）**：写入前检查 `git status --porcelain -- <目标文件>`——目标文件在本次进化写入之前已有未提交改动 → **优先 stash 方案**：`git stash push -- <目标文件>`（暂存用户改动）→ commit 进化快照 → `git stash pop` 恢复用户改动（pop 冲突时保留 stash 并在报告中说明，用户可 `git stash list` 找回）；stash/pop 不可用（非 git 仓 / 无权限）→ 降级为在 `.agents/evolution/stats.md` 变更日志追加一行记录（文件路径 + skip 原因 + 日期），并在报告中提示"文件 {path} 进化前已有未提交改动，快照未覆盖用户改动段，请人工 review"。
 4. **commit 失败**（如 hooks 拒绝、无 git 身份配置）：写入已生效时如实报告 `[EVOLVE_FAIL]` + `git_snapshot: skipped(原因)`，**不回滚文件写入**（写入本身经过验证门，回滚反而丢失价值点）。
 5. **禁止** `git add -A` / `git add .`；禁止 push。

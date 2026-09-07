@@ -44,6 +44,13 @@
 | 证伪更正（"误判根因 + 合法形态 + 新数据"） | **最高优先级 D 类**：同步 pattern-library §2 状态列（旧条目 deprecate + 新条目 add 或 update） | D |
 | Final Summary 的 stop_reason 与改进倍率 | 倍率 > 2x 的结构性优化 → 模式化候选（P）+ 案例索引（C） | P/C |
 
+### 2.2a `perf_opt/perf_feedback.md`（`[DESIGN_LIMIT]` 设计层发现，存在时必读）
+
+| 信号 | 提取规则 | 常见 vp_type |
+|------|---------|-------------|
+| 触发判定（设计层归因 + 结构性加速估计） | **D 类优先**：归因到的 DESIGN 假设被实测推翻（含 msprof 数字与 >2x 估计依据）→ pattern-library §1/§4 候选；同族算子后续设计任务的候选模式 | D/P/C |
+| 反馈结论与建议路由 | 已回流（附录补记/路径 C 修订）→ 提取"哪类设计假设错了、实测依据是什么"（与 design_v{N} 差异交叉核对）；未回流（不处理）→ 反例档案候选 | D/C/R |
+
 ### 2.3 `integration_log.md`（Stage 5）
 
 | 信号 | 提取规则 | 常见 vp_type |
@@ -72,6 +79,17 @@
 | 信号 | 提取规则 | 常见 vp_type |
 |------|---------|-------------|
 | 不通过问题列表 | 问题本身已随修订解决，价值在于**检视维度是否早该拦住**——维度缺口 → R（review skill 检查项候选） | R |
+
+### 2.7 `.task_timeline.jsonl`（statectl 事件流，只读——失败根因链一手输入）
+
+> 每次状态迁移一行（`ts / action / stage / subagent / mode / verdict / duration_s`，由 statectl 机械追加，不经 LLM 手写）；`statectl timeline-summary --dir ...` 可直接产出机械汇总（dispatches / 各 Stage attempts 与耗时 / 失败事件链）。定位输入：时间线给**顺序与计数**，下钻工件（§2.1–2.6）给**原因**。
+
+| 信号 | 提取规则 | 常见 vp_type |
+|------|---------|-------------|
+| fail 事件链（stage → subagent → verdict → duration_s，按 ts 排序） | 失败根因链的**一手骨架**：先读时间线定位「哪个环节、第几次 attempt、多久后、以何种 verdict 失败」，再下钻对应 Stage 工件取细节；evolver 不得凭时间线单独下结论（无原因文本） | 定位输入（vp_type 视下钻结果） |
+| 同一 Stage 反复 start→fail 的 attempt 序列 | 与 `.stage_state.json` 计数交叉核对（§2.4）：计数一致但复盘工件未覆盖的 attempt → 复盘缺口候选（R）；duration_s 显著偏离同任务其他 attempt → 效率异常候选（P/R，须绑定原因） | R/P |
+| complete 事件的 duration_s | 跨任务同族算子的 Stage 耗时对比（需 ≥2 任务数据才可比较，绑定 workload 与版本戳）→ 调度成本画像（D 类候选，缺三件套则降级） | D |
+| verdict=BLOCKED_* 的 fail 事件 | 终态失败反例档案入口：与 §2.4 `failure_reason` 交叉印证，时间线补充失败前的完整 attempt 上下文 → C（反例档案） | C/D |
 
 ## 3. vp_type 判定树
 

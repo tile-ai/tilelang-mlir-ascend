@@ -20,6 +20,7 @@
 - `BP_compute_granularity`：计算粒度或硬件管线使用不足。
 - `BP_redundant_work_or_roundtrip`：重复计算或多余 GM 往返。
 - `BP_parameter_uncertain`：结构稳定但参数不确定。
+- `BP_run_state_bimodality`：同配置跨 run 快/慢双态，小差异裁决需交错多 run 协议。
 
 新增模式时保持同一结构：
 
@@ -380,3 +381,28 @@
 
 - best config 在本轮主指标（`msprof op Task Duration`）下最低；平区内记录 imbalance/整除性决胜依据。
 - 正确性通过。
+
+## BP_run_state_bimodality：同配置跨 run 快/慢双态，小差异裁决需交错多 run 协议
+
+> 溯源：mish optimize 2026-08（首证，`examples/TileOPs/tileops/kernels/elementwise/mish/mish_kernel/perf_opt/opt_log.md`）+ lerp_tensor optimize 2026-09-07（第二证，`examples/TileOPs/tileops/kernels/elementwise/lerp_tensor/lerp_tensor_kernel/perf_opt/opt_log.md#iteration-4`；origin_task: lerp_tensor-_make_lerp_tensor_kernel-20260907T025419Z；tilelang 0.1.2+ed787bb / Ascend910B2C / CANN 8.5.0）。
+
+触发信号：
+
+- 同一 kernel、同一配置，跨独立 `msprof op` run 的 Task Duration 差 ±3–5%（lerp_tensor 1M fp16：7.30–7.66us；mish：run 间 ±2–3.5%），且差异与配置无关（疑似 per-process 快/慢态，HBM 物理页/DDR 通道交织状态）。
+- 小 kernel（Task Duration <20us）或逼近带宽/搬运地板的 workload，候选间差异落在噪声阈值（3%）附近。
+- 复测翻转：首轮判回退（+4.4%）复测变 tie；或单轮增益（-5.2%）复测收缩（-3.1%）。
+
+常见反证/不确定点：
+
+- 差异随 launch-count 增大而消失 → 采集噪声，匹配 `BP_measurement_resolution_limited`。
+- 大 kernel（≫20us）且远离带宽地板时，单 run median-of-15 通常已稳定。
+
+推荐动作：
+
+- 首次出现 <5% 量级候选差异即前置启用交错 A/B/A/B 协议：≥3 次独立 `msprof op` run、候选与基线交替次序、合并中位数比较——勿等采纳后复核。
+- 过 3% 门槛的采纳判断必须基于合并中位；配对次序稳定（同一方向跨 run 成立）才判定真实差异。
+
+验证指标：
+
+- opt_log 记录各 run 的次序与中位数。
+- A/B 配对结论次序一致（如两次 A 均慢于两次 B）才判定差异真实。

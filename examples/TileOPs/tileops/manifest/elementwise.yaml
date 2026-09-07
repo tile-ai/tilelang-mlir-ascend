@@ -44,3 +44,56 @@ MishFwdOp:
     test: tests/ops/test_mish.py
     bench: benchmarks/ops/bench_mish.py
     bench_manifest_driven: true
+
+LerpTensorFwdOp:
+  ref_api: "torch.lerp"
+  # Tensor-weight variant: weight is a tensor that broadcasts together
+  # with input and end (PyTorch's torch.lerp(input, end, weight: Tensor)
+  # overload). Implements the 3-way tensor broadcast variant; the Op
+  # layer pre-broadcasts/expands to contiguous 1-D tensors before kernel
+  # dispatch.
+  family: elementwise
+  status: implemented
+
+  torch_compile_fullgraph: true
+  variant_of: LerpFwdOp
+
+  signature:
+    inputs:
+      input: {dtype: "float16 | bfloat16 | float32"}
+      end: {dtype: "same_as(input)"}
+      weight: {dtype: "same_as(input)"}
+    outputs:
+      output: {dtype: "same_as(input)"}
+    shape_rules:
+    - "output.shape == broadcast_shapes(input.shape, end.shape, weight.shape)"
+
+  workloads:
+    # Smoke: small same-shape broadcast (1M elements per operand)
+    - {input_shape: [1024, 1024], dtypes: [float32, float16, bfloat16], label: "smoke-1m"}
+    # Full: GPU manifest elementwise-16M workload (same shape for all 3 inputs)
+    - {input_shape: [4096, 4096], dtypes: [float16, bfloat16, float32], label: "elementwise-16m"}
+    # Full: mid-size square
+    - {input_shape: [8192, 8192], dtypes: [float16, bfloat16], label: "elementwise-64m"}
+    # Full: GPU manifest elementwise-256M workload
+    - {input_shape: [16384, 16384], dtypes: [float16, bfloat16], label: "elementwise-256m"}
+
+  # GPU manifest used func mode (tileops.perf.formulas.lerp_tensor_fwd_roofline);
+  # the NPU project has no tileops.perf module, so the same formula is
+  # expressed inline (Op.eval_roofline implements it too — E14):
+  #   per output element: 3 flops (sub + mul + add);
+  #   3 reads + 1 write at post-broadcast N_total.
+  roofline:
+    vars:
+      N: "product(input.shape)"
+    flops: "3 * N"
+    bytes: "4 * N * elem_bytes"
+
+  source:
+    kernel: tileops/kernels/elementwise/lerp_tensor/lerp_tensor.py
+    kernel_map:
+      lerp_tensor: LerpTensorFwdKernel
+    op: tileops/ops/elementwise/lerp_tensor.py
+    test: tests/ops/test_lerp_tensor.py
+    bench: benchmarks/ops/bench_lerp_tensor.py
+    bench_manifest_driven: true

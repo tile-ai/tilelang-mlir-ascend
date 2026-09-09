@@ -118,19 +118,25 @@ def lighting_indexer_fwd(
                         weights_bn_bqh[bn_i, bqh] = weights_frag[
                             bqh // heads, bqh % heads
                         ]
-
                 # Apply head weights
                 T.vmul(scores_relu, weights_bn_bqh, scores_weighted)
 
                 # Reduce over head dim: logits[bn, bq] = sum_h scores_weighted[bn, bq*H+h]
-                T.vbrc(value_zero, logits_local)
-                for h_idx in T.serial(heads):
-                    for bq_idx in T.serial(block_Q):
-                        for bn_i in T.serial(block_N):
-                            logits_local[bn_i, bq_idx] = (
-                                logits_local[bn_i, bq_idx]
-                                + scores_weighted[bn_i, bq_idx * heads + h_idx]
-                            )
+                # Use T.reduce_sum over each query's contiguous head-column block
+                # ([block_N, heads] -> [block_N, 1]). The previous scalar
+                # read-modify-write accumulation over `heads` triggered an
+                # MPU-invalid MTE fault in this MIX (Cube+Vector) kernel; the
+                # vector reduce_sum lowers safely (matches the working pattern in
+                # examples/indexer/indexer_fwd.py). See mpu_invalid_error_analysis.md.
+                for bq_idx in T.serial(block_Q):
+                    T.reduce_sum(
+                        scores_weighted[
+                            0:block_N, bq_idx * heads : (bq_idx + 1) * heads
+                        ],
+                        logits_local[0:block_N, bq_idx : bq_idx + 1],
+                        dim=1,
+                        clear=True,
+                    )
 
                 # Transpose [BN, BQ] -> [BQ, BN] then tile-copy to global
                 # (per-scalar global stores cause MTE aicore exception; tile-copy
@@ -189,4 +195,5 @@ def test_lighting_indexer_fwd_small():
 
 if __name__ == "__main__":
     os.environ.setdefault("TILELANG_ASCEND_MODE", "Developer")
+    tilelang.cache.clear_cache()
     test_lighting_indexer_fwd_small()

@@ -352,7 +352,7 @@ loc("/tmp/tmpa48n0m0b/kernel.npuir":2:3): error: UB overflow, requires 1579008 b
 上面的报错有明确的报错信息，但在有的场景中，并不会显示具体的报错，例如
 
 ```shell
-err cmd: /home/CANN/CANN8.5.0/cann-8.5.0/bin/bishengir-compile /tmp/tmp_fyvndkz/kernel.npuir --enable-auto-multi-buffer=false --enable-triton-kernel-compile=true --enable-hivm-compile=true --limit-auto-multi-buffer-only-for-local-buffer=true --enable-auto-bind-sub-block=true -o /tmp/tmp_fyvndkz/kernel
+err cmd: /home/CANN/CANN9.0.0/cann-9.0.0/bin/bishengir-compile /tmp/tmp_fyvndkz/kernel.npuir --enable-auto-multi-buffer=false --enable-triton-kernel-compile=true --enable-hivm-compile=true --limit-auto-multi-buffer-only-for-local-buffer=true --enable-auto-bind-sub-block=true -o /tmp/tmp_fyvndkz/kernel
 err code: -11
 err info: PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace.
 Stack dump:

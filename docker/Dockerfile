@@ -6,7 +6,7 @@
 #       after FROM (lines 14-17). This is a Docker design
 #       constraint, not a duplication bug.
 # ============================================================
-ARG CANN_VERSION=8.5.0
+ARG CANN_VERSION=9.0.0
 ARG CHIP_TYPE=a3
 ARG OS=ubuntu
 ARG OS_VERSION=22.04

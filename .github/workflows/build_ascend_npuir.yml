@@ -17,6 +17,9 @@ on:
 
 env:
   NPUIR_INSTALL_DIR: npuir-prebuild
+  # Python version used to build AscendNPU-IR (MLIR python bindings).
+  # Must match the Python version used to build the tilelang wheel.
+  PYTHON_VERSION: "3.12"
 
 jobs:
   build-npuir:
@@ -48,7 +51,7 @@ jobs:
 
     - name: Compute cache key
       id: cache-key
-      run: echo "key=npuir-prebuild-rtti-${{ matrix.arch }}-${{ steps.npuir-version.outputs.commit }}" >> "$GITHUB_OUTPUT"
+      run: echo "key=npuir-prebuild-rtti-${{ env.PYTHON_VERSION }}-${{ matrix.arch }}-${{ steps.npuir-version.outputs.commit }}" >> "$GITHUB_OUTPUT"
 
     - name: Restore NPUIR prebuild from cache
       id: cache
@@ -64,11 +67,11 @@ jobs:
         cd 3rdparty/AscendNPU-IR
         git submodule update --init
 
-    - name: Set up Python 3.11
+    - name: Set up Python ${{ env.PYTHON_VERSION }}
       if: steps.cache.outputs.cache-hit != 'true'
       uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: ${{ env.PYTHON_VERSION }}
 
     - name: Install build dependencies
       if: steps.cache.outputs.cache-hit != 'true'

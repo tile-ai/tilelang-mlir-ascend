@@ -14,13 +14,13 @@ on:
       wheel-artifact:
         description: "Name of the wheel artifact to download"
         type: string
-        default: "tilelang-npuir-py3.11-arm64"
+        default: "tilelang-npuir-py3.12-arm64"
 
 jobs:
   test:
     runs-on: linux-aarch64-a3-2
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.12
     timeout-minutes: 120
     env:
       UV_INDEX_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"

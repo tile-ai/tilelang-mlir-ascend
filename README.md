@@ -150,7 +150,7 @@ Within the `examples` directory, you will also find additional complex kernels�
 
 Install the Ascend Toolkit.
 
-[Download the installation package](https://www.hiascend.com/developer/download/community/result?cann=8.3.RC1.alpha002)，install`Ascend-cann-toolkit`.For complete installation instructions, refer to the [relevant documentation](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/83RC1alpha002/softwareinst/instg/instg_0008.html?Mode=PmIns&OS=Debian&Software=cannToolKit).
+[Download the installation package](https://www.hiascend.com/developer/download/community/result?cann=8.5.x)，install`Ascend-cann-toolkit`.For complete installation instructions, refer to the [relevant documentation](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/83RC1alpha002/softwareinst/instg/instg_0008.html?Mode=PmIns&OS=Debian&Software=cannToolKit).
 
 ```shell
 chmod +x Ascend-cann-toolkit_{ascend_cann_toolkit version}_linux-aarch64.run
@@ -181,6 +181,73 @@ export ACL_OP_INIT_MODE=1
 
   Note: If you require a new compiler installation package, please contact the community administrators:
 **zhaojiqiao@huawei.com**, **yangsichan@huawei.com**
+
+#### Network Considerations for Clone
+
+Due to the large size of the repository and its submodules (including llvm-project ~14GB), cloning may fail in networks with limited bandwidth or restricted access. Please consider the following alternatives:
+
+**Option 1: Use Gitee Mirror (Recommended for China Mainland)**
+```shell
+git clone https://gitee.com/mirrors/tilelang-mlir-ascend.git --recursive
+```
+
+**Option 2: Shallow Clone with Retry Strategy**
+```shell
+# Perform a shallow clone first to reduce initial download size
+git clone --depth 1 --recursive https://github.com/tile-ai/tilelang-mlir-ascend.git
+# If submodule fetch fails, retry with:
+git submodule update --init --recursive --depth 1 --retry 5
+```
+
+**Option 3: Use Pre-built Package**
+> Contact community administrators for pre-built package:
+> **zhaojiqiao@huawei.com**, **yangsichan@huawei.com**
+
+**Clone Retry Suggestions:**
+- Use `GIT_LFS_SKIP_SMUDGE=1` to skip LFS files during initial clone
+- Configure git to use larger buffer size: `git config --global http.postBuffer 524288000`
+- For persistent network issues, consider using `git clone --filter=blob:none` to reduce transfer size
+
+#### System Build Dependencies
+
+Before building, ensure the following system packages are installed:
+
+**Ubuntu/Debian:**
+```shell
+sudo apt-get update
+sudo apt-get install -y \
+    ninja-build \
+    clang \
+    lld \
+    zlib1g-dev \
+    libzstd-dev \
+    patch \
+    cmake \
+    build-essential
+```
+
+**CentOS/RHEL:**
+```shell
+sudo yum install -y \
+    ninja-build \
+    clang \
+    lld \
+    zlib-devel \
+    libzstd-devel \
+    patch \
+    cmake \
+    gcc-c++
+```
+
+**Verify Ninja version (requires >= 1.12):**
+```shell
+ninja --version
+# If version < 1.12, upgrade via pip:
+pip3 install ninja --upgrade
+```
+
+> **Note**: These system dependencies are required in addition to the Python packages listed above.
+
 
 #### Build
 

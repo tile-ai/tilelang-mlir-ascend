@@ -60,9 +60,14 @@ class NPUUtils(object):
                 # compile npu_utils.so
                 with tempfile.TemporaryDirectory() as tmpdir:
                     dst_path = os.path.join(tmpdir, "npu_utils.cxx")
+                    output_path = os.path.join(tmpdir, "npu_utils.so")
                     safe_copy(npu_utils_cpp, dst_path)
                     so = build_npu_ext(
-                        "npu_utils", None, dst_path, kernel_launcher="torch"
+                        "npu_utils",
+                        None,
+                        dst_path,
+                        kernel_launcher="torch",
+                        output_path=output_path,
                     )
                     safe_copy(so, fname_path)
         else:

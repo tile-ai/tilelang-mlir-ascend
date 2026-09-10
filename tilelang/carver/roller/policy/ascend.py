@@ -24,7 +24,7 @@ from tilelang.utils.npu_arch import AscendArch
 from .default import DefaultPolicy
 from .common import coalesced_factor, get_all_factors
 from ..rasterization import NoRasterization
-import tvm
+from tilelang import tvm
 import numpy as np
 import logging
 

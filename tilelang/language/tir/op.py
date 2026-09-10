@@ -2,12 +2,12 @@
 # Licensed under the MIT License.
 
 from typing import Any, Optional
-import tvm
-from tvm.ir import PrimExpr
-from tvm.ir.base import Span
-from tvm.runtime import const
-from tvm.tir.expr import IntImm, PrimExprWithOp
-import tvm.tir.op as _tvm_op
+from tilelang import tvm
+from tilelang.tvm.ir import PrimExpr
+from tilelang.tvm.ir.base import Span
+from tilelang.tvm.runtime import const
+from tilelang.tvm.tir.expr import IntImm, PrimExprWithOp
+import tilelang.tvm.tir.op as _tvm_op
 
 
 def call_packed(*args, span=None):
@@ -328,7 +328,9 @@ def tvm_stack_make_array(data, shape, strides, ndim, arr_dtype, elem_offset):
     call : PrimExpr
         The call expression.
     """
-    return _tvm_op.tvm_stack_make_array(data, shape, strides, ndim, arr_dtype, elem_offset)
+    return _tvm_op.tvm_stack_make_array(
+        data, shape, strides, ndim, arr_dtype, elem_offset
+    )
 
 
 def assume(cond=None):
@@ -723,11 +725,14 @@ def tvm_load_matrix_sync(fragment, m, n, k, index, buffer_ptr, stride, layout):
     call : PrimExpr
         The call expression.
     """
-    return _tvm_op.tvm_load_matrix_sync(fragment, m, n, k, index, buffer_ptr, stride, layout)
+    return _tvm_op.tvm_load_matrix_sync(
+        fragment, m, n, k, index, buffer_ptr, stride, layout
+    )
 
 
-def tvm_mma_sync(fragment_d, index_d, fragment_a, index_a, fragment_b, index_b, fragment_c,
-                 index_c):
+def tvm_mma_sync(
+    fragment_d, index_d, fragment_a, index_a, fragment_b, index_b, fragment_c, index_c
+):
     """TVM intrinsic for tensor core mma_sync operators
 
     Parameters
@@ -761,12 +766,21 @@ def tvm_mma_sync(fragment_d, index_d, fragment_a, index_a, fragment_b, index_b, 
     call : PrimExpr
         The call expression.
     """
-    return _tvm_op.tvm_mma_sync(fragment_d, index_d, fragment_a, index_a, fragment_b, index_b,
-                                fragment_c, index_c)
+    return _tvm_op.tvm_mma_sync(
+        fragment_d,
+        index_d,
+        fragment_a,
+        index_a,
+        fragment_b,
+        index_b,
+        fragment_c,
+        index_c,
+    )
 
 
-def tvm_bmma_sync(fragment_d, index_d, fragment_a, index_a, fragment_b, index_b, fragment_c,
-                  index_c):
+def tvm_bmma_sync(
+    fragment_d, index_d, fragment_a, index_a, fragment_b, index_b, fragment_c, index_c
+):
     """TVM intrinsic for tensor core bmma_sync operators
 
     Parameters
@@ -800,8 +814,16 @@ def tvm_bmma_sync(fragment_d, index_d, fragment_a, index_a, fragment_b, index_b,
     call : PrimExpr
         The call expression.
     """
-    return _tvm_op.tvm_bmma_sync(fragment_d, index_d, fragment_a, index_a, fragment_b, index_b,
-                                 fragment_c, index_c)
+    return _tvm_op.tvm_bmma_sync(
+        fragment_d,
+        index_d,
+        fragment_a,
+        index_a,
+        fragment_b,
+        index_b,
+        fragment_c,
+        index_c,
+    )
 
 
 def tvm_fill_fragment(fragment, m, n, k, index, value):
@@ -869,7 +891,9 @@ def tvm_store_matrix_sync(fragment, m, n, k, index, buffer_ptr, stride, layout):
     call : PrimExpr
         The call expression.
     """
-    return _tvm_op.tvm_store_matrix_sync(fragment, m, n, k, index, buffer_ptr, stride, layout)
+    return _tvm_op.tvm_store_matrix_sync(
+        fragment, m, n, k, index, buffer_ptr, stride, layout
+    )
 
 
 def ptx_mma(
@@ -1123,7 +1147,9 @@ def mma_fill(dtype, local_size, local_ptr, offset):
     return _tvm_op.mma_fill(dtype, local_size, local_ptr, offset)
 
 
-def ptx_ldmatrix(dtype, trans, num, type, local_ptr, local_offset, smem_ptr, smem_offset):
+def ptx_ldmatrix(
+    dtype, trans, num, type, local_ptr, local_offset, smem_ptr, smem_offset
+):
     """TVM intrinsic for ptx load matrix from shared memory
     https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-instructions-ldmatrix
 
@@ -1158,8 +1184,9 @@ def ptx_ldmatrix(dtype, trans, num, type, local_ptr, local_offset, smem_ptr, sme
     call : PrimExpr
         The call expression.
     """
-    return _tvm_op.ptx_ldmatrix(dtype, trans, num, type, local_ptr, local_offset, smem_ptr,
-                                smem_offset)
+    return _tvm_op.ptx_ldmatrix(
+        dtype, trans, num, type, local_ptr, local_offset, smem_ptr, smem_offset
+    )
 
 
 def ptx_cp_async(dtype, shared_ptr, shared_offset, global_ptr, global_offset, bytes):
@@ -1191,11 +1218,14 @@ def ptx_cp_async(dtype, shared_ptr, shared_offset, global_ptr, global_offset, by
     call : PrimExpr
         The call expression.
     """
-    return _tvm_op.ptx_cp_async(dtype, shared_ptr, shared_offset, global_ptr, global_offset, bytes)
+    return _tvm_op.ptx_cp_async(
+        dtype, shared_ptr, shared_offset, global_ptr, global_offset, bytes
+    )
 
 
-def ptx_cp_async_bulk(dtype, shared_ptr, shared_offset, global_ptr, global_offset, bytes,
-                      barrier_id):
+def ptx_cp_async_bulk(
+    dtype, shared_ptr, shared_offset, global_ptr, global_offset, bytes, barrier_id
+):
     """TVM intrinsic for ptx async copy from global to shared memory using cp.async.bulk
     https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk
 
@@ -1227,8 +1257,9 @@ def ptx_cp_async_bulk(dtype, shared_ptr, shared_offset, global_ptr, global_offse
     call : PrimExpr
         The call expression.
     """
-    return _tvm_op.ptx_cp_async_bulk(dtype, shared_ptr, shared_offset, global_ptr, global_offset,
-                                     bytes, barrier_id)
+    return _tvm_op.ptx_cp_async_bulk(
+        dtype, shared_ptr, shared_offset, global_ptr, global_offset, bytes, barrier_id
+    )
 
 
 def ptx_commit_group():
@@ -1487,7 +1518,9 @@ def tvm_rdna_wmma_store(dtype, m, n, dst_ptr, src_ptr, src_offset, dst_stride):
     call : PrimExpr
         The call expression.
     """
-    return _tvm_op.tvm_rdna_wmma_store(dtype, m, n, dst_ptr, src_ptr, src_offset, dst_stride)
+    return _tvm_op.tvm_rdna_wmma_store(
+        dtype, m, n, dst_ptr, src_ptr, src_offset, dst_stride
+    )
 
 
 def ptx_cp_async_barrier(barrier_id):
@@ -2605,7 +2638,7 @@ def isinf(x, span=None):
 
 def pow_of_int(x: PrimExpr, y: int) -> PrimExpr:
     """Fast power operation than pow(float, float).
-    
+
     Args:
         x (PrimExpr): Base value
         y (int): Exponent value
@@ -2744,8 +2777,9 @@ def q_multiply_shift_per_axis(
     z : PrimExpr
         The result.
     """
-    return _tvm_op.q_multiply_shift_per_axis(x, y, ls, rs, q, is_lshift_required,
-                                             is_rshift_required)
+    return _tvm_op.q_multiply_shift_per_axis(
+        x, y, ls, rs, q, is_lshift_required, is_rshift_required
+    )
 
 
 def shift_left(x, y, span=None):
@@ -3070,7 +3104,9 @@ def comm_reducer(fcombine, fidentity, name="reduce"):
     return _tvm_op.comm_reducer(fcombine, fidentity, name)
 
 
-def TVMBackendAllocWorkspace(device_type, device_id, nbytes, dtype_code_hint, dtype_bits_hint):
+def TVMBackendAllocWorkspace(
+    device_type, device_id, nbytes, dtype_code_hint, dtype_bits_hint
+):
     """Backend function to allocate temporal workspace
 
     Parameters
@@ -3095,8 +3131,9 @@ def TVMBackendAllocWorkspace(device_type, device_id, nbytes, dtype_code_hint, dt
     call : PrimExpr
         The call expression.
     """
-    return _tvm_op.TVMBackendAllocWorkspace(device_type, device_id, nbytes, dtype_code_hint,
-                                            dtype_bits_hint)
+    return _tvm_op.TVMBackendAllocWorkspace(
+        device_type, device_id, nbytes, dtype_code_hint, dtype_bits_hint
+    )
 
 
 def TVMBackendFreeWorkspace(device_type, device_id, ptr):

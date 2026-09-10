@@ -1,11 +1,11 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 
-from tvm.tir import Buffer
+from tilelang.tvm.tir import Buffer
 from typing import List
 from functools import reduce
-from tvm import IRModule
-from tvm.tir import PrimFunc
+from tilelang.tvm import IRModule
+from tilelang.tvm.tir import PrimFunc
 
 # Scope Checkers for TVM Buffers
 # These utility functions check the memory scope of a given TVM buffer.
@@ -118,6 +118,7 @@ def retrieve_func_from_module(ir_module: IRModule) -> PrimFunc:
     if not isinstance(ir_module, IRModule):
         raise ValueError("Not supported type: ", type(ir_module))
     assert len(ir_module.get_global_vars()) == 1, (
-        "The optimized module should only have one global variable for default schedule.")
+        "The optimized module should only have one global variable for default schedule."
+    )
     func = list(ir_module.functions.values())[0]
     return func

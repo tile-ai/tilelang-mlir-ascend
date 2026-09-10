@@ -4,8 +4,8 @@
 
 from typing import List, Union, Literal, Optional
 from pathlib import Path
-from tvm.target import Target
-from tvm.tir import PrimFunc
+from tilelang.tvm.target import Target
+from tilelang.tvm.tir import PrimFunc
 
 from .kernel_cache import KernelCache
 from tilelang import env

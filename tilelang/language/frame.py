@@ -2,11 +2,11 @@
 # Licensed under the MIT License.
 """Override the LetFrame to print a message when entering the frame."""
 
-from tvm._ffi import register_object as _register_object
-from tvm.tir import Var, PrimExpr, BufferLoad, BufferRegion
-from tvm.ir import Range
-from tvm import DataType
-from tvm.script.ir_builder.tir.frame import TIRFrame
+from tilelang.tvm._ffi import register_object as _register_object
+from tilelang.tvm.tir import Var, PrimExpr, BufferLoad, BufferRegion
+from tilelang.tvm.ir import Range
+from tilelang.tvm import DataType
+from tilelang.tvm.script.ir_builder.tir.frame import TIRFrame
 from collections import deque
 from typing import Optional
 import threading
@@ -32,7 +32,7 @@ class FrameStack:
             item: The frame object to push onto the stack
         """
         self._stack.append(item)
-        if hasattr(item, 'var') and hasattr(item, 'value'):
+        if hasattr(item, "var") and hasattr(item, "value"):
             self._var_value_map[item.var] = item.value
 
     def pop(self):
@@ -46,7 +46,7 @@ class FrameStack:
         """
         if self._stack:
             item = self._stack.pop()
-            if hasattr(item, 'var'):
+            if hasattr(item, "var"):
                 self._var_value_map.pop(item.var, None)
             return item
         raise IndexError(f"{self.__class__.__name__} is empty")
@@ -132,8 +132,9 @@ class LetFrame(TIRFrame):
                     is_block_load = True
                     break
             if is_block_load:
-                self.value = BufferRegion(self.value.buffer,
-                                          [Range(x.base, x.lanes) for x in indices])
+                self.value = BufferRegion(
+                    self.value.buffer, [Range(x.base, x.lanes) for x in indices]
+                )
 
         _get_let_stack().push(self)
         return self.var

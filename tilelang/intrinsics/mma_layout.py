@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from typing import Union
-from tvm import arith, DataType
+from tilelang.tvm import arith, DataType
 import tilelang.language as T
 
 
@@ -92,7 +92,9 @@ def shared_32x16_to_mma_32x16_smoothlayout(i, j):
     return (i * 2 + j // 16, j % 16)
 
 
-def get_swizzle_layout(row_idx, col_idx, row_size, dtype: Union[DataType, str], swizzle_bytes=None):
+def get_swizzle_layout(
+    row_idx, col_idx, row_size, dtype: Union[DataType, str], swizzle_bytes=None
+):
     ana = arith.Analyzer()
     if isinstance(dtype, str):
         dtype = DataType(dtype)

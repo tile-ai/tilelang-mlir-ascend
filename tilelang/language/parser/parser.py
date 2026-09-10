@@ -23,20 +23,20 @@ import contextlib
 from functools import partial
 from typing import Any
 
-import tvm
-from tvm.ir import GlobalVar, PrimType
-from tvm.tir import Buffer, IterVar, PrimExpr, Var
+from tilelang import tvm
+from tilelang.tvm.ir import GlobalVar, PrimType
+from tilelang.tvm.tir import Buffer, IterVar, PrimExpr, Var
 
-from tvm.script.ir_builder import ir as I
-from tvm.script.ir_builder import tir as T
+from tilelang.tvm.script.ir_builder import ir as I
+from tilelang.tvm.script.ir_builder import tir as T
 
 # May rewrite some register functions
 # if we use our own registration
 # from .. import ast as T
 
-from tvm.script.ir_builder.base import IRBuilder
-from tvm.script.ir_builder.base import IRBuilderFrame as Frame
-from tvm.script.parser._core import Parser, dispatch, doc
+from tilelang.tvm.script.ir_builder.base import IRBuilder
+from tilelang.tvm.script.ir_builder.base import IRBuilderFrame as Frame
+from tilelang.tvm.script.parser._core import Parser, dispatch, doc
 
 
 def bind_with_value(self: Parser, node: doc.expr, var_name: str, value: Any) -> Any:
@@ -71,7 +71,9 @@ def bind_with_value(self: Parser, node: doc.expr, var_name: str, value: Any) -> 
         IRBuilder.name(var_name, value)
         return value
     else:
-        self.report_error(node, f"Do not know how to bind type: {type(value)} in with statement")
+        self.report_error(
+            node, f"Do not know how to bind type: {type(value)} in with statement"
+        )
         raise NotImplementedError
 
 
@@ -107,7 +109,9 @@ def bind_for_value(self: Parser, node: doc.expr, var_name: str, value: Any) -> A
         IRBuilder.name(var_name, value)
         return value
     else:
-        self.report_error(node, f"Do not know how to bind type: {type(value)} in for statement")
+        self.report_error(
+            node, f"Do not know how to bind type: {type(value)} in for statement"
+        )
         raise NotImplementedError
 
 
@@ -146,8 +150,9 @@ def bind_assign_value(self: Parser, node: doc.expr, var_name: str, value: Any) -
         res = value.__enter__()
         IRBuilder.name(var_name, res)
         return res
-    elif isinstance(value, (Buffer, IterVar)) or (isinstance(value, Var) and
-                                                  not self.var_table.exist(value)):
+    elif isinstance(value, (Buffer, IterVar)) or (
+        isinstance(value, Var) and not self.var_table.exist(value)
+    ):
         IRBuilder.name(var_name, value)
         return value
     else:
@@ -160,7 +165,9 @@ def bind_assign_value(self: Parser, node: doc.expr, var_name: str, value: Any) -
         return var
 
 
-def find_decorator_annotation(node: doc.FunctionDef, annotation: str, default: bool = True) -> bool:
+def find_decorator_annotation(
+    node: doc.FunctionDef, annotation: str, default: bool = True
+) -> bool:
     """
     Check the value of given annotation (argument name) in the prim_func decorator.
     Returns the value of the annotation if present, otherwise giving the default value.
@@ -196,7 +203,9 @@ def visit_for(self: Parser, node: doc.For) -> None:
         )
     with self.var_table.with_frame():
         with for_frame as iters:
-            self.eval_assign(target=node.target, source=iters, bind_value=bind_for_value)
+            self.eval_assign(
+                target=node.target, source=iters, bind_value=bind_for_value
+            )
             self.visit_body(node.body)
 
 
@@ -231,7 +240,9 @@ def visit_assign(self: Parser, node: doc.Assign) -> None:
         The doc AST assign node.
     """
     if len(node.targets) != 1:
-        self.report_error(node, "Consequential assignments like 'a = b = c' are not supported.")
+        self.report_error(
+            node, "Consequential assignments like 'a = b = c' are not supported."
+        )
     lhs = node.targets[0]
 
     if isinstance(node.value, doc.Subscript):
@@ -361,11 +372,15 @@ def visit_with(self: Parser, node: doc.With) -> None:
         for item in node.items:
             frame = self.eval_expr(item.context_expr)
             if not isinstance(frame, Frame):
-                self.report_error(item.context_expr,
-                                  "Invalid context expression in the with-statement.")
+                self.report_error(
+                    item.context_expr,
+                    "Invalid context expression in the with-statement.",
+                )
             rhs = stack.enter_context(frame)
             if item.optional_vars is not None:
-                self.eval_assign(target=item.optional_vars, source=rhs, bind_value=bind_with_value)
+                self.eval_assign(
+                    target=item.optional_vars, source=rhs, bind_value=bind_with_value
+                )
         self.visit_body(node.body)
 
 
@@ -404,7 +419,9 @@ def visit_function_def(self: Parser, node: doc.FunctionDef) -> None:
                 # - posonlyargs: list[arg]
                 for arg in node.args.args:
                     if arg.annotation is None:
-                        self.report_error(arg, "Type annotation required for function parameters.")
+                        self.report_error(
+                            arg, "Type annotation required for function parameters."
+                        )
                     try:
                         ann = self.eval_expr(arg.annotation)
                         if callable(ann):
@@ -505,8 +522,10 @@ def visit_if(self: Parser, node: doc.If) -> None:
                 with self.var_table.with_frame():
                     self.visit_body(node.orelse)
         else:
-            self.report_error(node.test,
-                              f"If condition must be a boolean expression, but got {predicate}")
+            self.report_error(
+                node.test,
+                f"If condition must be a boolean expression, but got {predicate}",
+            )
 
 
 @dispatch.register(token="tir", type_name="Assert")
@@ -572,7 +591,9 @@ def visit_tvm_declare_function(self: Parser, node: doc.FunctionDef) -> GlobalVar
         arg_annotations = []
         for arg in node.args.args:
             if arg.annotation is None:
-                self.report_error(arg, "Type annotation required for function parameters.")
+                self.report_error(
+                    arg, "Type annotation required for function parameters."
+                )
             try:
                 ann = self.eval_expr(arg.annotation)
                 if callable(ann):

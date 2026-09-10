@@ -363,11 +363,10 @@ def patch_libs(libpath):
     # find patchelf in the system
     patchelf_path = shutil.which("patchelf")
     if not patchelf_path:
-        logger.warning(
-            "patchelf is not installed, which is required for auditwheel to work for compatible wheels."
+        raise RuntimeError(
+            "patchelf is required to package TileLang's isolated native libraries."
         )
-        return
-    subprocess.run([patchelf_path, "--set-rpath", "$ORIGIN", libpath])
+    subprocess.run([patchelf_path, "--set-rpath", "$ORIGIN", libpath], check=True)
 
 
 class TileLangBuilPydCommand(build_py):
@@ -439,8 +438,8 @@ class TileLangBuilPydCommand(build_py):
             shutil.copy2(source_path, target_path)
 
         TVM_PREBUILD_ITEMS = [
-            "libtvm_runtime.so",
-            "libtvm.so",
+            "libtilelang_tvm_runtime.so",
+            "libtilelang_tvm.so",
             "libtilelang.so",
             "libtilelang_module.so",
             "libtilelangir.so",
@@ -468,18 +467,23 @@ class TileLangBuilPydCommand(build_py):
                     break
 
             if source_lib_file:
-                patch_libs(source_lib_file)
+                if item != "libtilelangir.so":
+                    load_module_from_path(
+                        "prepare_tvm", os.path.join(ROOT_DIR, "tools", "prepare_tvm.py")
+                    ).check_library(source_lib_file)
                 target_dir_release = os.path.join(self.build_lib, PACKAGE_NAME, "lib")
                 target_dir_develop = os.path.join(PACKAGE_NAME, "lib")
                 os.makedirs(target_dir_release, exist_ok=True)
                 os.makedirs(target_dir_develop, exist_ok=True)
-                shutil.copy2(source_lib_file, target_dir_release)
-                logger.info(f"Copied {source_lib_file} to {target_dir_release}")
-                shutil.copy2(source_lib_file, target_dir_develop)
-                logger.info(f"Copied {source_lib_file} to {target_dir_develop}")
-                os.remove(source_lib_file)
-            else:
-                logger.info(f"WARNING: {item} not found in any expected directories!")
+                for target_dir in (target_dir_release, target_dir_develop):
+                    target_lib_file = os.path.join(target_dir, item)
+                    shutil.copy2(source_lib_file, target_lib_file)
+                    patch_libs(target_lib_file)
+                    logger.info(f"Copied {source_lib_file} to {target_lib_file}")
+            elif item != "libtilelangir.so" or USE_NPUIR:
+                raise RuntimeError(
+                    f"Required private build artifact {item} not found; rebuild TileLang and TVM"
+                )
 
         # Bundle MLIR Python (mlir_core + bishengir) for NPUIR when source has both. Required when present.
         npuir_python_base = os.path.join(
@@ -527,7 +531,6 @@ class TileLangBuilPydCommand(build_py):
                 logger.info(f"INFO: {source_dir} does not exist.")
 
         TVM_PACAKGE_ITEMS = [
-            "3rdparty/tvm/python",
             "3rdparty/tvm/licenses",
             "3rdparty/tvm/CONTRIBUTORS.md",
             "3rdparty/tvm/KEYS",
@@ -608,10 +611,15 @@ class TileLangBuilPydCommand(build_py):
                 shutil.copy2(source_dir, target_dir)
 
         self.remove_unwanted_dirs()
-        # ===== Critical fixes: Patch TVM and __init__.py =====
-        # Apply patches after all files are copied
-        self.patch_tvm_base_py()
-        self.patch_init_py()
+        helper = load_module_from_path(
+            "prepare_tvm", os.path.join(ROOT_DIR, "tools", "prepare_tvm.py")
+        )
+        helper.prepare_python(
+            os.path.join(ROOT_DIR, "3rdparty", "tvm", "python", "tvm"),
+            os.path.join(
+                self.build_lib, PACKAGE_NAME, "3rdparty", "tvm", "python", "tvm"
+            ),
+        )
 
     def remove_unwanted_dirs(self):
         """Force remove test/unused directories from build_lib"""
@@ -628,85 +636,6 @@ class TileLangBuilPydCommand(build_py):
             if os.path.exists(dir_path):
                 shutil.rmtree(dir_path)
                 logger.info(f"Removed {dir_path}")
-
-    def patch_tvm_base_py(self):
-        """Patch TVM's base.py to use the bundled libtvm.so"""
-        base_py_path = os.path.join(
-            self.build_lib,
-            PACKAGE_NAME,
-            "3rdparty",
-            "tvm",
-            "python",
-            "tvm",
-            "_ffi",
-            "base.py",
-        )
-
-        if not os.path.exists(base_py_path):
-            logger.warning(f"base.py not found at {base_py_path}, skipping patch")
-            return
-
-        with open(base_py_path, "r") as f:
-            content = f.read()
-
-        if "# --- Patched by TileLang: Force use bundled libtvm.so ---" in content:
-            logger.info("base.py already patched, skipping")
-            return
-
-        patch = """\
-# --- Patched by TileLang: Force use bundled libtvm.so ---
-import os, sys, ctypes
-_current_dir = os.path.dirname(os.path.abspath(__file__))
-_tilelang_root = os.path.abspath(os.path.join(_current_dir, *['..'] * 4))
-_lib_path = os.path.join(_tilelang_root, 'lib', 'libtvm.so')
-if os.path.exists(_lib_path):
-    try:
-        _lib = ctypes.CDLL(_lib_path, ctypes.RTLD_GLOBAL)
-        os.environ['TVM_LIBRARY_PATH'] = os.path.dirname(_lib_path)
-        _LIB = _lib
-    except Exception as e:
-        print(f"[TileLang] Failed to load bundled TVM library: {e}")
-# --------------------------------------------------------
-"""
-
-        with open(base_py_path, "w") as f:
-            f.write(patch + content)
-        logger.info(f" Patched {base_py_path} to use bundled libtvm.so")
-
-    def patch_init_py(self):
-        """Patch tilelang/__init__.py to set up TVM paths properly"""
-        target_init = os.path.join(self.build_lib, PACKAGE_NAME, "__init__.py")
-        if not os.path.exists(target_init):
-            logger.warning(f"__init__.py not found at {target_init}, skipping patch")
-            return
-
-        with open(target_init, "r") as f:
-            content = f.read()
-
-        # check the patch
-        if "# --- Built-in TVM support ---" in content:
-            logger.info("__init__.py already patched, skipping")
-            return
-
-        patch = """\
-# --- Built-in TVM support ---
-import sys, os
-_tvm_python_path = os.path.join(os.path.dirname(__file__), '3rdparty', 'tvm', 'python')
-if os.path.exists(_tvm_python_path) and _tvm_python_path not in sys.path:
-    sys.path.insert(0, _tvm_python_path)
-_lib_path = os.path.join(os.path.dirname(__file__), 'lib')
-if os.path.exists(_lib_path):
-    os.environ['TVM_LIBRARY_PATH'] = _lib_path
-try:
-    import tvm
-except ImportError as e:
-    pass
-# -----------------------------
-"""
-
-        with open(target_init, "w") as f:
-            f.write(patch + content)
-        logger.info("Patched __init__.py for built-in TVM")
 
 
 class TileLangSdistCommand(sdist):
@@ -743,10 +672,18 @@ class TileLangDevelopCommand(develop):
         ext_output_dir = os.path.dirname(extdir)
         logger.info(f"Extension output directory (parent): {ext_output_dir}")
 
+        helper = load_module_from_path(
+            "prepare_tvm", os.path.join(ROOT_DIR, "tools", "prepare_tvm.py")
+        )
+        helper.prepare_python(
+            os.path.join(ROOT_DIR, "3rdparty", "tvm", "python", "tvm"),
+            os.path.join(ROOT_DIR, "build", "tvm-python", "tvm"),
+        )
+
         # Copy the built TVM to the package directory
         TVM_PREBUILD_ITEMS = [
-            f"{ext_output_dir}/libtvm_runtime.so",
-            f"{ext_output_dir}/libtvm.so",
+            f"{ext_output_dir}/libtilelang_tvm_runtime.so",
+            f"{ext_output_dir}/libtilelang_tvm.so",
             f"{ext_output_dir}/libtilelang.so",
             f"{ext_output_dir}/libtilelang_module.so",
             f"{ext_output_dir}/libtilelangir.so",
@@ -761,23 +698,28 @@ class TileLangDevelopCommand(develop):
             if not os.path.exists(target_dir):
                 os.makedirs(target_dir)
             if os.path.exists(source_lib_file):
-                patch_libs(source_lib_file)
-                shutil.copy2(source_lib_file, target_dir)
-                # remove the original file (only when under ext_output_dir, not source tree)
-                if os.path.abspath(source_lib_file).startswith(
-                    os.path.abspath(ext_output_dir)
-                ):
-                    os.remove(source_lib_file)
+                if file_name != "libtilelangir.so":
+                    helper.check_library(source_lib_file)
+                target_lib_file = os.path.join(target_dir, file_name)
+                shutil.copy2(source_lib_file, target_lib_file)
+                patch_libs(target_lib_file)
             else:
                 # Develop: libtilelangir.so may be in build/tilelangir (built by CMake, not setuptools)
                 if file_name == "libtilelangir.so":
                     fallback = os.path.join(ROOT_DIR, "build", "tilelangir", file_name)
                     if os.path.isfile(fallback):
-                        patch_libs(fallback)
-                        shutil.copy2(fallback, target_dir)
-                        logger.info(f"Copied {fallback} to {target_dir}")
+                        target_lib_file = os.path.join(target_dir, file_name)
+                        shutil.copy2(fallback, target_lib_file)
+                        patch_libs(target_lib_file)
+                        logger.info(f"Copied {fallback} to {target_lib_file}")
+                    elif USE_NPUIR:
+                        raise RuntimeError(
+                            f"Required NPUIR build artifact {fallback} not found"
+                        )
                 else:
-                    logger.info(f"INFO: {source_lib_file} does not exist.")
+                    raise RuntimeError(
+                        f"Required private build artifact {source_lib_file} not found"
+                    )
 
 
 # ------------------------------------------------------------------------
@@ -880,6 +822,7 @@ class CMakeBuild(build_ext):
         cmake_args = [
             f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={extdir}",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
+            f"-DPython3_EXECUTABLE={sys.executable}",
         ]
 
         tvm_prebuild_path = os.environ.get("TVM_PREBUILD_PATH")

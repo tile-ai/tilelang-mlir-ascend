@@ -4,7 +4,7 @@ from typing import Optional
 from .utils import is_cuda_target, is_hip_target, is_cpu_target
 from tilelang import tvm as tvm
 from tilelang.contrib.nvcc import get_target_compute_version, get_nvcc_compiler
-from tvm.target import Target
+from tilelang.tvm.target import Target
 import ctypes
 import os
 import tempfile
@@ -37,11 +37,16 @@ class LibraryGenerator(object):
         target = self.target
         if is_cuda_target(target):
             from tilelang.env import CUTLASS_INCLUDE_DIR
-            src = tempfile.NamedTemporaryFile(mode="w", suffix=".cu", delete=False)
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".cu", delete=False
+            ) as src:
+                src.write(self.lib_code)
+                srcpath = src.name
             compute_version = "".join(get_target_compute_version(target).split("."))
             if compute_version == "90":
                 compute_version = "90a"
-            libpath = src.name.replace(".cu", ".so")
+            libpath = srcpath.replace(".cu", ".so")
 
             command = [
                 get_nvcc_compiler(),
@@ -53,7 +58,7 @@ class LibraryGenerator(object):
                 "'-fPIC'",
                 "-lineinfo",
                 "--shared",
-                src.name,
+                srcpath,
                 "-lcuda",
                 "-gencode",
                 f"arch=compute_{compute_version},code=sm_{compute_version}",
@@ -64,8 +69,13 @@ class LibraryGenerator(object):
 
         elif is_hip_target(target):
             from tilelang.env import COMPOSABLE_KERNEL_INCLUDE_DIR
-            src = tempfile.NamedTemporaryFile(mode="w", suffix=".cpp", delete=False)
-            libpath = src.name.replace(".cpp", ".so")
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".cpp", delete=False
+            ) as src:
+                src.write(self.lib_code)
+                srcpath = src.name
+            libpath = srcpath.replace(".cpp", ".so")
             rocm_path = find_rocm_path()
             arch = get_rocm_arch(rocm_path)
             command = [
@@ -74,17 +84,22 @@ class LibraryGenerator(object):
                 "-fPIC",
                 f"--offload-arch={arch}",
                 "--shared",
-                src.name,
+                srcpath,
             ]
             command += [
                 "-I" + COMPOSABLE_KERNEL_INCLUDE_DIR,
             ]
         elif is_cpu_target(target):
             from tilelang.contrib.cc import get_cplus_compiler
-            src = tempfile.NamedTemporaryFile(mode="w", suffix=".cpp", delete=False)
-            libpath = src.name.replace(".cpp", ".so")
 
-            command = [get_cplus_compiler(), "-std=c++17", "-fPIC", "-shared", src.name]
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".cpp", delete=False
+            ) as src:
+                src.write(self.lib_code)
+                srcpath = src.name
+            libpath = srcpath.replace(".cpp", ".so")
+
+            command = [get_cplus_compiler(), "-std=c++17", "-fPIC", "-shared", srcpath]
             command += [
                 "-I" + TILELANG_TEMPLATE_PATH,
             ]
@@ -96,8 +111,6 @@ class LibraryGenerator(object):
         ]
         command += ["-o", libpath]
 
-        src.write(self.lib_code)
-        src.flush()
         try:
             ret = subprocess.run(command, timeout=timeout)
         except Exception as e:
@@ -106,7 +119,7 @@ class LibraryGenerator(object):
         if ret.returncode != 0:
             raise RuntimeError(f"Compilation Failed! {command}")
 
-        self.srcpath = src.name
+        self.srcpath = srcpath
         self.libpath = libpath
 
     def remove_lib(self):

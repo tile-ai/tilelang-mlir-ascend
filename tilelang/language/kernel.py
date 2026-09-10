@@ -4,10 +4,10 @@
 
 from typing import Union, List, Tuple, Optional
 from collections import deque
-from tvm import tir
-from tvm.tir import Var
-from tvm.script.ir_builder.tir.frame import TIRFrame, BlockFrame
-from tvm._ffi import register_object
+from tilelang.tvm import tir
+from tilelang.tvm.tir import Var
+from tilelang.tvm.script.ir_builder.tir.frame import TIRFrame, BlockFrame
+from tilelang.tvm._ffi import register_object
 from tilelang import _ffi_api
 import threading
 

@@ -11,7 +11,8 @@ def view_test(N, M, dtype, new_dtype=None):
 
     new_shape = [N // M, M]
     if new_dtype:
-        from tvm import DataType
+        from tilelang.tvm import DataType
+
         dtype_src = DataType(dtype)
         dtype_dst = DataType(new_dtype)
         src_bits = dtype_src.bits
@@ -21,8 +22,8 @@ def view_test(N, M, dtype, new_dtype=None):
 
     @T.prim_func
     def main(
-            A: T.Tensor((N,), dtype),
-            B: T.Tensor(new_shape, new_dtype if new_dtype else dtype),
+        A: T.Tensor((N,), dtype),
+        B: T.Tensor(new_shape, new_dtype if new_dtype else dtype),
     ):
         with T.Kernel(1) as _:
             A_viewed = T.view(A, new_shape, dtype=new_dtype)
@@ -39,6 +40,7 @@ def run_view(N, M, dtype, new_dtype=None):
     def ref_program(A):
         if new_dtype:
             from tilelang.utils.tensor import map_torch_type
+
             torch_dtype = map_torch_type(new_dtype)
             return A.view(N // M, M).view(dtype=torch_dtype)
         return A.view(N // M, M)

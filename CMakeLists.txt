@@ -55,6 +55,12 @@ endif()
 # Enforce C++ standard
 set(CMAKE_CXX_STANDARD 17)
 
+# TVM's function-local type indices must stay within its private registry.
+# GCC otherwise emits STB_GNU_UNIQUE symbols that bypass RTLD_DEEPBIND.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique>)
+endif()
+
 if(NOT DEFINED TVM_PREBUILD_PATH)
   if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
@@ -171,20 +177,55 @@ if(NOT DEFINED TVM_SOURCE_DIR)
 endif()
 
 # Handle TVM prebuild or build TVM from source
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 if(DEFINED TVM_PREBUILD_PATH)
   message(STATUS "Using prebuilt TVM from ${TVM_PREBUILD_PATH}")
+  foreach(TVM_PRIVATE_LIBRARY libtilelang_tvm.so libtilelang_tvm_runtime.so)
+    set(TVM_PRIVATE_LIBRARY_PATH "${TVM_PREBUILD_PATH}/${TVM_PRIVATE_LIBRARY}")
+    if(NOT EXISTS "${TVM_PRIVATE_LIBRARY_PATH}")
+      message(FATAL_ERROR
+        "Missing isolated TVM prebuild ${TVM_PRIVATE_LIBRARY_PATH}. "
+        "Legacy libtvm.so files cannot coexist safely with CANN; stage a rebuilt "
+        "TVM using tools/prepare_tvm.py libraries."
+      )
+    endif()
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/prepare_tvm.py"
+              check "${TVM_PRIVATE_LIBRARY_PATH}"
+      RESULT_VARIABLE TVM_PRIVATE_CHECK_RESULT
+      ERROR_VARIABLE TVM_PRIVATE_CHECK_ERROR
+    )
+    if(NOT TVM_PRIVATE_CHECK_RESULT EQUAL 0)
+      message(FATAL_ERROR
+        "Unsafe isolated TVM prebuild ${TVM_PRIVATE_LIBRARY_PATH}:\n${TVM_PRIVATE_CHECK_ERROR}"
+      )
+    endif()
+  endforeach()
   add_library(tvm SHARED IMPORTED)
   set_target_properties(tvm PROPERTIES
-    IMPORTED_LOCATION "${TVM_PREBUILD_PATH}/libtvm.so"
+    IMPORTED_LOCATION "${TVM_PREBUILD_PATH}/libtilelang_tvm.so"
   )
   add_library(tvm_runtime SHARED IMPORTED)
   set_target_properties(tvm_runtime PROPERTIES
-    IMPORTED_LOCATION "${TVM_PREBUILD_PATH}/libtvm_runtime.so"
+    IMPORTED_LOCATION "${TVM_PREBUILD_PATH}/libtilelang_tvm_runtime.so"
   )
 else()
   message(STATUS "Building TVM from source at ${TVM_SOURCE_DIR}")
   add_subdirectory(${TVM_SOURCE_DIR} tvm EXCLUDE_FROM_ALL)
+  set_target_properties(tvm PROPERTIES OUTPUT_NAME tilelang_tvm)
+  set_target_properties(tvm_runtime PROPERTIES OUTPUT_NAME tilelang_tvm_runtime)
 endif()
+
+set(TVM_PYTHON_SOURCE_DIR "${TVM_SOURCE_DIR}/python/tvm")
+if(EXISTS "${PROJECT_SOURCE_DIR}/3rdparty/tvm/python/tvm")
+  set(TVM_PYTHON_SOURCE_DIR "${PROJECT_SOURCE_DIR}/3rdparty/tvm/python/tvm")
+endif()
+add_custom_target(tilelang_tvm_python ALL
+  COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/prepare_tvm.py"
+          python "${TVM_PYTHON_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/tvm-python/tvm"
+  COMMENT "Preparing TileLang's private TVM Python package"
+  VERBATIM
+)
 
 # Collect source files
 tilelang_file_glob(GLOB TILE_LANG_SRCS
@@ -242,6 +283,7 @@ message(STATUS "Collected source files: ${TILE_LANG_SRCS}")
 
 # Add TileLang object library
 add_library(tilelang_objs OBJECT ${TILE_LANG_SRCS})
+add_dependencies(tilelang_objs tilelang_tvm_python)
 
 message(STATUS "TVM_SOURCE_DIR: ${TVM_SOURCE_DIR}")
 # Include directories for TileLang

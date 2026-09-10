@@ -2,11 +2,12 @@
 # Licensed under the MIT License.
 
 from __future__ import annotations
+
 """The profiler and convert to torch utils"""
 from enum import Enum
 import torch
-from tvm.runtime import ndarray
-from tvm import tir
+from tilelang.tvm.runtime import ndarray
+from tilelang.tvm import tir
 from torch.utils.dlpack import to_dlpack
 import numpy as np
 
@@ -23,8 +24,8 @@ class TensorSupplyType(Enum):
 
 def map_torch_type(intype: str) -> torch.dtype:
     typemap = {
-        'e4m3_float8': torch.float8_e4m3fn,
-        'e5m2_float8': torch.float8_e5m2,
+        "e4m3_float8": torch.float8_e4m3fn,
+        "e5m2_float8": torch.float8_e5m2,
     }
     if intype in typemap:
         return typemap[intype]
@@ -41,10 +42,14 @@ def adapt_torch2tvm(arg):
     }
     if isinstance(arg, torch.Tensor):
         if arg.dtype in {
-                torch.float8_e4m3fn, torch.float8_e4m3fnuz, torch.float8_e5m2, torch.float8_e5m2fnuz
+            torch.float8_e4m3fn,
+            torch.float8_e4m3fnuz,
+            torch.float8_e5m2,
+            torch.float8_e5m2fnuz,
         }:
             return ndarray.from_dlpack(to_dlpack(arg.view(torch.int8)))._create_view(
-                shape=arg.shape, dtype=float8_dtype_map[arg.dtype])
+                shape=arg.shape, dtype=float8_dtype_map[arg.dtype]
+            )
         return ndarray.from_dlpack(to_dlpack(arg))
     return arg
 
@@ -56,7 +61,7 @@ def get_tensor_supply(supply_type: TensorSupplyType = TensorSupplyType.Integer):
     def get_tensor(param: KernelParam) -> torch.Tensor:
         dtype: torch.dtype = param.dtype
         # device: torch.device = torch.cuda.current_device()
-        if hasattr(torch, 'npu') and torch.npu.is_available():
+        if hasattr(torch, "npu") and torch.npu.is_available():
             device = torch.npu.current_device()
         elif torch.cuda.is_available():
             device = torch.cuda.current_device()
@@ -65,7 +70,8 @@ def get_tensor_supply(supply_type: TensorSupplyType = TensorSupplyType.Integer):
         if hasattr(param, "shape") and not param.shape:
             raise ValueError(
                 f"TensorType must have a shape, but got {type(param)}, "
-                "likely you are trying to generate a random tensor with a dynamic symbolic shape.")
+                "likely you are trying to generate a random tensor with a dynamic symbolic shape."
+            )
 
         # Check if with dynamic symbolic shape
         for shape in param.shape:
@@ -81,20 +87,29 @@ def get_tensor_supply(supply_type: TensorSupplyType = TensorSupplyType.Integer):
             is_float8 = param.is_float8()
             is_boolean = param.is_boolean()
             if is_unsigned:
-                return torch.randint(low=0, high=3, size=shape, device=device, dtype=dtype)
+                return torch.randint(
+                    low=0, high=3, size=shape, device=device, dtype=dtype
+                )
             elif is_float8:
                 return torch.randint(
-                    low=-128, high=128, size=shape, device=device, dtype=torch.int8).to(dtype)
+                    low=-128, high=128, size=shape, device=device, dtype=torch.int8
+                ).to(dtype)
             elif is_boolean:
-                return torch.randint(low=0, high=2, size=shape, device=device, dtype=dtype)
+                return torch.randint(
+                    low=0, high=2, size=shape, device=device, dtype=dtype
+                )
             elif dtype in {torch.float16, torch.float32, torch.bfloat16}:
-                return torch.empty(*shape, device=device, dtype=dtype).uniform_(-1.0, 1.0)
+                return torch.empty(*shape, device=device, dtype=dtype).uniform_(
+                    -1.0, 1.0
+                )
             else:
-                return torch.randint(low=-2, high=3, size=shape, device=device, dtype=dtype)
+                return torch.randint(
+                    low=-2, high=3, size=shape, device=device, dtype=dtype
+                )
 
         if dtype == torch.int8 and supply_type in [
-                TensorSupplyType.Uniform,
-                TensorSupplyType.Normal,
+            TensorSupplyType.Uniform,
+            TensorSupplyType.Normal,
         ]:
             return torch.ones(*shape, device=device, dtype=dtype)
 
@@ -103,14 +118,21 @@ def get_tensor_supply(supply_type: TensorSupplyType = TensorSupplyType.Integer):
             is_float8 = param.is_float8()
             is_boolean = param.is_boolean()
             if is_unsigned:
-                return torch.randint(low=0, high=3, size=shape, device=device, dtype=dtype)
+                return torch.randint(
+                    low=0, high=3, size=shape, device=device, dtype=dtype
+                )
             elif is_float8:
                 return torch.randint(
-                    low=-128, high=128, size=shape, device=device, dtype=torch.int8).to(dtype)
+                    low=-128, high=128, size=shape, device=device, dtype=torch.int8
+                ).to(dtype)
             elif is_boolean:
-                return torch.randint(low=0, high=2, size=shape, device=device, dtype=dtype)
+                return torch.randint(
+                    low=0, high=2, size=shape, device=device, dtype=dtype
+                )
             else:
-                return torch.randint(low=-2, high=3, size=shape, device=device, dtype=dtype)
+                return torch.randint(
+                    low=-2, high=3, size=shape, device=device, dtype=dtype
+                )
         elif supply_type == TensorSupplyType.Uniform:
             return torch.empty(*shape, device=device, dtype=dtype).uniform_(-1.0, 1.0)
         elif supply_type == TensorSupplyType.Normal:
@@ -163,7 +185,11 @@ def _compare_attributes(
     if actual.layout != expected.layout:
         if check_layout:
             raise_mismatch_error("layout", actual.layout, expected.layout)
-    elif (actual.layout == torch.strided and check_stride and actual.stride() != expected.stride()):
+    elif (
+        actual.layout == torch.strided
+        and check_stride
+        and actual.stride() != expected.stride()
+    ):
         raise_mismatch_error("stride()", actual.stride(), expected.stride())
     if check_device and actual.device != expected.device:
         raise_mismatch_error("device", actual.device, expected.device)
@@ -171,8 +197,9 @@ def _compare_attributes(
         raise_mismatch_error("dtype", actual.dtype, expected.dtype)
 
 
-def _equalize_attributes(actual: torch.Tensor,
-                         expected: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def _equalize_attributes(
+    actual: torch.Tensor, expected: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Equalizes some attributes of two tensors for value comparison.
     If ``actual`` and ``expected`` are ...
     - ... not on the same :attr:`~torch.Tensor.device`, they are moved CPU memory.
@@ -210,7 +237,7 @@ def _equalize_attributes(actual: torch.Tensor,
     if actual.layout != expected.layout:
         # These checks are needed, since Tensor.to_dense() fails on tensors that are already strided
         actual = actual.to_dense() if actual.layout != torch.strided else actual
-        expected = (expected.to_dense() if expected.layout != torch.strided else expected)
+        expected = expected.to_dense() if expected.layout != torch.strided else expected
     return actual, expected
 
 
@@ -259,10 +286,13 @@ def torch_assert_close(
         check_device=check_device,
         check_dtype=check_dtype,
         check_layout=check_layout,
-        check_stride=check_stride)
+        check_stride=check_stride,
+    )
     tensor_a, tensor_b = _equalize_attributes(tensor_a, tensor_b)
 
-    mismatched = ~torch.isclose(tensor_a, tensor_b, rtol=rtol, atol=atol, equal_nan=equal_nan)
+    mismatched = ~torch.isclose(
+        tensor_a, tensor_b, rtol=rtol, atol=atol, equal_nan=equal_nan
+    )
     # Compute the absolute difference between the two tensors
     diff = torch.abs(tensor_a - tensor_b)
     # Count the number of mismatched elements
@@ -276,8 +306,10 @@ def torch_assert_close(
 
     # Print debug information about the mismatch
     if verbose:
-        print(f"Number of mismatched elements: {num_mismatched} / {total_elements} "
-              f"(allowed: {max_allowed_mismatched})")
+        print(
+            f"Number of mismatched elements: {num_mismatched} / {total_elements} "
+            f"(allowed: {max_allowed_mismatched})"
+        )
 
     # If there are mismatched elements, print the first mismatch
     if num_mismatched > 0:
@@ -289,9 +321,11 @@ def torch_assert_close(
         b_val = tensor_b.reshape(-1)[flat_idx].item()
         abs_diff = abs(a_val - b_val)
         rel_diff = abs_diff / (abs(b_val) + 1e-12)
-        mismatch_info = (f"\nFirst mismatch at index {idx}: "
-                         f"lhs={a_val:.6f}, rhs={b_val:.6f}, "
-                         f"abs_diff={abs_diff:.6f}, rel_diff={rel_diff:.6f}")
+        mismatch_info = (
+            f"\nFirst mismatch at index {idx}: "
+            f"lhs={a_val:.6f}, rhs={b_val:.6f}, "
+            f"abs_diff={abs_diff:.6f}, rel_diff={rel_diff:.6f}"
+        )
     else:
         mismatch_info = ""
 
@@ -304,6 +338,7 @@ def torch_assert_close(
             f"\nGreatest absolute difference: {diff.max().item()}, "
             f"Greatest relative difference: {(diff / (torch.abs(tensor_b) + 1e-12)).max().item()}"
             f"\n{base_name}: {tensor_a}"
-            f"\n{ref_name}: {tensor_b}")
+            f"\n{ref_name}: {tensor_b}"
+        )
     else:
         return True

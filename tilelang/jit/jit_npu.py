@@ -59,6 +59,27 @@ def _normalize_out_idx(out_idx, total_params):
     return normalized
 
 
+def _get_current_raw_stream(device=None):
+    """Resolve the raw aclrtStream that torch_npu currently dispatches on.
+
+    Mirrors triton-ascend's torch_npu backend strategy
+    (third_party/ascend/backend/backend_register.py: get_current_stream): the
+    stream is queried per launch, because torch_npu's OpCommand / task queue
+    dispatch on the *current* stream. A stream captured while building the
+    kernel belongs to a different dispatch context, which desynchronizes the
+    launch from the task queue and from torch_npu's allocator bookkeeping.
+    """
+    import torch_npu
+
+    if device is None:
+        device = torch.npu.current_device()
+    if hasattr(torch_npu._C, "_npu_getCurrentRawStreamNoWait"):
+        return torch_npu._C._npu_getCurrentRawStreamNoWait(device)
+    if hasattr(torch_npu._C, "_npu_getCurrentRawStream"):
+        return torch_npu._C._npu_getCurrentRawStream(device)
+    return torch.npu.current_stream(device).npu_stream
+
+
 class LaunchThreadExtractor:
     def __init__(self) -> None:
         self.expressions = []
@@ -728,6 +749,29 @@ extern "C" {
     }}
 """
 
+    # Capture by value: the handler is enqueued into torch_npu's task queue and
+    # may run on another thread after _launch() has returned.
+    cpp_launch_lambda_decl = (
+        "auto launch_call = [=]() mutable -> rtError_t" if enable_taskqueue else ""
+    )
+
+    # Dispatch.  The downstream (non-910_95) path keeps RunOpApi(..., sync=true)
+    # on purpose: that trailing synchronisation drains the task queue and syncs
+    # the stream before the buffers prepared above are released at the end of
+    # _launch.  With the queue enabled the handler runs asynchronously on the
+    # consumer thread, so without it a queued launch could still read buffers
+    # that the calling thread has already handed back to the allocator.
+    cpp_launch_dispatch = (
+        "at_npu::native::OpCommand cmd; cmd.Name(name.c_str())"
+        ".SetCustomHandler(launch_call).Run();"
+        if (enable_taskqueue and compile_on_910_95)
+        else (
+            "at_npu::native::OpCommand::RunOpApi(name.c_str(), launch_call, true);"
+            if enable_taskqueue
+            else ""
+        )
+    )
+
     return f"""
 #include "npu_launcher.h"
 #define PY_SSIZE_T_CLEAN
@@ -750,66 +794,79 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
   // base_ptr offset shape and stride are not used, arbitrarily set for now
   std::string name = "";
   name.append(kernelName);
-  void *workspace_addr = NULL;
+  // Buffers are prepared here, on the *calling* thread, before the handler is
+  // built.  The handler may run on torch_npu's task-queue consumer thread, and
+  // touching the caching / workspace allocators from there re-enters the same
+  // bounded task queue and deadlocks.  The tensor handles live in this scope, so
+  // they are created and released on the calling thread as well.
+  rtError_t ret = RT_ERROR_NONE;
+  rtError_t prep_ret = RT_ERROR_NONE;
+  uint32_t blockNum = gridX * gridY * gridZ;
   {
-        "auto launch_call = [=]() mutable -> rtError_t"
-        if (enable_taskqueue and compile_on_910_95)
-        else ("auto launch_call = [&]()" if enable_taskqueue else "")
-    } {{
-    uint32_t blockNum = gridX * gridY * gridZ;
-    {
-        "blockNum = std::min(blockNum, (uint32_t)" + str(num_physical_blocks) + ");"
-        if enable_auto_map_parallel_blocks
-        else ""
-    }
+      "blockNum = std::min(blockNum, (uint32_t)" + str(num_physical_blocks) + ");"
+      if enable_auto_map_parallel_blocks
+      else ""
+  }
+  void *syncBlockLock = NULL;
+  void *workspace_addr = NULL;
+  at::Tensor syncBlockLockTensor;
+  at::Tensor workspaceTensor;
+  {
+      f'''
+  void *ffts_addr = NULL;
+  uint32_t ffts_len; ret = rtGetC2cCtrlAddr((uint64_t*)&ffts_addr, &ffts_len);
+  if (ret != RT_ERROR_NONE) {{
+    prep_ret = ret;
+  }}
+  '''
+      if target_support_ffts
+      else ""
+  }
+  {
+      f'''
+  if (prep_ret == RT_ERROR_NONE) {{
+    uint64_t syncBlockLockSize = {lock_num} * sizeof(int64_t);
+    syncBlockLockTensor = at_npu::native::allocate_workspace(syncBlockLockSize, stream);
+    syncBlockLock = const_cast<void *>(syncBlockLockTensor.storage().data());
+    if (syncBlockLock == nullptr) {{
+      fprintf(stderr, "Error: syncBlockLock allocation failed");
+      prep_ret = 1;
+    }} else {{
+      std::vector<int64_t> lockInitData({lock_num}, {lock_ini_val});
+      ret = rtMemcpy(syncBlockLock, syncBlockLockSize, reinterpret_cast<void *>(lockInitData.data()),
+                     syncBlockLockSize, RT_MEMCPY_HOST_TO_DEVICE);
+      if (ret != RT_ERROR_NONE) {{
+        prep_ret = ret;
+      }}
+    }}
+  }}
+  '''
+      if lock_num > 0
+      else ""
+  }
+  {
+      f'''
+  if (prep_ret == RT_ERROR_NONE) {{
+    uint64_t totalWorkSpaceSize = {workspace_size} * blockNum;
+    workspaceTensor = at::empty({{static_cast<int64_t>(totalWorkSpaceSize)}},
+                                at::TensorOptions().device(at::kPrivateUse1).dtype(at::kByte));
+    workspace_addr = const_cast<void *>(workspaceTensor.storage().data());
+    if (workspace_addr == nullptr) {{
+      fprintf(stderr, "Error: workspace allocation failed");
+      prep_ret = 1;
+    }}
+  }}
+  '''
+      if workspace_size > 0
+      else ""
+  }
+    {cpp_launch_lambda_decl} {{
+    if (prep_ret != RT_ERROR_NONE) {{
+      return {'prep_ret' if enable_taskqueue else ''};
+    }}
     {
         "cce::internal::DebugTunnelData *DTData = cce::internal::DebugTunnel::Open(blockNum);"
         if need_debug
-        else ""
-    }
-    rtError_t ret;
-    void *syncBlockLock = NULL;
-    {
-        f'''
-    void *ffts_addr = NULL;
-    uint32_t ffts_len; ret = rtGetC2cCtrlAddr((uint64_t*)&ffts_addr, &ffts_len);
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
-    '''
-        if target_support_ffts
-        else ""
-    }
-
-    uint16_t ModuleId = 0;
-    {
-        f'''
-    uint64_t syncBlockLockSize = {lock_num} * sizeof(int64_t);
-    ret = rtMalloc(reinterpret_cast<void **>(&syncBlockLock),
-                   syncBlockLockSize, RT_MEMORY_HBM, 0);
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
-    std::vector<int64_t> lockInitData({lock_num}, {lock_ini_val});
-    ret = rtMemcpy(syncBlockLock, syncBlockLockSize, reinterpret_cast<void *>(lockInitData.data()),
-                   syncBlockLockSize, RT_MEMCPY_HOST_TO_DEVICE);
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
-    '''
-        if lock_num > 0
-        else ""
-    }
-    {
-        f'''
-    uint64_t totalWorkSpaceSize = {workspace_size} * blockNum;
-    ret = rtMalloc(reinterpret_cast<void **>(&workspace_addr),
-                   totalWorkSpaceSize, RT_MEMORY_HBM, ModuleId);
-    if (ret != RT_ERROR_NONE) {{
-      return {'ret' if enable_taskqueue else ''};
-    }}
-    '''
-        if workspace_size > 0
         else ""
     }
     struct __attribute__((packed)) {{
@@ -887,15 +944,7 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
         else ("ret = rtStreamSynchronize(stream);" if compile_on_910_95 else "")
     }
    }};
-   {
-        "at_npu::native::OpCommand cmd; cmd.Name(name.c_str()).SetCustomHandler(launch_call).Run();"
-        if (enable_taskqueue and compile_on_910_95)
-        else (
-            "at_npu::native::OpCommand::RunOpApi(name.c_str(), launch_call, true); rtFree(workspace_addr);"
-            if enable_taskqueue
-            else ""
-        )
-    }
+   {cpp_launch_dispatch}
   return;
 }}
 
@@ -1099,9 +1148,6 @@ class JitKernel_NPU:
         self.mlir_content = metadata["mlir_content"]
         self.mix_mode = metadata["mix_mode"]
         self.utils_device = torch.npu.current_device()
-        self.launch_stream = torch.npu.current_stream(
-            torch.npu.current_device()
-        ).npu_stream
         self.launch_packedMetadata = {
             "kernel_name": f"{metadata['name']}",
             "tensor_kinds": metadata["tensor_kinds"],
@@ -1278,12 +1324,17 @@ class JitKernel_NPU:
         # Append extra_args
         full_args.extend(self.extra_args)
 
+        # Resolve the launch stream at call time (see _get_current_raw_stream).
+        # torch_npu dispatches through the current stream, so a stream captured
+        # at build time desynchronizes this launch from the task queue and from
+        # the allocator bookkeeping of the current stream.
+        launch_stream = _get_current_raw_stream()
         # Run kernel
         self.launch_npu(
             self.launch_grid[0],
             self.launch_grid[1],
             self.launch_grid[2],
-            self.launch_stream,
+            launch_stream,
             self.npu_function,
             self.launch_packedMetadata,
             self.launch_metadata,
@@ -1394,43 +1445,95 @@ class compiler_npu:
     def __init__(self) -> None:
         pass
 
-    def _get_workspace_size(self, lib_path, suffix, default=32768):
-        # Try to get the infer_workspace_shape_function in the kernel, then use the return value as workspace_size
-        # Use default to avoid except
-        # If you have set the os env "TILELANG_ASCEND_WORKSPACE_SIZE", "TILELANG_ASCEND_WORKSPACE_SIZE" has a higher priority
-        if not os.path.exists(lib_path):
-            return default
-        symbols = []
-        # Try to get the kernel symbol table and match function name "***_infer_workspace_shape_function"
-        try:
-            result = subprocess.run(
-                ["nm", "-D", lib_path], capture_output=True, text=True, timeout=2
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split("\n"):
-                    parts = line.strip().split()
-                    if len(parts) >= 3:
-                        sym_name = parts[2]
-                        if sym_name.endswith(suffix):
-                            symbols.append(sym_name)
-        except (subprocess.SubprocessError, FileNotFoundError, OSError, TimeoutError):
-            pass
+    def _find_infer_symbols(self, lib_path, suffix):
+        # The NPU compiler emits "<kernel_name>_infer_workspace_shape_function"
+        # for kernels that declare such a callback.  Look at the dynamic symbol
+        # table first, then at the full one (the callback may be local).
+        found = []
+        for nm_args in (["-D"], []):
+            try:
+                result = subprocess.run(
+                    ["nm"] + nm_args + [lib_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+            except (subprocess.SubprocessError, FileNotFoundError, OSError, TimeoutError):
+                continue
+            if result.returncode != 0:
+                continue
+            for line in result.stdout.split("\n"):
+                parts = line.strip().split()
+                if len(parts) >= 3 and parts[2].endswith(suffix):
+                    if parts[2] not in found:
+                        found.append(parts[2])
+            if found:
+                break
+        # A library can carry several kernels; prefer this kernel's callback
+        # instead of whichever symbol the symbol table happened to list first.
+        kernel_name = self.metadata.get("kernel_name") or ""
+        preferred = f"{kernel_name}{suffix}"
+        if preferred in found:
+            return [preferred]
+        return found
 
-        if not symbols:
+    def _get_workspace_size(self, lib_path, suffix, default=0):
+        # Workspace bytes *per block* declared by the compiled kernel; 0 means
+        # the kernel needs none, and the launcher then passes nullptr instead of
+        # allocating scratch memory.
+        #
+        # The callback is only generated for kernels that actually need a
+        # workspace, so its absence is meaningful: falling back to a fixed size
+        # (32768) made every kernel allocate 32768 * blockNum.  `default` is used
+        # only when the declaration cannot be read at all, and is 0 for the same
+        # reason -- this mirrors triton-ascend, where the callback result lands in
+        # metadata and a missing entry leaves the launcher with no workspace.
+        #
+        # TILELANG_ASCEND_WORKSPACE_SIZE overrides the result (handled in
+        # compile(), before the wrapper source is generated).
+        if not os.path.exists(lib_path):
+            print(
+                f"Workspace size: {lib_path} not found, kernel gets no workspace"
+            )
             return default
+        symbols = self._find_infer_symbols(lib_path, suffix)
+        if not symbols:
+            print(
+                f"Workspace size: kernel declares no '*{suffix}' callback, "
+                f"no workspace allocated (set TILELANG_ASCEND_WORKSPACE_SIZE if "
+                f"this kernel does need scratch memory)"
+            )
+            return 0
         # Load the lib
         try:
             lib = ctypes.CDLL(lib_path)
-        except OSError:
+        except OSError as exc:
+            print(
+                f"Workspace size: dlopen({lib_path}) failed ({exc}), "
+                f"kernel gets no workspace"
+            )
             return default
         # Get the return value
         for func_name in symbols:
             try:
                 func = getattr(lib, func_name)
-                func.restype = ctypes.c_int
-                return func()
+                func.restype = ctypes.c_int64
+                func.argtypes = []
+                size = int(func())
             except (AttributeError, OSError, TypeError):
                 continue
+            if size <= 0:
+                print(
+                    f"Workspace size: {func_name}() = {size}, "
+                    f"kernel gets no workspace"
+                )
+                return 0
+            print(f"Workspace size: {func_name}() = {size} bytes/block")
+            return size
+        print(
+            f"Workspace size: no callable callback among {symbols}, "
+            f"kernel gets no workspace"
+        )
         return default
 
     def compile(
@@ -1477,6 +1580,28 @@ class compiler_npu:
         self.metadata["kernel_src"] = self._npuir_to_bin_enable_npu_compile()
         self.header_path = get_npu_launcher_header()
         is_a5 = _is_a5_device()
+
+        # The override must be applied *before* the wrapper is generated: the
+        # launcher bakes the size into its C++ source, so setting the env var
+        # after make_npu_launcher_stub() would leave both the built launcher and
+        # its cached .so on the inferred value.
+        TILELANG_ASCEND_WORKSPACE_SIZE = os.environ.get(
+            "TILELANG_ASCEND_WORKSPACE_SIZE"
+        )
+        if TILELANG_ASCEND_WORKSPACE_SIZE is not None:
+            try:
+                self.workspace_size = int(TILELANG_ASCEND_WORKSPACE_SIZE)
+                print(
+                    f"Workspace size: overridden by TILELANG_ASCEND_WORKSPACE_SIZE "
+                    f"= {self.workspace_size} bytes/block"
+                )
+            except ValueError:
+                print(
+                    f"Warning: TILELANG_ASCEND_WORKSPACE_SIZE must be integer, "
+                    f"got '{TILELANG_ASCEND_WORKSPACE_SIZE}', keeping "
+                    f"{self.workspace_size} bytes/block"
+                )
+
         shared_mem_dynamic_size = self.metadata.get(
             "shared_mem_dynamic_size", 221184 if is_a5 else 0
         )
@@ -1497,18 +1622,6 @@ class compiler_npu:
             self.metadata["kernel_name"], self.header_path, self.wrapper_src
         )
         self.metadata["so_launcher_path"] = self.so_launcher_path
-
-        TILELANG_ASCEND_WORKSPACE_SIZE = os.environ.get(
-            "TILELANG_ASCEND_WORKSPACE_SIZE"
-        )
-        if TILELANG_ASCEND_WORKSPACE_SIZE is not None:
-            try:
-                self.workspace_size = int(TILELANG_ASCEND_WORKSPACE_SIZE)
-            except ValueError:
-                print(
-                    f"Warning: TILELANG_ASCEND_WORKSPACE_SIZE must be integer, "
-                    f"got '{TILELANG_ASCEND_WORKSPACE_SIZE}', using default 32768"
-                )
 
         return JitKernel_NPU(metadata=self.metadata, out_idx=out_idx)
 

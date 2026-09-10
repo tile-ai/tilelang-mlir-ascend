@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 """The language interface for tl programs."""
 
-from tvm import tir
+from tilelang.tvm import tir
 from typing import Optional
 from tilelang.language import copy, macro, alloc_shared
 
@@ -13,7 +13,9 @@ def _legalize_dim(buffer: tir.Buffer, dim: int):
     return dim
 
 
-def reduce(buffer: tir.Buffer, out: tir.Buffer, reduce_type: str, dim: int, clear: bool):
+def reduce(
+    buffer: tir.Buffer, out: tir.Buffer, reduce_type: str, dim: int, clear: bool
+):
     """Perform a reduction operation on a buffer along a specified dimension.
 
     Args:
@@ -86,8 +88,8 @@ def reduce_sum(buffer: tir.Buffer, out: tir.Buffer, dim: int = -1, clear: bool =
         clear (bool, optional): If True, output buffer will be cleared before reduction.
                               If False, results will be accumulated on existing values.
                               Defaults to True.
-    Note: When clear=True, reduce_sum will not compute directly on the output buffer. This is because 
-          during warp reduction, the same value would be accumulated multiple times (number of threads 
+    Note: When clear=True, reduce_sum will not compute directly on the output buffer. This is because
+          during warp reduction, the same value would be accumulated multiple times (number of threads
           in the warp). Therefore, the implementation with clear=True follows these steps:
         1. create a temp buffer with same shape and dtype as out
         2. copy out to temp buffer
@@ -116,7 +118,9 @@ def reduce_abssum(buffer: tir.Buffer, out: tir.Buffer, dim: int = -1):
     return reduce(buffer, out, "abssum", dim, True)
 
 
-def reduce_absmax(buffer: tir.Buffer, out: tir.Buffer, dim: int = -1, clear: bool = True):
+def reduce_absmax(
+    buffer: tir.Buffer, out: tir.Buffer, dim: int = -1, clear: bool = True
+):
     """Perform reduce absolute max on input buffer, store the result to output buffer.
 
     Args:
@@ -132,7 +136,9 @@ def reduce_absmax(buffer: tir.Buffer, out: tir.Buffer, dim: int = -1, clear: boo
 
 
 @macro
-def cumsum_fragment(src: tir.Buffer, dst: tir.Buffer, dim: int, reverse: bool) -> tir.PrimExpr:
+def cumsum_fragment(
+    src: tir.Buffer, dst: tir.Buffer, dim: int, reverse: bool
+) -> tir.PrimExpr:
     cumsum_smem = alloc_shared(src.shape, src.dtype, "shared.dyn")
     copy(src, cumsum_smem)
     tir.call_intrin(
@@ -146,7 +152,12 @@ def cumsum_fragment(src: tir.Buffer, dst: tir.Buffer, dim: int, reverse: bool) -
     copy(cumsum_smem, dst)
 
 
-def cumsum(src: tir.Buffer, dst: Optional[tir.Buffer] = None, dim: int = 0, reverse: bool = False):
+def cumsum(
+    src: tir.Buffer,
+    dst: Optional[tir.Buffer] = None,
+    dim: int = 0,
+    reverse: bool = False,
+):
     """Perform cumulative sum on input buffer, store the result to output buffer.
 
     Args:
@@ -161,7 +172,9 @@ def cumsum(src: tir.Buffer, dst: Optional[tir.Buffer] = None, dim: int = 0, reve
 
     shape = src.shape
     if dim >= len(shape) or dim <= -len(shape):
-        raise ValueError(f"Dimension {dim} is out of bounds for buffer with shape {shape}")
+        raise ValueError(
+            f"Dimension {dim} is out of bounds for buffer with shape {shape}"
+        )
     if dim < 0:
         dim = len(shape) + dim
 

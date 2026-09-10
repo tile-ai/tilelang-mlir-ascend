@@ -5,7 +5,7 @@ import tilelang as tl
 from tilelang.utils.target import determine_target
 import tilelang.language as T
 import tilelang.testing
-from tvm import tir
+from tilelang.tvm import tir
 
 auto_target = tvm.target.Target(determine_target("auto"))
 
@@ -32,11 +32,18 @@ def test_lower_fence_proxy():
             B_shared = T.decl_buffer((1, 4, 512), "float16", scope="shared.dyn")
             C_local = T.decl_buffer((32,), scope="local")
             for i in T.unroll(16):
-                C_local[i * 2:i * 2 + 2] = T.Broadcast(T.float32(0), 2)
-            T.call_extern("handle", "tl::gemm_ss<64, 64, 32, 4, 1, 0, 0>",
-                          T.tvm_access_ptr(T.type_annotation("float16"), A_shared.data, 0, 2048, 1),
-                          T.tvm_access_ptr(T.type_annotation("float16"), B_shared.data, 0, 2048, 1),
-                          T.tvm_access_ptr(T.type_annotation("float32"), C_local.data, 0, 32, 3))
+                C_local[i * 2 : i * 2 + 2] = T.Broadcast(T.float32(0), 2)
+            T.call_extern(
+                "handle",
+                "tl::gemm_ss<64, 64, 32, 4, 1, 0, 0>",
+                T.tvm_access_ptr(
+                    T.type_annotation("float16"), A_shared.data, 0, 2048, 1
+                ),
+                T.tvm_access_ptr(
+                    T.type_annotation("float16"), B_shared.data, 0, 2048, 1
+                ),
+                T.tvm_access_ptr(T.type_annotation("float32"), C_local.data, 0, 32, 3),
+            )
 
     @T.prim_func
     def after():
@@ -45,12 +52,19 @@ def test_lower_fence_proxy():
             B_shared = T.decl_buffer((1, 4, 512), "float16", scope="shared.dyn")
             C_local = T.decl_buffer((32,), scope="local")
             for i in T.unroll(16):
-                C_local[i * 2:i * 2 + 2] = T.Broadcast(T.float32(0), 2)
+                C_local[i * 2 : i * 2 + 2] = T.Broadcast(T.float32(0), 2)
             T.fence_proxy_async()
-            T.call_extern("handle", "tl::gemm_ss<64, 64, 32, 4, 1, 0, 0>",
-                          T.tvm_access_ptr(T.type_annotation("float16"), A_shared.data, 0, 2048, 1),
-                          T.tvm_access_ptr(T.type_annotation("float16"), B_shared.data, 0, 2048, 1),
-                          T.tvm_access_ptr(T.type_annotation("float32"), C_local.data, 0, 32, 3))
+            T.call_extern(
+                "handle",
+                "tl::gemm_ss<64, 64, 32, 4, 1, 0, 0>",
+                T.tvm_access_ptr(
+                    T.type_annotation("float16"), A_shared.data, 0, 2048, 1
+                ),
+                T.tvm_access_ptr(
+                    T.type_annotation("float16"), B_shared.data, 0, 2048, 1
+                ),
+                T.tvm_access_ptr(T.type_annotation("float32"), C_local.data, 0, 32, 3),
+            )
 
     _check(before, after)
 

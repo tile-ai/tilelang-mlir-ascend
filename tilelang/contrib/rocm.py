@@ -15,18 +15,19 @@
 # specific language governing permissions and limitations
 # under the License.
 """Utility for ROCm backend"""
+
 # ruff: noqa
 import re
 import subprocess
 import os
 from os.path import join, exists
 
-import tvm._ffi
-from tvm._ffi.base import py_str
-import tvm.runtime
-import tvm.target
-
-from tvm.contrib import utils
+import tilelang.tvm._ffi  # noqa: F401
+import tilelang.tvm.runtime  # noqa: F401
+import tilelang.tvm.target  # noqa: F401
+from tilelang import tvm
+from tilelang.tvm._ffi.base import py_str
+from tilelang.tvm.contrib import utils
 
 
 def find_lld(required=True):
@@ -247,7 +248,9 @@ def get_rocm_arch(rocm_path="/opt/rocm"):
         return gpu_arch
     try:
         # Execute rocminfo command
-        rocminfo_output = subprocess.check_output([f"{rocm_path}/bin/rocminfo"]).decode("utf-8")
+        rocminfo_output = subprocess.check_output([f"{rocm_path}/bin/rocminfo"]).decode(
+            "utf-8"
+        )
 
         # Use regex to match the "Name" field
         match = re.search(r"Name:\s+(gfx\d+[a-zA-Z]*)", rocminfo_output)
@@ -255,9 +258,11 @@ def get_rocm_arch(rocm_path="/opt/rocm"):
             gpu_arch = match.group(1)
         return gpu_arch
     except subprocess.CalledProcessError:
-        print(f"Unable to execute rocminfo command, \
+        print(
+            f"Unable to execute rocminfo command, \
                 please ensure ROCm is installed and you have an AMD GPU on your system.\
-                    using default {gpu_arch}.")
+                    using default {gpu_arch}."
+        )
         return gpu_arch
 
 

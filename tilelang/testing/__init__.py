@@ -7,8 +7,8 @@ import random
 import torch
 import numpy as np
 from tilelang.contrib import nvcc
-from tvm.testing.utils import *
-from tvm.testing.utils import _compose
+from tilelang.tvm.testing.utils import *
+from tilelang.tvm.testing.utils import _compose
 
 from tilelang.utils.tensor import torch_assert_close as torch_assert_close
 
@@ -45,7 +45,7 @@ def requires_cuda_compute_version(major_version, minor_version=0, mode="ge"):
     minor_version: int
 
         The minor version of the (major,minor) version tuple.
-    
+
     mode: str
 
         The mode of the comparison.

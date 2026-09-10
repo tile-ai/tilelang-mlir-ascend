@@ -6,8 +6,8 @@ from __future__ import annotations
 import re
 from typing import Union, Optional, Literal
 from tilelang import tvm as tvm
-from tvm import IRModule, tir
-from tvm.target import Target
+from tilelang.tvm import IRModule, tir
+from tilelang.tvm.target import Target
 from tilelang.engine.lower import (
     get_device_call,
     get_host_call,
@@ -94,13 +94,12 @@ def get_annotated_mod(
 
     # Define dispatch dictionary for different model types
     dispatch = {
-        "device":
-            lambda m: tir.transform.Filter(_is_device_call)(m),
-        "host":
-            lambda m: tir.transform.Filter(_is_host_call)(m),
-        "all":
-            lambda m: (tir.transform.Filter(_is_device_call)(m), tir.transform.Filter(_is_host_call)
-                       (m)),
+        "device": lambda m: tir.transform.Filter(_is_device_call)(m),
+        "host": lambda m: tir.transform.Filter(_is_host_call)(m),
+        "all": lambda m: (
+            tir.transform.Filter(_is_device_call)(m),
+            tir.transform.Filter(_is_host_call)(m),
+        ),
     }
 
     return dispatch[model_type](mod)

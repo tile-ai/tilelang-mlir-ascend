@@ -3,12 +3,17 @@
 import numpy as np
 from dataclasses import dataclass
 from tilelang import tvm
-from tvm.tir.stmt_functor import ir_transform
+from tilelang.tvm.tir.stmt_functor import ir_transform
 import logging
 from typing import Optional
+
 # Configuration for different hardware architectures.
 # Each entry contains: (cores per SM, default clock (GHz), FLOPs per cycle, max SM count)
-ARCH_CONFIGS = {"80": (128, 1.41, 2, 108), "86": (128, 1.70, 2, 84), "89": (128, 2.52, 2, 128)}
+ARCH_CONFIGS = {
+    "80": (128, 1.41, 2, 108),
+    "86": (128, 1.70, 2, 84),
+    "89": (128, 2.52, 2, 128),
+}
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,6 +30,7 @@ class AnalysisResult:
         tflops: Achieved TFLOPS (trillions of FLOPs per second).
         bandwidth_GBps: Achieved memory bandwidth in GB/s.
     """
+
     total_flops: int
     total_global_bytes: int
     estimated_time: float
@@ -77,13 +83,15 @@ class Analyzer:
         elements = 1
         for r in range(2, len(buffer_region.args)):
             elements *= buffer_region.args[r]
-        dtype_size = np.dtype(buffer_region.args[0].buffer.dtype).itemsize  # Size of the data type
+        dtype_size = np.dtype(
+            buffer_region.args[0].buffer.dtype
+        ).itemsize  # Size of the data type
         bytes_transferred = elements * dtype_size  # Total bytes transferred
 
         # Account for loop and block dimensions
         loop_product = 1
         for extent in self.loop_stack:
-            loop_product *= extent.value if hasattr(extent, 'value') else extent
+            loop_product *= extent.value if hasattr(extent, "value") else extent
         total_blocks = self.block_counts["blockIdx.x"] * self.block_counts["blockIdx.y"]
         total_bytes = bytes_transferred * loop_product * total_blocks
         self.total_global_bytes += total_bytes
@@ -102,7 +110,7 @@ class Analyzer:
         # Account for loop and block dimensions
         loop_product = 1
         for extent in self.loop_stack:
-            loop_product *= extent.value if hasattr(extent, 'value') else extent
+            loop_product *= extent.value if hasattr(extent, "value") else extent
         total_blocks = self.block_counts["blockIdx.x"] * self.block_counts["blockIdx.y"]
         self.total_flops += flops_per_call * loop_product * total_blocks
 
@@ -129,8 +137,11 @@ class Analyzer:
                         iter_var = stmt.node
                         thread_tag = iter_var.thread_tag
                         if thread_tag in self.block_counts:
-                            extent = stmt.value.value if hasattr(stmt.value,
-                                                                 'value') else stmt.value
+                            extent = (
+                                stmt.value.value
+                                if hasattr(stmt.value, "value")
+                                else stmt.value
+                            )
                             self.block_counts[thread_tag] = extent
                 elif isinstance(stmt, tvm.tir.For):
                     # Push loop extent onto the stack
@@ -185,7 +196,9 @@ class Analyzer:
                 )
                 return None
 
-            cores_per_sm, default_clock, flops_per_cycle, compute_max_core = ARCH_CONFIGS[arch_key]
+            cores_per_sm, default_clock, flops_per_cycle, compute_max_core = (
+                ARCH_CONFIGS[arch_key]
+            )
             total_cores = compute_max_core * cores_per_sm
             tflops = (total_cores * default_clock * flops_per_cycle) / 1e3
             return round(tflops, 1)
@@ -205,7 +218,8 @@ class Analyzer:
             total_global_bytes=self.total_global_bytes,
             estimated_time=estimated_time,
             expected_tflops=peak_tflops,
-            expected_bandwidth_GBps=bandwidth_GBps)
+            expected_bandwidth_GBps=bandwidth_GBps,
+        )
 
     @classmethod
     def analysis(cls, fn, device):

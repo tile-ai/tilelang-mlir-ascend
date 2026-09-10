@@ -4,22 +4,25 @@
 import tilelang
 from tilelang import tvm as tvm
 import tilelang.testing
-from tvm import te
-from tvm.script import ir as I
+from tilelang.tvm import te
+from tilelang.tvm.script import ir as I
 from tilelang import language as T
 import pytest
 
 simple_target = tvm.target.Target("llvm -mtriple=x86_64-linux-gnu")
-sve_target = tvm.target.Target("llvm -device=arm_cpu -mtriple=aarch64-linux-gnu -mattr=+v8.2a,+sve")
+sve_target = tvm.target.Target(
+    "llvm -device=arm_cpu -mtriple=aarch64-linux-gnu -mattr=+v8.2a,+sve"
+)
 
 
 @tilelang.testing.requires_llvm
-@pytest.mark.parametrize("extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)])
+@pytest.mark.parametrize(
+    "extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)]
+)
 def test_vectorize_loop(extent, target):
 
     @I.ir_module
     class Before:
-
         @T.prim_func
         def main(A: T.Tensor((16,), "float32")):
             for j in T.vectorized(0, extent):
@@ -27,7 +30,6 @@ def test_vectorize_loop(extent, target):
 
     @I.ir_module
     class After:
-
         @T.prim_func
         def main(A: T.Tensor((16,), "float32")):
             A[T.Ramp(0, 1, extent)] = T.Broadcast(1, extent)
@@ -63,11 +65,10 @@ def test_vectorize_vector_scalable_error():
 
     @I.ir_module
     class Module:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32")):
             for j in T.vectorized(T.vscale() * 4):
-                A[j * 4:j * 4 + 4] = T.Broadcast(T.float32(1), 4)
+                A[j * 4 : j * 4 + 4] = T.Broadcast(T.float32(1), 4)
 
     error_msg = f"Creating scalable vectors from existing vectors is not supported."
     with tvm.target.Target(sve_target):
@@ -80,13 +81,14 @@ def test_vectorize_vector_scalable_error2():
 
     @I.ir_module
     class Module:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32xvscalex4")):
             for j in T.vectorized(4):
                 A[j] = T.Broadcast(T.float32(1), T.vscale() * 4)
 
-    error_msg = f"Vectorizing over scalable buffer elements is not supported in vectorizer."
+    error_msg = (
+        f"Vectorizing over scalable buffer elements is not supported in vectorizer."
+    )
     with pytest.raises(tvm.error.InternalError, match=error_msg):
         tilelang.transform.VectorizeLoop()(Module)
 
@@ -96,13 +98,12 @@ def test_vectorize_vector_scalable_error3():
 
     @I.ir_module
     class Module:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32")):
             for j in T.vectorized(4):
-                A[j * T.vscale() * 4:j * T.vscale() * 4 + T.vscale() * 4] = T.Broadcast(
-                    T.float32(1),
-                    T.vscale() * 4)
+                A[j * T.vscale() * 4 : j * T.vscale() * 4 + T.vscale() * 4] = (
+                    T.Broadcast(T.float32(1), T.vscale() * 4)
+                )
 
     error_msg = f"Vectorizing over existing scalable vectors is not supported."
     with pytest.raises(tvm.error.InternalError, match=error_msg):
@@ -115,13 +116,12 @@ def test_vectorize_vector_scalable_error4():
 
     @I.ir_module
     class Module:
-
         @T.prim_func(private=True)
         def main(A: T.Tensor((25,), "float32")):
             for j in T.vectorized(T.vscale() * 4):
-                A[j * T.vscale() * 4:j * T.vscale() * 4 + T.vscale() * 4] = T.Broadcast(
-                    T.float32(1),
-                    T.vscale() * 4)
+                A[j * T.vscale() * 4 : j * T.vscale() * 4 + T.vscale() * 4] = (
+                    T.Broadcast(T.float32(1), T.vscale() * 4)
+                )
 
     error_msg = f"Creating scalable vectors from existing vectors is not supported."
     with pytest.raises(tvm.error.InternalError, match=error_msg):
@@ -130,12 +130,13 @@ def test_vectorize_vector_scalable_error4():
 
 
 @tilelang.testing.requires_llvm
-@pytest.mark.parametrize("extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)])
+@pytest.mark.parametrize(
+    "extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)]
+)
 def test_vectorize_with_if(extent, target):
 
     @I.ir_module
     class Before:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32"), n: T.int32, x: T.int32):
             for i in T.vectorized(extent):
@@ -147,12 +148,12 @@ def test_vectorize_with_if(extent, target):
 
     @I.ir_module
     class After:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32"), n: T.int32, x: T.int32):
             if x < n:
-                A[T.Ramp(0, 1,
-                         extent)] = A[T.Ramp(0, 1, extent)] + T.Broadcast(T.float32(1), extent)
+                A[T.Ramp(0, 1, extent)] = A[T.Ramp(0, 1, extent)] + T.Broadcast(
+                    T.float32(1), extent
+                )
             else:
                 for i_s in range(extent):
                     if i_s < n:
@@ -175,12 +176,13 @@ def test_vectorize_with_if_cond_int64():
 
 
 @tilelang.testing.requires_llvm
-@pytest.mark.parametrize("extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)])
+@pytest.mark.parametrize(
+    "extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)]
+)
 def test_vectorize_let(extent, target):
 
     @I.ir_module
     class Before:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32")):
             for i in T.vectorized(extent):
@@ -189,7 +191,6 @@ def test_vectorize_let(extent, target):
 
     @I.ir_module
     class After:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32")):
             v = A[T.Ramp(0, 1, extent)] + T.Broadcast(T.float32(1), extent)
@@ -201,7 +202,9 @@ def test_vectorize_let(extent, target):
 
 
 @tilelang.testing.requires_llvm
-@pytest.mark.parametrize("extent, target", [(4, simple_target), (tvm.tir.vscale() * 4, sve_target)])
+@pytest.mark.parametrize(
+    "extent, target", [(4, simple_target), (tvm.tir.vscale() * 4, sve_target)]
+)
 def test_vectorize_with_le_cond(extent, target):
     n = te.var("n")
     ib = tvm.tir.ir_builder.create()
@@ -221,7 +224,9 @@ def test_vectorize_with_le_cond(extent, target):
 
 
 @tilelang.testing.requires_llvm
-@pytest.mark.parametrize("extent, target", [(4, simple_target), (tvm.tir.vscale() * 4, sve_target)])
+@pytest.mark.parametrize(
+    "extent, target", [(4, simple_target), (tvm.tir.vscale() * 4, sve_target)]
+)
 def test_vectorize_with_ge_cond(extent, target):
     n = te.var("n")
     ib = tvm.tir.ir_builder.create()
@@ -241,12 +246,13 @@ def test_vectorize_with_ge_cond(extent, target):
 
 
 @tilelang.testing.requires_llvm
-@pytest.mark.parametrize("extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)])
+@pytest.mark.parametrize(
+    "extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)]
+)
 def test_vectorize_if_then_else_scalarize(extent, target):
 
     @I.ir_module
     class Before:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32")):
             for i in T.vectorized(extent):
@@ -254,7 +260,6 @@ def test_vectorize_if_then_else_scalarize(extent, target):
 
     @I.ir_module
     class After:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32")):
             for i_s in range(extent):
@@ -266,12 +271,13 @@ def test_vectorize_if_then_else_scalarize(extent, target):
 
 
 @tilelang.testing.requires_llvm
-@pytest.mark.parametrize("extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)])
+@pytest.mark.parametrize(
+    "extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)]
+)
 def test_vectorize_if_then_else_vector(extent, target):
 
     @I.ir_module
     class Before:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32"), n: T.int32):
             for i in range(n):
@@ -280,13 +286,12 @@ def test_vectorize_if_then_else_vector(extent, target):
 
     @I.ir_module
     class After:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32"), n: T.int32):
             for i in range(n):
-                A[T.Ramp(i * extent, 1, extent)] = T.if_then_else(i > 0,
-                                                                  A[T.Ramp(i * extent, 1, extent)],
-                                                                  T.Broadcast(0, extent))
+                A[T.Ramp(i * extent, 1, extent)] = T.if_then_else(
+                    i > 0, A[T.Ramp(i * extent, 1, extent)], T.Broadcast(0, extent)
+                )
 
     with tvm.target.Target(target):
         mod = tilelang.transform.VectorizeLoop()(Before)
@@ -353,13 +358,15 @@ def test_vectorize_dtype_mismatch():
 @tilelang.testing.requires_llvm
 @pytest.mark.parametrize(
     "extent, vec_str, target",
-    [(16, "float32x16", simple_target), (T.vscale() * 8, "float32xvscalex8", sve_target)],
+    [
+        (16, "float32x16", simple_target),
+        (T.vscale() * 8, "float32xvscalex8", sve_target),
+    ],
 )
 def test_vectorize_with_reinterpret(extent, vec_str, target):
 
     @I.ir_module
     class Before:
-
         @T.prim_func
         def main(A: T.Tensor((16,), "int32"), B: T.Tensor((16,), "float32")):
             for i in T.vectorized(0, extent):
@@ -367,7 +374,6 @@ def test_vectorize_with_reinterpret(extent, vec_str, target):
 
     @I.ir_module
     class After:
-
         @T.prim_func
         def main(A: T.Tensor((16,), "int32"), B: T.Tensor((16,), "float32")):
             B[T.Ramp(0, 1, extent)] = T.reinterpret(vec_str, A[T.Ramp(0, 1, extent)])
@@ -378,7 +384,9 @@ def test_vectorize_with_reinterpret(extent, vec_str, target):
 
 
 @tilelang.testing.requires_llvm
-@pytest.mark.parametrize("extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)])
+@pytest.mark.parametrize(
+    "extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)]
+)
 @pytest.mark.parametrize(
     "op",
     (
@@ -403,7 +411,6 @@ def test_vectorize_binary(op, extent, target):
 
     @I.ir_module
     class Before:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32"), B: T.Tensor((25,), "float32")):
             for j in T.vectorized(extent):
@@ -411,10 +418,11 @@ def test_vectorize_binary(op, extent, target):
 
     @I.ir_module
     class After:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32"), B: T.Tensor((25,), "float32")):
-            A[T.Ramp(0, 1, extent)] = op(T.Broadcast(T.float32(3), extent), B[T.Ramp(0, 1, extent)])
+            A[T.Ramp(0, 1, extent)] = op(
+                T.Broadcast(T.float32(3), extent), B[T.Ramp(0, 1, extent)]
+            )
 
     with tvm.target.Target(target):
         mod = tilelang.transform.VectorizeLoop()(Before)
@@ -422,13 +430,14 @@ def test_vectorize_binary(op, extent, target):
 
 
 @tilelang.testing.requires_llvm
-@pytest.mark.parametrize("extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)])
+@pytest.mark.parametrize(
+    "extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)]
+)
 @pytest.mark.parametrize("op", (T.And, T.Or))
 def test_vectorize_logical(op, extent, target):
 
     @I.ir_module
     class Before:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "bool"), B: T.Tensor((25,), "bool")):
             for j in T.vectorized(extent):
@@ -436,10 +445,11 @@ def test_vectorize_logical(op, extent, target):
 
     @I.ir_module
     class After:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "bool"), B: T.Tensor((25,), "bool")):
-            A[T.Ramp(0, 1, extent)] = op(T.Broadcast(T.bool(1), extent), B[T.Ramp(0, 1, extent)])
+            A[T.Ramp(0, 1, extent)] = op(
+                T.Broadcast(T.bool(1), extent), B[T.Ramp(0, 1, extent)]
+            )
 
     with tvm.target.Target(target):
         mod = tilelang.transform.VectorizeLoop()(Before)
@@ -447,12 +457,13 @@ def test_vectorize_logical(op, extent, target):
 
 
 @tilelang.testing.requires_llvm
-@pytest.mark.parametrize("extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)])
+@pytest.mark.parametrize(
+    "extent, target", [(4, simple_target), (T.vscale() * 4, sve_target)]
+)
 def test_vectorize_select(extent, target):
 
     @I.ir_module
     class Before:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32"), B: T.Tensor((25,), "float32")):
             for j in T.vectorized(extent):
@@ -460,7 +471,6 @@ def test_vectorize_select(extent, target):
 
     @I.ir_module
     class After:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "float32"), B: T.Tensor((25,), "float32")):
             A[T.Ramp(0, 1, extent)] = T.Select(
@@ -483,7 +493,6 @@ def test_vectorize_cast(extent, vec_str, target):
 
     @I.ir_module
     class Before:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "int32"), B: T.Tensor((25,), "float32")):
             for j in T.vectorized(extent):
@@ -491,7 +500,6 @@ def test_vectorize_cast(extent, vec_str, target):
 
     @I.ir_module
     class After:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "int32"), B: T.Tensor((25,), "float32")):
             A[T.Ramp(0, 1, extent)] = T.Cast(vec_str, B[T.Ramp(0, 1, extent)])
@@ -506,7 +514,6 @@ def test_illegal_extent():
 
     @I.ir_module(check_well_formed=False)
     class Mod:
-
         @T.prim_func
         def main(A: T.Tensor((25,), "int32")):
             n = T.Var("n", dtype="int32")
@@ -523,14 +530,15 @@ def test_illegal_vscale_in_non_sve_compilation():
 
     @I.ir_module
     class Mod:
-
         @T.prim_func
         def main(A: T.Tensor((16,), "float32")):
             for j in T.vectorized(0, 4 * T.vscale()):
                 A[j] = 13
 
-    msg = (f"Failed to vectorize loop with extent T.vscale\\(\\) \\* 4 for target "
-           f"llvm -keys=cpu -mtriple=x86_64-linux-gnu")
+    msg = (
+        f"Failed to vectorize loop with extent T.vscale\\(\\) \\* 4 for target "
+        f"llvm -keys=cpu -mtriple=x86_64-linux-gnu"
+    )
     with tvm.target.Target(simple_target):
         with pytest.raises(tvm.error.InternalError, match=msg):
             tilelang.transform.VectorizeLoop()(Mod)

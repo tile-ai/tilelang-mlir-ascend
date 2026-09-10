@@ -4,7 +4,7 @@
 
 from tilelang.primitives.gemm.base import GemmWarpPolicy
 import tilelang.language as T
-from tvm import tir
+from tilelang.tvm import tir
 from typing import Union, List
 
 
@@ -69,7 +69,9 @@ def gemm(
                 shape.append(r.extent)
             return shape
         else:
-            raise ValueError(f"Unsupported argument type: {type(object)} for buffer {object}")
+            raise ValueError(
+                f"Unsupported argument type: {type(object)} for buffer {object}"
+            )
 
     A_shape = retrieve_shape(A)
     B_shape = retrieve_shape(B)
@@ -80,20 +82,23 @@ def gemm(
     assert len(B_shape) >= 2, "current only support B as a 2D or higher-order tensor"
     if len(A_shape) > 2:
         for i in range(len(A_shape) - 2):
-            assert A_shape[i] == 1, \
+            assert A_shape[i] == 1, (
                 "current only support A as a 2D or higher-order tensor with the last two dimensions being the matrix dimensions"
+            )
     if len(B_shape) > 2:
         for i in range(len(B_shape) - 2):
-            assert B_shape[i] == 1, \
+            assert B_shape[i] == 1, (
                 "current only support B as a 2D or higher-order tensor with the last two dimensions being the matrix dimensions"
+            )
 
     M, N = C_shape
     K = A_shape[-2] if transpose_A else A_shape[-1]
     K_B = B_shape[-1] if transpose_B else B_shape[-2]
     assert K == K_B, f"T.gemm K shape check failed: K_A = {K}, K_B = {K_B}"
 
-    def retrieve_ptr(object: Union[tir.Buffer, tir.BufferRegion],
-                     access_type: str = "r") -> tir.PrimExpr:
+    def retrieve_ptr(
+        object: Union[tir.Buffer, tir.BufferRegion], access_type: str = "r"
+    ) -> tir.PrimExpr:
         if isinstance(object, tir.Buffer):
             return object.access_ptr(access_type)
         elif isinstance(object, tir.BufferRegion):
@@ -111,7 +116,9 @@ def gemm(
                 offset += indices[i] * strides[i]
             return buffer.access_ptr(access_mask=access_type, offset=offset)
         else:
-            raise ValueError(f"Unsupported argument type: {type(object)} for buffer {object}")
+            raise ValueError(
+                f"Unsupported argument type: {type(object)} for buffer {object}"
+            )
 
     Aptr = retrieve_ptr(A, "r")
     Bptr = retrieve_ptr(B, "r")

@@ -6,10 +6,10 @@ import pytest
 import tilelang
 import tilelang.testing
 from tilelang import tvm as tvm
-from tvm import te, tir
+from tilelang.tvm import te, tir
 from tilelang import language as T
-from tvm.script import ir as I
-from tvm.driver.build_module import schedule_to_module
+from tilelang.tvm.script import ir as I
+from tilelang.tvm.driver.build_module import schedule_to_module
 
 
 def test_makeapi():
@@ -22,11 +22,14 @@ def test_makeapi():
 
     mod = schedule_to_module(s, [n, A, B, C])
     mod = tvm.tir.transform.StorageFlatten(64)(mod)
-    mod = tvm.tir.transform.Apply(lambda f: f.with_attr({
-        "target": tvm.target.Target("llvm", host="llvm"),
-        "global_symbol": "main",
-    }))(
-        mod)
+    mod = tvm.tir.transform.Apply(
+        lambda f: f.with_attr(
+            {
+                "target": tvm.target.Target("llvm", host="llvm"),
+                "global_symbol": "main",
+            }
+        )
+    )(mod)
 
     before = mod
     after = tilelang.transform.MakePackedAPI()(before)
@@ -79,14 +82,18 @@ def test_variable_passed_from_args():
     not_device_context = tvm.tir.Var("not_device_context", dtype="handle")
 
     ib.emit(
-        tvm.tir.call_extern("float32", "some_external_call", input_buffer.data,
-                            not_device_context),)
+        tvm.tir.call_extern(
+            "float32", "some_external_call", input_buffer.data, not_device_context
+        ),
+    )
     stmt = ib.get()
 
-    mod = tvm.IRModule.from_expr(tvm.tir.PrimFunc([input_buffer, not_device_context], stmt))
+    mod = tvm.IRModule.from_expr(
+        tvm.tir.PrimFunc([input_buffer, not_device_context], stmt)
+    )
     mod = tvm.tir.transform.Apply(
-        lambda f: f.with_attr("target", tvm.target.Target("llvm", host="llvm")))(
-            mod)
+        lambda f: f.with_attr("target", tvm.target.Target("llvm", host="llvm"))
+    )(mod)
     mod = tvm.tir.transform.Apply(lambda f: f.with_attr("global_symbol", "main"))(mod)
     func = tilelang.transform.MakePackedAPI()(mod)["main"]
 
@@ -123,13 +130,16 @@ def test_device_api_context_implicit_resource_handle():
     device_context = tvm.tir.Var("device_api_context", dtype="handle")
 
     ib.emit(
-        tvm.tir.call_extern("float32", "some_external_call", input_buffer.data, device_context),)
+        tvm.tir.call_extern(
+            "float32", "some_external_call", input_buffer.data, device_context
+        ),
+    )
     stmt = ib.get()
 
     mod = tvm.IRModule.from_expr(tvm.tir.PrimFunc([input_buffer, device_context], stmt))
     mod = tvm.tir.transform.Apply(
-        lambda f: f.with_attr("target", tvm.target.Target("llvm", host="llvm")))(
-            mod)
+        lambda f: f.with_attr("target", tvm.target.Target("llvm", host="llvm"))
+    )(mod)
     mod = tvm.tir.transform.Apply(lambda f: f.with_attr("global_symbol", "main"))(mod)
     func = tilelang.transform.MakePackedAPI()(mod)["main"]
 
@@ -187,10 +197,11 @@ def test_target_host_removed():
 
     @I.ir_module
     class before:
-
         @T.prim_func
         def main(A: T.Tensor(1, "float32")):
-            T.func_attr({"global_symbol": "main", "target": T.target("cuda", host=host)})
+            T.func_attr(
+                {"global_symbol": "main", "target": T.target("cuda", host=host)}
+            )
             T.evaluate(0)
 
     after = tilelang.transform.MakePackedAPI()(before)
@@ -209,7 +220,6 @@ def test_internal_subroutine_call():
 
     @I.ir_module
     class before:
-
         @T.prim_func
         def main(A: T.Tensor(1, "float32")):
             T.func_attr({"target": T.target("llvm", host="llvm")})
@@ -228,7 +238,8 @@ def test_internal_subroutine_call():
     subroutine_call_op = compute_scope.body.value.op
     assert isinstance(subroutine_call_op, tvm.ir.GlobalVar), (
         f"The main function's CallNode should use the subroutine's GLobalVar as the operation, "
-        f"but instead has an operation of type {subroutine_call_op}")
+        f"but instead has an operation of type {subroutine_call_op}"
+    )
 
 
 def test_subroutine_call_to_externally_visible_subroutine():
@@ -242,15 +253,18 @@ def test_subroutine_call_to_externally_visible_subroutine():
 
     @I.ir_module
     class before:
-
         @T.prim_func
         def main(A: T.Tensor(1, "float32")):
-            T.func_attr({"global_symbol": "main", "target": T.target("llvm", host="llvm")})
+            T.func_attr(
+                {"global_symbol": "main", "target": T.target("llvm", host="llvm")}
+            )
             before.subroutine(A.data)
 
         @T.prim_func
         def subroutine(A_data: T.handle("float32")):
-            T.func_attr({"global_symbol": "subroutine", "target": T.target("llvm", host="llvm")})
+            T.func_attr(
+                {"global_symbol": "subroutine", "target": T.target("llvm", host="llvm")}
+            )
             T.evaluate(A_data)
 
     after = tilelang.transform.MakePackedAPI()(before)
@@ -262,10 +276,12 @@ def test_subroutine_call_to_externally_visible_subroutine():
 
     subroutine_call_op = main_compute_scope.body.value.op
     assert (
-        isinstance(subroutine_call_op, tvm.ir.Op) and
-        subroutine_call_op.name == "tir.tvm_call_cpacked"
-    ), (f"The main function's CallNode should be lowered to the builtin 'tir.tvm_call_cpacked', "
-        f"but instead has an operation of type {subroutine_call_op}")
+        isinstance(subroutine_call_op, tvm.ir.Op)
+        and subroutine_call_op.name == "tir.tvm_call_cpacked"
+    ), (
+        f"The main function's CallNode should be lowered to the builtin 'tir.tvm_call_cpacked', "
+        f"but instead has an operation of type {subroutine_call_op}"
+    )
 
 
 @tilelang.testing.requires_llvm
@@ -274,10 +290,10 @@ def test_function_call_with_wrong_argument_count():
 
     @T.prim_func
     def func(
-            A: T.Tensor([16, 16], "int32"),
-            B: T.Tensor([16, 16], "int32"),
-            C: T.Tensor([16, 16], "int32"),
-            D: T.Tensor([16, 16], "int32"),
+        A: T.Tensor([16, 16], "int32"),
+        B: T.Tensor([16, 16], "int32"),
+        C: T.Tensor([16, 16], "int32"),
+        D: T.Tensor([16, 16], "int32"),
     ):
         pass
 

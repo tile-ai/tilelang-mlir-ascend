@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """Util to invoke C/C++ compilers in the system."""
+
 import functools
 import os
 import shutil
@@ -24,14 +25,17 @@ import subprocess
 import sys
 from typing import Dict
 
-from tvm._ffi.base import py_str
-from tvm.contrib import tar as _tar
-from tvm.contrib import utils as _utils
+from tilelang.tvm._ffi.base import py_str
+from tilelang.tvm.contrib import tar as _tar
+from tilelang.tvm.contrib import utils as _utils
 
 
 def _is_linux_like():
-    return (sys.platform == "darwin" or sys.platform.startswith("linux") or
-            sys.platform.startswith("freebsd"))
+    return (
+        sys.platform == "darwin"
+        or sys.platform.startswith("linux")
+        or sys.platform.startswith("freebsd")
+    )
 
 
 def _is_windows_like():
@@ -115,7 +119,9 @@ def create_shared(output, objects, options=None, cc=None, cwd=None, ccache_env=N
     cc = cc or get_cc()
 
     if _is_linux_like():
-        _linux_compile(output, objects, options, cc, cwd, ccache_env, compile_shared=True)
+        _linux_compile(
+            output, objects, options, cc, cwd, ccache_env, compile_shared=True
+        )
     elif _is_windows_like():
         _windows_compile(output, objects, options, cwd, ccache_env)
     else:
@@ -170,7 +176,9 @@ def create_staticlib(output, inputs, ar=None):
         raise ValueError("Unsupported platform")
 
 
-def create_executable(output, objects, options=None, cc=None, cwd=None, ccache_env=None):
+def create_executable(
+    output, objects, options=None, cc=None, cwd=None, ccache_env=None
+):
     """Create executable binary.
 
     Parameters
@@ -266,7 +274,9 @@ def get_target_by_dump_machine(compiler):
         """Get target triple according to dumpmachine option of compiler."""
         if compiler:
             cmd = [compiler, "-dumpmachine"]
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            )
             (out, _) = proc.communicate()
             if proc.returncode != 0:
                 msg = "dumpmachine error:\n"
@@ -280,14 +290,18 @@ def get_target_by_dump_machine(compiler):
 
 # assign so as default output format
 create_shared.output_format = "so" if sys.platform != "win32" else "dll"
-create_shared.get_target_triple = get_target_by_dump_machine(os.environ.get("CXX", get_cc()))
+create_shared.get_target_triple = get_target_by_dump_machine(
+    os.environ.get("CXX", get_cc())
+)
 
 
-def cross_compiler(compile_func,
-                   options=None,
-                   output_format=None,
-                   get_target_triple=None,
-                   add_files=None):
+def cross_compiler(
+    compile_func,
+    options=None,
+    output_format=None,
+    get_target_triple=None,
+    add_files=None,
+):
     """Create a cross compiler function by specializing compile_func with options.
 
     This function can be used to construct compile functions that
@@ -359,13 +373,15 @@ def cross_compiler(compile_func,
     return _fcompile
 
 
-def _linux_compile(output,
-                   objects,
-                   options,
-                   compile_cmd,
-                   cwd=None,
-                   ccache_env=None,
-                   compile_shared=False):
+def _linux_compile(
+    output,
+    objects,
+    options,
+    compile_cmd,
+    cwd=None,
+    ccache_env=None,
+    compile_shared=False,
+):
     cmd = [compile_cmd]
     if compile_cmd != "nvcc":
         if compile_shared or output.endswith(".so") or output.endswith(".dylib"):
@@ -392,7 +408,9 @@ def _linux_compile(output,
             env.update(ccache_env)
         else:
             raise ValueError("ccache not found")
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd, env=env)
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd, env=env
+    )
     (out, _) = proc.communicate()
     if proc.returncode != 0:
         msg = "Compilation error:\n"
@@ -427,14 +445,16 @@ def _windows_compile(output, objects, options, cwd=None, ccache_env=None):
 
     try:
         proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd, env=env)
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd, env=env
+        )
         (out, _) = proc.communicate()
     except FileNotFoundError:
-        raise RuntimeError("Can not find the LLVM clang for Windows clang.exe)."
-                           "Make sure it's installed"
-                           " and the installation directory is in the %PATH% environment "
-                           "variable. Prebuilt binaries can be found at: https://llvm.org/") \
-                               from None
+        raise RuntimeError(
+            "Can not find the LLVM clang for Windows clang.exe)."
+            "Make sure it's installed"
+            " and the installation directory is in the %PATH% environment "
+            "variable. Prebuilt binaries can be found at: https://llvm.org/"
+        ) from None
     if proc.returncode != 0:
         msg = "Compilation error:\n"
         msg += " ".join(cmd) + "\n"

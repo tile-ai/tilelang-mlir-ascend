@@ -1,7 +1,7 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 
-from tvm import DataType
+from tilelang.tvm import DataType
 from typing import Literal
 from .mma_layout import (
     ldmatrix_32x8_to_shared_16x16_layout,
@@ -10,7 +10,7 @@ from .mma_layout import (
     ldmatrix_16x32_to_shared_16x32_layout_b,
     mma_store_32x8_to_shared_16x16_layout,
 )
-from .mfma_layout import (thread_id_shared_access_64x4_to_16x16_layout_C_n_m)
+from .mfma_layout import thread_id_shared_access_64x4_to_16x16_layout_C_n_m
 
 from .mma_layout import get_swizzle_layout  # noqa: F401
 from .mma_layout import make_mma_swizzle_layout  # noqa: F401
@@ -48,7 +48,9 @@ def get_ldmatrix_offset(
             new_row_idx, new_col_idx = transform_func(row_idx, col_idx)
             return new_row_idx * stride + new_col_idx
         else:
-            raise ValueError("ldmatrix only supports B transposed and A non-transposed for int8")
+            raise ValueError(
+                "ldmatrix only supports B transposed and A non-transposed for int8"
+            )
     else:
         raise ValueError(f"Unsupported dtype {dtype}")
 
@@ -87,17 +89,17 @@ def get_mma_micro_size(dtype: Literal["float16", "int8"]):
 
 
 def index_to_coordinates(index, shape):
-    '''
+    """
     General Implementation of:
         vjj = index % (micro_size_k // num_elems_per_byte)
-        coordinates[-1] = index % shape[-1]; 
+        coordinates[-1] = index % shape[-1];
         vii = index // (micro_size_k // num_elems_per_byte) % micro_size_y
         index = index // shape[-1]; coordinates[-2] = index % shape[-2];
         vj = index // (micro_size_k // num_elems_per_byte * micro_size_y) % block_K // (micro_size_k // num_elems_per_byte)
         index = index // shape[-2]; coordinates[-3] = index % shape[-3];
         vi = index // (micro_size_k // num_elems_per_byte * micro_size_y * (block_K // (micro_size_k // num_elems_per_byte))) % block_N // micro_size_y
         index = index // shape[-3]; coordinates[-4] = index % shape[-4];
-    '''
+    """
     coordinates = []
     dims = len(shape)
     for i in range(dims):

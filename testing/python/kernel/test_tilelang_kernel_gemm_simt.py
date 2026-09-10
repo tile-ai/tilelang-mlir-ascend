@@ -5,7 +5,7 @@ import torch
 import torch.backends
 import tilelang.testing
 from tilelang import tvm as tvm
-from tvm import DataType
+from tilelang.tvm import DataType
 import tilelang.language as T
 from tilelang.intrinsics import get_swizzle_layout
 from tilelang.transform import simplify_prim_func
@@ -79,12 +79,13 @@ def tl_matmul_simt(
 
     @T.prim_func
     def main(
-            A: T.Tensor(A_shape, in_dtype),
-            B: T.Tensor(B_shape, in_dtype),
-            C: T.Tensor(C_shape, out_dtype),
+        A: T.Tensor(A_shape, in_dtype),
+        B: T.Tensor(B_shape, in_dtype),
+        C: T.Tensor(C_shape, out_dtype),
     ):
-        with T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads=threads) as (bx, by):
-
+        with T.Kernel(
+            T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads=threads
+        ) as (bx, by):
             A_shared = T.alloc_shared(A_shared_shape, in_dtype, scope=shared_scope)
             B_shared = T.alloc_shared(B_shared_shape, in_dtype, scope=shared_scope)
 
@@ -100,7 +101,6 @@ def tl_matmul_simt(
             T.clear(C_local)
 
             for ko in T.serial(K // block_K):
-
                 # Load A into shared memory
                 for i, k in T.Parallel(block_M, block_K):
                     A_shared[i, k] = A[by * block_M + i, ko * block_K + k]
@@ -112,29 +112,36 @@ def tl_matmul_simt(
                 for ki in T.serial((block_K // micro_size_k)):
                     for i in T.serial(local_size_a):
                         for mk in T.vectorized(micro_size_k):
-                            A_local[i, mk] = A_shared[warp_m * local_size_a + i,
-                                                      ki * micro_size_k + mk]
+                            A_local[i, mk] = A_shared[
+                                warp_m * local_size_a + i, ki * micro_size_k + mk
+                            ]
 
                     for i in T.serial(local_size_b):
                         for mk in T.vectorized(micro_size_k):
-                            B_local[i, mk] = B_shared[warp_n * local_size_b + i,
-                                                      ki * micro_size_k + mk]
+                            B_local[i, mk] = B_shared[
+                                warp_n * local_size_b + i, ki * micro_size_k + mk
+                            ]
 
                     for i, j in T.grid(local_size_a, local_size_b):
                         for mk in T.serial(micro_size_k // dp4a_size):
                             if use_dp4a:
-                                T.dp4a(A_local[i, mk * dp4a_size], B_local[j, mk * dp4a_size],
-                                       C_local[i * local_size_b + j])
+                                T.dp4a(
+                                    A_local[i, mk * dp4a_size],
+                                    B_local[j, mk * dp4a_size],
+                                    C_local[i * local_size_b + j],
+                                )
                             else:
                                 for dp4a_idx in T.serial(dp4a_size):
-                                    C_local[i * local_size_b +
-                                            j] += A_local[i, mk * dp4a_size +
-                                                          dp4a_idx] * B_local[j, mk * dp4a_size +
-                                                                              dp4a_idx]
+                                    C_local[i * local_size_b + j] += (
+                                        A_local[i, mk * dp4a_size + dp4a_idx]
+                                        * B_local[j, mk * dp4a_size + dp4a_idx]
+                                    )
 
             for i, j in T.grid(local_size_a, local_size_b):
-                C[by * block_M + warp_m * local_size_a + i,
-                  bx * block_N + warp_n * local_size_b + j] = C_local[i * local_size_b + j]
+                C[
+                    by * block_M + warp_m * local_size_a + i,
+                    bx * block_N + warp_n * local_size_b + j,
+                ] = C_local[i * local_size_b + j]
 
     return main
 
@@ -164,7 +171,9 @@ def assert_tl_matmul_correctness(M, N, K, in_dtype, out_dtype, accum_dtype):
     assert latency is not None
 
     # Get Reference Result
-    ref_c = torch.matmul(A.to(torch.float32), B.T.to(torch.float32)).to(getattr(torch, accum_dtype))
+    ref_c = torch.matmul(A.to(torch.float32), B.T.to(torch.float32)).to(
+        getattr(torch, accum_dtype)
+    )
     print(C)
     print(ref_c)
     torch.testing.assert_close(C, ref_c, rtol=1e-2, atol=1e-2)

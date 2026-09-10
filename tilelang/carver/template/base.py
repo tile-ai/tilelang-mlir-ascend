@@ -11,7 +11,9 @@ from tilelang.utils.npu_arch import (
 from ..roller.hint import Hint  # Import the Hint class
 from ..roller.node import OutputNode  # Import the OutputNode class
 from typing import List  # For type hinting
-from tvm.tir import PrimFunc  # Import PrimFunc for handling tensor IR functions
+from tilelang.tvm.tir import (
+    PrimFunc,
+)  # Import PrimFunc for handling tensor IR functions
 
 
 def auto_infer_current_arch() -> AscendArch:

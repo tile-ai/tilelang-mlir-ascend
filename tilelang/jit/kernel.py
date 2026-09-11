@@ -2,10 +2,10 @@
 # Licensed under the MIT License.
 
 from typing import List, Union, Any, Callable, Literal, Optional, Dict
-from tvm.target import Target
+from tilelang.tvm.target import Target
 import tilelang
 from tilelang import tvm as tvm
-from tvm.tir import PrimFunc
+from tilelang.tvm.tir import PrimFunc
 
 from tilelang.jit.adapter import (
     TorchDLPackKernelAdapter,

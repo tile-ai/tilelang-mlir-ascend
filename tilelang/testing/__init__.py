@@ -7,8 +7,8 @@ import random
 import torch
 import numpy as np
 from tilelang.contrib import nvcc
-from tvm.testing.utils import *
-from tvm.testing.utils import _compose
+from tilelang.tvm.testing.utils import *
+from tilelang.tvm.testing.utils import _compose
 
 from tilelang.utils.tensor import torch_assert_close as torch_assert_close
 

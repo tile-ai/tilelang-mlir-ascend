@@ -3,10 +3,10 @@
 
 from typing import Callable, Optional, Union
 
-from tvm.tir.function import PrimFunc
-import tvm.script.parser.tir.entry as _tir_entry
+from tilelang.tvm.tir.function import PrimFunc
+import tilelang.tvm.script.parser.tir.entry as _tir_entry  # noqa: F401
 import inspect
-from tvm.script.parser._core import parse, scan_macro, utils
+from tilelang.tvm.script.parser._core import parse, scan_macro, utils
 
 
 def prim_func(func: Optional[Callable] = None,

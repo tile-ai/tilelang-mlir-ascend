@@ -2,9 +2,9 @@
 # Licensed under the MIT License.
 
 from typing import Dict, List, Tuple, Set, Mapping
-from tvm.tir.schedule.schedule import BlockRV
-from tvm.ir import structural_equal
-from tvm import arith, tir
+from tilelang.tvm.tir.schedule.schedule import BlockRV
+from tilelang.tvm.ir import structural_equal
+from tilelang.tvm import arith, tir
 
 
 class Statement:

@@ -26,23 +26,35 @@ permissions:
   contents: read
 
 env:
-  PYTHON_VERSION: "3.11"
   NPUIR_INSTALL_DIR: npuir-prebuild
   TVM_INSTALL_DIR: tvm-prebuild
 
 jobs:
   build-wheel:
     runs-on: ${{ matrix.runner }}
+    container:
+      image: quay.io/ascend/cann:9.1.0-910b-ubuntu22.04-py${{ matrix.python-version }}
+    defaults:
+      run:
+        shell: bash -l -e -o pipefail {0}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
+        arch: [x64, arm64]
+        python-version: ['3.11', '3.12']
         include:
           - arch: x64
             runner: ubuntu-22.04
           - arch: arm64
             runner: ubuntu-22.04-arm
     steps:
+    - name: Prepare build container
+      run: |
+        apt-get update
+        apt-get install -y --no-install-recommends git ca-certificates zstd
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
     - name: Checkout
       uses: actions/checkout@v4
       with:
@@ -56,37 +68,46 @@ jobs:
         mkdir -p 3rdparty/composable_kernel/include
         mkdir -p 3rdparty/composable_kernel/library
 
+    - name: Resolve prebuild versions
+      id: prebuild-versions
+      env:
+        NPUIR_COMMIT: ${{ inputs.npuir-commit }}
+        TVM_COMMIT: ${{ inputs.tvm-commit }}
+      run: |
+        npuir_commit=$(git rev-parse HEAD:3rdparty/AscendNPU-IR)
+        tvm_commit=$(git rev-parse HEAD:3rdparty/tvm)
+        test -z "$NPUIR_COMMIT" || test "$NPUIR_COMMIT" = "$npuir_commit"
+        test -z "$TVM_COMMIT" || test "$TVM_COMMIT" = "$tvm_commit"
+        echo "npuir=$npuir_commit" >> "$GITHUB_OUTPUT"
+        echo "tvm=$tvm_commit" >> "$GITHUB_OUTPUT"
+
     - name: Restore NPUIR prebuild from cache
       uses: actions/cache/restore@v4
       with:
         path: ${{ env.NPUIR_INSTALL_DIR }}
-        key: npuir-prebuild-rtti-${{ matrix.arch }}-${{ inputs.npuir-commit }}
+        key: npuir-prebuild-toolchain-v2-${{ steps.prebuild-versions.outputs.npuir }}-${{ hashFiles('3rdparty/patch/**', '.github/workflows/build_ascend_npuir.yml') }}-${{ matrix.arch }}-py${{ matrix.python-version }}
         fail-on-cache-miss: true
+
+    - name: Install build dependencies
+      run: |
+        apt-get update
+        apt-get install -y --no-install-recommends \
+          cmake make libzstd-dev zlib1g-dev patchelf
+        pip install -r requirements-build.txt
+        pip install lit
 
     - name: Restore TVM prebuild from cache
       uses: actions/cache/restore@v4
       with:
         path: ${{ env.TVM_INSTALL_DIR }}
-        key: tvm-prebuild-${{ matrix.arch }}-${{ inputs.tvm-commit }}
+        key: tvm-prebuild-isolated-v1-${{ matrix.arch }}-${{ steps.prebuild-versions.outputs.tvm }}
         fail-on-cache-miss: true
-
-    - name: Set up Python ${{ env.PYTHON_VERSION }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-
-    - name: Install build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-          cmake make libzstd-dev zlib1g-dev patchelf
-        pip install -r requirements-build.txt
-        pip install lit
 
     - name: Build tilelang (cmake)
       run: |
-        BISHENGIR_PATH="${{ github.workspace }}/${{ env.NPUIR_INSTALL_DIR }}"
-        TVM_PATH="${{ github.workspace }}/${{ env.TVM_INSTALL_DIR }}"
+        # Resolve paths inside the container; github.workspace can name the host path.
+        BISHENGIR_PATH="$GITHUB_WORKSPACE/$NPUIR_INSTALL_DIR"
+        TVM_PATH="$GITHUB_WORKSPACE/$TVM_INSTALL_DIR"
         mkdir -p build
         cp 3rdparty/tvm/cmake/config.cmake build/
         echo "set(USE_NPUIR ON)" >> build/config.cmake
@@ -96,7 +117,7 @@ jobs:
         echo "set(USE_LLVM OFF)" >> build/config.cmake
         echo "set(HIDE_PRIVATE_SYMBOLS ON)" >> build/config.cmake
         echo "set(USE_KALLOC_ALIGNMENT 64)" >> build/config.cmake
-        cmake -B build -DMLIR_INCLUDE_TESTS=ON -DTVM_PREBUILD_PATH=${TVM_PATH} -DTVM_SOURCE_DIR=${{ github.workspace }}/3rdparty/tvm -DPython3_EXECUTABLE=$(which python3)
+        cmake -B build -DMLIR_INCLUDE_TESTS=ON -DTVM_PREBUILD_PATH="$TVM_PATH" -DTVM_SOURCE_DIR="$GITHUB_WORKSPACE/3rdparty/tvm" -DPython3_EXECUTABLE=$(which python3)
         cmake --build build --config Release -j$(nproc)
 
     - name: Run MLIR tests (lit)
@@ -107,13 +128,19 @@ jobs:
       env:
         TILELANG_SKIP_BUILD: "1"
         USE_NPUIR: "true"
-        BISHENGIR_PATH: ${{ github.workspace }}/npuir-prebuild
-        TVM_PREBUILD_PATH: ${{ github.workspace }}/tvm-prebuild
-      run: python setup.py bdist_wheel
+      run: |
+        export BISHENGIR_PATH="$GITHUB_WORKSPACE/$NPUIR_INSTALL_DIR"
+        export TVM_PREBUILD_PATH="$GITHUB_WORKSPACE/$TVM_INSTALL_DIR"
+        mkdir -p 3rdparty/bin 3rdparty/lib
+        cp -L --preserve=mode "$BISHENGIR_PATH/bin/bishengir-compile" 3rdparty/bin/
+        for name in host.bc meta_op.aic.bc meta_op.aiv.bc meta_op.mix.aic.bc meta_op.mix.aiv.bc; do
+          cp -L "$BISHENGIR_PATH/lib/$name" 3rdparty/lib/
+        done
+        python setup.py bdist_wheel
 
     - name: Upload wheel artifact
       uses: actions/upload-artifact@v4
       with:
-        name: tilelang-npuir-py${{ env.PYTHON_VERSION }}-${{ matrix.arch }}
+        name: tilelang-npuir-py${{ matrix.python-version }}-${{ matrix.arch }}
         path: dist/*.whl
         retention-days: 30

@@ -1,9 +1,9 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 
-import tvm.script.ir_builder.tir.ir as _ir
-from tvm.script.ir_builder.tir import frame
-from tvm.tir import PrimExpr
+import tilelang.tvm.script.ir_builder.tir.ir as _ir  # noqa: F401
+from tilelang.tvm.script.ir_builder.tir import frame
+from tilelang.tvm.tir import PrimExpr
 from typing import Any, Dict
 import tilelang.language.tir.op as _tir_op
 import functools

@@ -436,22 +436,7 @@ def prepend_pythonpath(path):
     sys.path.insert(0, path)
 
 
-# Initialize TVM paths
-if env.TVM_IMPORT_PYTHON_PATH is not None:
-    prepend_pythonpath(env.TVM_IMPORT_PYTHON_PATH)
-else:
-    tvm_path = os.path.join(THIRD_PARTY_ROOT, "tvm", "python")
-    if os.path.exists(tvm_path):
-        if tvm_path not in sys.path:
-            prepend_pythonpath(tvm_path)
-            env.TVM_IMPORT_PYTHON_PATH = tvm_path
-    else:
-        logger.warning(
-            f"TVM python path not found: {tvm_path}. You may need to build TVM or set TVM_IMPORT_PYTHON_PATH manually."
-        )
-# By default, the built TVM-related libraries are stored in TL_LIBS.
-if os.environ.get("TVM_LIBRARY_PATH") is None:
-    os.environ["TVM_LIBRARY_PATH"] = env.TVM_LIBRARY_PATH = os.pathsep.join(TL_LIBS)
+# Private TVM is loaded as tilelang.tvm; leave CANN's paths and environment intact.
 
 # Initialize CUTLASS paths
 if os.environ.get("TL_CUTLASS_PATH", None) is None:

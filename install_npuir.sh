@@ -158,12 +158,13 @@ if [ -z "$BISHENGIR_PATH" ]; then
     else
         echo "Building for Ascend A2/A3 platform with AscendNPU-IR..."
         git submodule update --init --recursive 3rdparty/AscendNPU-IR
+        bash 3rdparty/patch/apply_npuir_patches.sh || exit 1
         pushd 3rdparty/AscendNPU-IR
         bash ./build-tools/apply_patches.sh
         rm -rf ./build
         mkdir build
         ./build-tools/build.sh -o ./build --python-binding --c-compiler=clang --cxx-compiler=clang++ \
-        --add-cmake-options="-DCMAKE_LINKER=lld -DLLVM_ENABLE_LLD=ON -DLLVM_ENABLE_RTTI=ON" --apply-patches --bishengir-publish=off
+        --add-cmake-options="-DCMAKE_LINKER=lld -DLLVM_ENABLE_LLD=ON -DLLVM_ENABLE_RTTI=ON" --apply-patches --bishengir-publish=on
         BISHENGIR_PATH="./3rdparty/AscendNPU-IR/build/install"
         popd
     fi

@@ -4,7 +4,7 @@ import torch
 import torch.backends
 import tilelang.testing
 from tilelang import tvm as tvm
-from tvm import DataType, tir
+from tilelang.tvm import DataType, tir
 import tilelang.language as T
 
 tilelang.testing.set_random_seed(0)

@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from typing import Union
-from tvm import arith, DataType
+from tilelang.tvm import arith, DataType
 import tilelang.language as T
 
 

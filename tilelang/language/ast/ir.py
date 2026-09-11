@@ -31,21 +31,21 @@ from typing_extensions import Literal
 
 import numpy as np  # type: ignore
 
-from tvm import tir
-from tvm import ir
-from tvm.ir import Type
-from tvm.ir.base import deprecated
-from tvm.runtime import String, convert, ndarray
-from tvm.target import Target
+from tilelang.tvm import tir
+from tilelang.tvm import ir
+from tilelang.tvm.ir import Type
+from tilelang.tvm.ir.base import deprecated
+from tilelang.tvm.runtime import String, convert, ndarray
+from tilelang.tvm.target import Target
 
 # pylint: disable=unused-import
-from tvm.target.codegen import llvm_lookup_intrinsic_id
-from tvm.tir import Buffer, BufferRegion, IndexMap, PrimExpr
-from tvm.tir import op as _tir_op
-from tvm.tir import type_annotation
+from tilelang.tvm.target.codegen import llvm_lookup_intrinsic_id
+from tilelang.tvm.tir import Buffer, BufferRegion, IndexMap, PrimExpr
+from tilelang.tvm.tir import op as _tir_op
+from tilelang.tvm.tir import type_annotation
 
 # import tir.expr for direct ir construction to pass structural_equal comparison
-from tvm.tir.expr import (
+from tilelang.tvm.tir.expr import (
     EQ,
     GE,
     GT,
@@ -82,10 +82,10 @@ from tvm.tir.expr import (
     Sub,
     Var,
 )
-from tvm.tir.generic import cast
+from tilelang.tvm.tir.generic import cast
 
 from . import _ffi_api
-from tvm.script.ir_builder.tir import frame
+from tilelang.tvm.script.ir_builder.tir import frame
 
 # pylint: enable=unused-import
 
@@ -1278,7 +1278,7 @@ def buffer_store(
     indices : List[Union[PrimExpr, slice]]
         The indices location to be stored.
     """
-    from tvm.arith import Analyzer  # pylint: disable=import-outside-toplevel
+    from tilelang.tvm.arith import Analyzer  # pylint: disable=import-outside-toplevel
 
     if not isinstance(indices, (list, tuple, ir.Array)):
         indices = [indices]

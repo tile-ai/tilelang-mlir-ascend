@@ -1,11 +1,11 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 
-from tvm.tir import Buffer
+from tilelang.tvm.tir import Buffer
 from typing import List
 from functools import reduce
-from tvm import IRModule
-from tvm.tir import PrimFunc
+from tilelang.tvm import IRModule
+from tilelang.tvm.tir import PrimFunc
 
 # Scope Checkers for TVM Buffers
 # These utility functions check the memory scope of a given TVM buffer.

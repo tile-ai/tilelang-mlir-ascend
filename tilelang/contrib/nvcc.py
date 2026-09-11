@@ -10,11 +10,12 @@ import subprocess
 import warnings
 from ..env import CUDA_HOME
 
-import tvm._ffi
-from tvm.target import Target
+import tilelang.tvm._ffi  # noqa: F401
+from tilelang import tvm
+from tilelang.tvm.target import Target
 
-from tvm._ffi.base import py_str
-from tvm.contrib import utils
+from tilelang.tvm._ffi.base import py_str
+from tilelang.tvm.contrib import utils
 
 
 def compile_cuda(code,

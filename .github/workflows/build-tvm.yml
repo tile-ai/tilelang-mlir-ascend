@@ -48,7 +48,7 @@ jobs:
 
     - name: Compute cache key
       id: cache-key
-      run: echo "key=tvm-prebuild-${{ matrix.arch }}-${{ steps.tvm-version.outputs.commit }}" >> "$GITHUB_OUTPUT"
+      run: echo "key=tvm-prebuild-isolated-v1-${{ matrix.arch }}-${{ steps.tvm-version.outputs.commit }}" >> "$GITHUB_OUTPUT"
 
     - name: Restore TVM prebuild from cache
       id: cache
@@ -61,16 +61,13 @@ jobs:
       if: steps.cache.outputs.cache-hit != 'true'
       run: git submodule update --init --recursive 3rdparty/tvm
 
-    - name: Install build dependencies
-      if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends cmake make
-
     - name: Build TVM
       if: steps.cache.outputs.cache-hit != 'true'
       working-directory: 3rdparty/tvm
       run: |
+        # GitHub-hosted runners already provide CMake and Make.
+        cmake --version
+        make --version
         mkdir -p build
         cp cmake/config.cmake build/
         echo "set(USE_CUDA OFF)" >> build/config.cmake
@@ -102,12 +99,12 @@ jobs:
         echo "set(HIDE_PRIVATE_SYMBOLS ON)" >> build/config.cmake
         echo "set(USE_LIBBACKTRACE AUTO)" >> build/config.cmake
         echo "set(USE_KALLOC_ALIGNMENT 64)" >> build/config.cmake
-        cmake -B build -DCMAKE_BUILD_TYPE=Release
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-fno-gnu-unique
         cmake --build build -j$(nproc)
 
     - name: Populate cache directory
       if: steps.cache.outputs.cache-hit != 'true'
       run: |
         mkdir -p ${{ env.TVM_INSTALL_DIR }}
-        cp 3rdparty/tvm/build/libtvm.so ${{ env.TVM_INSTALL_DIR }}/
-        cp 3rdparty/tvm/build/libtvm_runtime.so ${{ env.TVM_INSTALL_DIR }}/
+        python3 -m pip install patchelf
+        python3 tools/prepare_tvm.py libraries 3rdparty/tvm/build "$TVM_INSTALL_DIR"

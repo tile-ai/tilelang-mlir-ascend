@@ -11,7 +11,7 @@ def view_test(N, M, dtype, new_dtype=None):
 
     new_shape = [N // M, M]
     if new_dtype:
-        from tvm import DataType
+        from tilelang.tvm import DataType
         dtype_src = DataType(dtype)
         dtype_dst = DataType(new_dtype)
         src_bits = dtype_src.bits

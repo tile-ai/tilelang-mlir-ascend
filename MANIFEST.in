@@ -6,3 +6,7 @@ include requirements-dev.txt
 include tilelang/jit/adapter/cython/cython_wrapper.pyx
 recursive-include src *
 recursive-include 3rdparty/tvm *
+recursive-include 3rdparty/bin *
+recursive-include 3rdparty/lib *
+
+include tools/prepare_tvm.py

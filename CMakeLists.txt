@@ -55,6 +55,11 @@ endif()
 # Enforce C++ standard
 set(CMAKE_CXX_STANDARD 17)
 
+# TVM's function-local type indices must stay within its private registry.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique>)
+endif()
+
 if(NOT DEFINED TVM_PREBUILD_PATH)
   if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
@@ -175,16 +180,26 @@ if(DEFINED TVM_PREBUILD_PATH)
   message(STATUS "Using prebuilt TVM from ${TVM_PREBUILD_PATH}")
   add_library(tvm SHARED IMPORTED)
   set_target_properties(tvm PROPERTIES
-    IMPORTED_LOCATION "${TVM_PREBUILD_PATH}/libtvm.so"
+    IMPORTED_LOCATION "${TVM_PREBUILD_PATH}/libtilelang_tvm.so"
   )
   add_library(tvm_runtime SHARED IMPORTED)
   set_target_properties(tvm_runtime PROPERTIES
-    IMPORTED_LOCATION "${TVM_PREBUILD_PATH}/libtvm_runtime.so"
+    IMPORTED_LOCATION "${TVM_PREBUILD_PATH}/libtilelang_tvm_runtime.so"
   )
 else()
   message(STATUS "Building TVM from source at ${TVM_SOURCE_DIR}")
   add_subdirectory(${TVM_SOURCE_DIR} tvm EXCLUDE_FROM_ALL)
+  set_target_properties(tvm PROPERTIES OUTPUT_NAME tilelang_tvm)
+  set_target_properties(tvm_runtime PROPERTIES OUTPUT_NAME tilelang_tvm_runtime)
 endif()
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_custom_target(tilelang_tvm_python ALL
+  COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/prepare_tvm.py"
+          python "${TVM_SOURCE_DIR}/python/tvm" "${CMAKE_BINARY_DIR}/tvm-python/tvm"
+  COMMENT "Preparing TileLang's private TVM Python package"
+  VERBATIM
+)
 
 # Collect source files
 tilelang_file_glob(GLOB TILE_LANG_SRCS

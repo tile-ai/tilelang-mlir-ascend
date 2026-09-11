@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from dataclasses import dataclass
-from tvm import tir
+from tilelang.tvm import tir
 import tilelang.language as T
 from tilelang.utils import is_fragment
 from tilelang.primitives.gemm.base import GemmBaseParams

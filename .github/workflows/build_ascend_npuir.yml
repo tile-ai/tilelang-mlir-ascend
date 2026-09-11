@@ -12,26 +12,20 @@ on:
     outputs:
       npuir-commit:
         description: "AscendNPU-IR commit hash"
-        value: ${{ jobs.build-npuir.outputs.npuir-commit }}
+        value: ${{ jobs.check-cache.outputs.npuir-commit }}
   workflow_dispatch:
 
 env:
   NPUIR_INSTALL_DIR: npuir-prebuild
 
 jobs:
-  build-npuir:
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
-    strategy:
-      matrix:
-        include:
-          - arch: x64
-            runner: ubuntu-22.04
-          - arch: arm64
-            runner: ubuntu-22.04-arm
+  check-cache:
+    runs-on: ubuntu-22.04
     outputs:
       npuir-commit: ${{ steps.npuir-version.outputs.commit }}
-
+      cache-prefix: ${{ steps.npuir-version.outputs.cache-prefix }}
+      matrix: ${{ steps.missing.outputs.matrix }}
+      has-misses: ${{ steps.missing.outputs.has-misses }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -39,23 +33,103 @@ jobs:
         ref: ${{ inputs.checkout-ref || '' }}
         fetch-depth: 1
 
-    - name: Get AscendNPU-IR commit ID
+    - name: Get AscendNPU-IR version
       id: npuir-version
       run: |
         NPUIR_COMMIT=$(git rev-parse HEAD:3rdparty/AscendNPU-IR)
-        echo "commit=${NPUIR_COMMIT}" >> "$GITHUB_OUTPUT"
-        echo "AscendNPU-IR commit: ${NPUIR_COMMIT}"
+        echo "commit=$NPUIR_COMMIT" >> "$GITHUB_OUTPUT"
+        echo "cache-prefix=npuir-prebuild-toolchain-v2-$NPUIR_COMMIT-${{ hashFiles('3rdparty/patch/**', '.github/workflows/build_ascend_npuir.yml') }}" >> "$GITHUB_OUTPUT"
+        # Match the compression used by the container's cache action.
+        zstd --version
 
-    - name: Compute cache key
-      id: cache-key
-      run: echo "key=npuir-prebuild-rtti-${{ matrix.arch }}-${{ steps.npuir-version.outputs.commit }}" >> "$GITHUB_OUTPUT"
+    - name: Check x64 Python 3.11 cache
+      id: x64-py311
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ env.NPUIR_INSTALL_DIR }}
+        key: ${{ steps.npuir-version.outputs.cache-prefix }}-x64-py3.11
+        lookup-only: true
+
+    - name: Check x64 Python 3.12 cache
+      id: x64-py312
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ env.NPUIR_INSTALL_DIR }}
+        key: ${{ steps.npuir-version.outputs.cache-prefix }}-x64-py3.12
+        lookup-only: true
+
+    - name: Check arm64 Python 3.11 cache
+      id: arm64-py311
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ env.NPUIR_INSTALL_DIR }}
+        key: ${{ steps.npuir-version.outputs.cache-prefix }}-arm64-py3.11
+        lookup-only: true
+
+    - name: Check arm64 Python 3.12 cache
+      id: arm64-py312
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ env.NPUIR_INSTALL_DIR }}
+        key: ${{ steps.npuir-version.outputs.cache-prefix }}-arm64-py3.12
+        lookup-only: true
+
+    - name: Select missing builds
+      id: missing
+      env:
+        X64_PY311: ${{ steps.x64-py311.outputs.cache-hit }}
+        X64_PY312: ${{ steps.x64-py312.outputs.cache-hit }}
+        ARM64_PY311: ${{ steps.arm64-py311.outputs.cache-hit }}
+        ARM64_PY312: ${{ steps.arm64-py312.outputs.cache-hit }}
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+
+        builds = []
+        for arch, runner in [("x64", "ubuntu-22.04"), ("arm64", "ubuntu-22.04-arm")]:
+            for version in ["3.11", "3.12"]:
+                hit = os.environ[f"{arch.upper()}_PY{version.replace('.', '')}"]
+                if hit != "true":
+                    builds.append({"arch": arch, "runner": runner, "python-version": version})
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write(f"matrix={json.dumps({'include': builds})}\n")
+            output.write(f"has-misses={str(bool(builds)).lower()}\n")
+        PY
+
+  build-npuir:
+    needs: check-cache
+    if: needs.check-cache.outputs.has-misses == 'true'
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: quay.io/ascend/cann:9.1.0-910b-ubuntu22.04-py${{ matrix.python-version }}
+    defaults:
+      run:
+        shell: bash -l -e -o pipefail {0}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.check-cache.outputs.matrix) }}
+
+    steps:
+    - name: Prepare build container
+      run: |
+        apt-get update
+        apt-get install -y --no-install-recommends git ca-certificates zstd
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.checkout-ref || '' }}
+        fetch-depth: 1
 
     - name: Restore NPUIR prebuild from cache
       id: cache
       uses: actions/cache@v4
       with:
         path: ${{ env.NPUIR_INSTALL_DIR }}
-        key: ${{ steps.cache-key.outputs.key }}
+        key: ${{ needs.check-cache.outputs.cache-prefix }}-${{ matrix.arch }}-py${{ matrix.python-version }}
 
     - name: Initialize AscendNPU-IR submodule
       if: steps.cache.outputs.cache-hit != 'true'
@@ -64,17 +138,11 @@ jobs:
         cd 3rdparty/AscendNPU-IR
         git submodule update --init
 
-    - name: Set up Python 3.11
-      if: steps.cache.outputs.cache-hit != 'true'
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
-
     - name: Install build dependencies
       if: steps.cache.outputs.cache-hit != 'true'
       run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
+        apt-get update
+        apt-get install -y --no-install-recommends \
           clang \
           lld \
           cmake \
@@ -82,18 +150,23 @@ jobs:
           libzstd-dev \
           zlib1g-dev \
           patch
-        pip install numpy pybind11==3.0.1
+        pip install "cmake>=3.28,<4" numpy pybind11==3.0.1
 
     - name: Apply patches
       if: steps.cache.outputs.cache-hit != 'true'
-      working-directory: 3rdparty/AscendNPU-IR
-      run: bash ./build-tools/apply_patches.sh
+      run: |
+        bash 3rdparty/patch/apply_npuir_patches.sh
+        cd 3rdparty/AscendNPU-IR
+        bash ./build-tools/apply_patches.sh
 
     - name: Configure AscendNPU-IR
       if: steps.cache.outputs.cache-hit != 'true'
       working-directory: 3rdparty/AscendNPU-IR
       run: |
         NPUIR_ROOT=$(pwd)
+        BISHENG_BIN="$(dirname "$(command -v ccec)")"
+        test -x "${BISHENG_BIN}/ccec"
+        test -x "${BISHENG_BIN}/llvm-link"
         cmake third-party/llvm-project/llvm -B build \
           -DCMAKE_C_COMPILER=clang \
           -DCMAKE_CXX_COMPILER=clang++ \
@@ -109,7 +182,9 @@ jobs:
           -DPython3_EXECUTABLE=$(which python3) \
           -DCMAKE_INSTALL_PREFIX="${NPUIR_ROOT}/build/install" \
           -DBSPUB_DAVINCI_BISHENGIR=ON \
-          -DBISHENGIR_PUBLISH=OFF \
+          -DBISHENGIR_PUBLISH=ON \
+          -DBISHENGIR_BUILD_TEMPLATE=ON \
+          -DBISHENG_COMPILER_PATH="${BISHENG_BIN}" \
           -DCMAKE_LINKER=lld \
           -DLLVM_ENABLE_LLD=ON
 
@@ -123,7 +198,8 @@ jobs:
     - name: Install AscendNPU-IR
       if: steps.cache.outputs.cache-hit != 'true'
       working-directory: 3rdparty/AscendNPU-IR
-      run: cmake --install build
+      run: |
+        cmake --install build
 
     - name: Populate cache directory
       if: steps.cache.outputs.cache-hit != 'true'

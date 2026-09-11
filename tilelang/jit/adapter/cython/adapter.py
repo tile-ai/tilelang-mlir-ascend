@@ -6,10 +6,10 @@ from ..base import BaseKernelAdapter
 import ctypes
 from typing import List, Optional, Union, Callable, Dict, Tuple, Any
 from tilelang import tvm as tvm
-from tvm.target import Target
+from tilelang.tvm.target import Target
 from tilelang.engine.param import KernelParam
-from tvm import tir
-from tvm.relay import TensorType
+from tilelang.tvm import tir
+from tilelang.tvm.relay import TensorType
 from tilelang.jit.adapter.wrapper import TLWrapper
 from tilelang.jit.adapter.libgen import LibraryGenerator
 from tilelang.jit.adapter.utils import is_cuda_target, is_hip_target, is_cpu_target

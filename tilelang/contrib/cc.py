@@ -24,9 +24,9 @@ import subprocess
 import sys
 from typing import Dict
 
-from tvm._ffi.base import py_str
-from tvm.contrib import tar as _tar
-from tvm.contrib import utils as _utils
+from tilelang.tvm._ffi.base import py_str
+from tilelang.tvm.contrib import tar as _tar
+from tilelang.tvm.contrib import utils as _utils
 
 
 def _is_linux_like():

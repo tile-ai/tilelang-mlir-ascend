@@ -4,7 +4,7 @@
 from collections import OrderedDict
 from typing import Dict, List
 
-from tvm import arith
+from tilelang.tvm import arith
 
 
 class Statement():

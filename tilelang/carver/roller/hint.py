@@ -1,7 +1,7 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 """Hint definition for schedule"""
-from tvm import DataType
+from tilelang.tvm import DataType
 from typing import Dict, List, Tuple
 from . import PrimFuncNode
 import numpy as np

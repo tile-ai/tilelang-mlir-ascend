@@ -96,7 +96,7 @@ class AscendArch:
         self.sm_partition = 1
 
         try:
-            from tvm.target import Target
+            from tilelang.tvm.target import Target
 
             self.target = Target("llvm -keys=ascend")
         except ImportError:

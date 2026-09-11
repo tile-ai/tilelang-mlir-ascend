@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from .base import BaseTemplate, AscendArch
-from tvm import te
+from tilelang.tvm import te
 from ..roller import Hint
 from ..roller import PrimFuncNode, OutputNode, Edge
 from typing import List

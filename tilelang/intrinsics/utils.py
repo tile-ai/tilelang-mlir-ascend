@@ -1,7 +1,7 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 
-from tvm import DataType
+from tilelang.tvm import DataType
 from typing import Literal
 from .mma_layout import (
     ldmatrix_32x8_to_shared_16x16_layout,

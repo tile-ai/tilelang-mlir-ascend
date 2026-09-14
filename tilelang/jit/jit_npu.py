@@ -803,27 +803,27 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
   rtError_t prep_ret = RT_ERROR_NONE;
   uint32_t blockNum = gridX * gridY * gridZ;
   {
-      "blockNum = std::min(blockNum, (uint32_t)" + str(num_physical_blocks) + ");"
-      if enable_auto_map_parallel_blocks
-      else ""
-  }
+        "blockNum = std::min(blockNum, (uint32_t)" + str(num_physical_blocks) + ");"
+        if enable_auto_map_parallel_blocks
+        else ""
+    }
   void *syncBlockLock = NULL;
   void *workspace_addr = NULL;
   at::Tensor syncBlockLockTensor;
   at::Tensor workspaceTensor;
   {
-      f'''
+        '''
   void *ffts_addr = NULL;
   uint32_t ffts_len; ret = rtGetC2cCtrlAddr((uint64_t*)&ffts_addr, &ffts_len);
-  if (ret != RT_ERROR_NONE) {{
+  if (ret != RT_ERROR_NONE) {
     prep_ret = ret;
-  }}
-  '''
-      if target_support_ffts
-      else ""
   }
+  '''
+        if target_support_ffts
+        else ""
+    }
   {
-      f'''
+        f'''
   if (prep_ret == RT_ERROR_NONE) {{
     uint64_t syncBlockLockSize = {lock_num} * sizeof(int64_t);
     syncBlockLockTensor = at_npu::native::allocate_workspace(syncBlockLockSize, stream);
@@ -841,11 +841,11 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     }}
   }}
   '''
-      if lock_num > 0
-      else ""
-  }
+        if lock_num > 0
+        else ""
+    }
   {
-      f'''
+        f'''
   if (prep_ret == RT_ERROR_NONE) {{
     uint64_t totalWorkSpaceSize = {workspace_size} * blockNum;
     workspaceTensor = at::empty({{static_cast<int64_t>(totalWorkSpaceSize)}},
@@ -857,12 +857,12 @@ static void _launch(const char* kernelName, const void* func, rtStream_t stream,
     }}
   }}
   '''
-      if workspace_size > 0
-      else ""
-  }
+        if workspace_size > 0
+        else ""
+    }
     {cpp_launch_lambda_decl} {{
     if (prep_ret != RT_ERROR_NONE) {{
-      return {'prep_ret' if enable_taskqueue else ''};
+      return {"prep_ret" if enable_taskqueue else ""};
     }}
     {
         "cce::internal::DebugTunnelData *DTData = cce::internal::DebugTunnel::Open(blockNum);"
@@ -1458,15 +1458,23 @@ class compiler_npu:
                     text=True,
                     timeout=2,
                 )
-            except (subprocess.SubprocessError, FileNotFoundError, OSError, TimeoutError):
+            except (
+                subprocess.SubprocessError,
+                FileNotFoundError,
+                OSError,
+                TimeoutError,
+            ):
                 continue
             if result.returncode != 0:
                 continue
             for line in result.stdout.split("\n"):
                 parts = line.strip().split()
-                if len(parts) >= 3 and parts[2].endswith(suffix):
-                    if parts[2] not in found:
-                        found.append(parts[2])
+                if (
+                    len(parts) >= 3
+                    and parts[2].endswith(suffix)
+                    and parts[2] not in found
+                ):
+                    found.append(parts[2])
             if found:
                 break
         # A library can carry several kernels; prefer this kernel's callback
@@ -1492,9 +1500,7 @@ class compiler_npu:
         # TILELANG_ASCEND_WORKSPACE_SIZE overrides the result (handled in
         # compile(), before the wrapper source is generated).
         if not os.path.exists(lib_path):
-            print(
-                f"Workspace size: {lib_path} not found, kernel gets no workspace"
-            )
+            print(f"Workspace size: {lib_path} not found, kernel gets no workspace")
             return default
         symbols = self._find_infer_symbols(lib_path, suffix)
         if not symbols:
@@ -1524,8 +1530,7 @@ class compiler_npu:
                 continue
             if size <= 0:
                 print(
-                    f"Workspace size: {func_name}() = {size}, "
-                    f"kernel gets no workspace"
+                    f"Workspace size: {func_name}() = {size}, kernel gets no workspace"
                 )
                 return 0
             print(f"Workspace size: {func_name}() = {size} bytes/block")

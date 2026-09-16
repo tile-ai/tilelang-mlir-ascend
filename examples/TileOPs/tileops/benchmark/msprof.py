@@ -18,7 +18,10 @@ Workflow:
 
 Configuration (environment variables):
   TILEOPS_PROF_MODE           — "msprof" (default) or "events"
-  TILEOPS_MSPROF_KERNEL_NAME  — kernel name filter for --kernel-name
+  TILEOPS_MSPROF_KERNEL_NAME  — explicit kernel name filter for
+                                --kernel-name (overrides the default
+                                derived from @T.prim_func via the
+                                JitKernel_NPU object graph)
   TILEOPS_MSPROF_LAUNCH_COUNT — number of measured launches (default 10)
   TILEOPS_MSPROF_WARM_UP      — number of warm-up iterations (default 5)
   TILEOPS_MSPROF_OUTPUT_DIR   — persistent output directory (optional)
@@ -32,10 +35,12 @@ import glob
 import inspect
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import types
 from typing import Any, Callable, Optional
 
 import torch
@@ -296,6 +301,113 @@ def _parse_op_basic_info(output_dir: str) -> tuple[list[float], str]:
 
 
 # ---------------------------------------------------------------------------
+# Kernel-name resolution (explicit first, @T.prim_func-derived default last)
+# ---------------------------------------------------------------------------
+
+
+def _derive_kernel_name_from_prim_func(
+    functor: Any,
+    max_depth: int = 5,
+    max_nodes: int = 128,
+) -> Optional[str]:
+    """Derive the default msprof kernel name from the functor's kernel graph.
+
+    TileLang names the compiled device kernel after the ``@T.prim_func``
+    function, so the default ``msprof op --kernel-name`` filter is exactly
+    that name.  Two complementary passes recover it:
+
+    **Pass 1 (runtime object graph)**: bounded BFS over instance
+    attributes and closure cells looking for an object exposing a string
+    ``kernel_name`` (``tilelang.jit.jit_npu.JitKernel_NPU``).  This hits
+    kernels that are already materialized and reachable -- Developer-mode
+    ops whose ``Kernel.kernel`` *is* the JIT kernel, or any state that
+    keeps the built kernel alive.
+
+    **Pass 2 (static source scan)**: during the same BFS, record the
+    module file of every visited function (``func.__globals__['__file__']``
+    -- the tilelang kernel factory chain lives in the kernel module), then
+    regex-scan those files for ``@T.prim_func``-decorated defs.  This hits
+    Expert-mode ops whose ``Kernel.kernel`` is only a *middle factory*
+    (the ``JitKernel_NPU`` is created and discarded inside ``forward`` per
+    config, so no runtime object carries it at bench time).
+
+    A single distinct name across all candidate modules is returned;
+    ambiguity (or nothing found) returns ``None`` -- the caller then runs
+    msprof unfiltered with a loud warning in ``benchmark_base``.
+    """
+    _PRIM_FUNC_DEF_RE = re.compile(
+        r"@T\.prim_func[^\n]*\n(?:[ \t]*@[\w.]+[^\n]*\n)*[ \t]*def\s+([A-Za-z_]\w*)"
+    )
+
+    def _scan_prim_func_names(module_file: Any) -> list[str]:
+        if not isinstance(module_file, str) or not module_file.endswith(".py"):
+            return []
+        try:
+            with open(module_file, "r", encoding="utf-8") as f:
+                source = f.read()
+        except (OSError, UnicodeDecodeError):
+            return []
+        names: list[str] = []
+        for match in _PRIM_FUNC_DEF_RE.finditer(source):
+            if match.group(1) not in names:
+                names.append(match.group(1))
+        return names
+
+    def _bfs(root: Any) -> tuple[Optional[str], list[str]]:
+        seen: set[int] = set()
+        module_files: list[str] = []
+        queue: list[tuple[Any, int]] = [(root, 0)]
+        while queue and len(seen) < max_nodes:
+            obj, depth = queue.pop(0)
+            if depth > max_depth or id(obj) in seen:
+                continue
+            seen.add(id(obj))
+            name = getattr(obj, "kernel_name", None)
+            if isinstance(name, str) and name:
+                return name, module_files
+            if isinstance(obj, types.FunctionType):
+                module_file = obj.__globals__.get("__file__")
+                if isinstance(module_file, str) and module_file not in module_files:
+                    module_files.append(module_file)
+            if isinstance(obj, dict):
+                # e.g. Op._kernel_cache {key: Kernel instance} (lazy-commit
+                # ops keep built kernels here instead of self.kernel)
+                for value in obj.values():
+                    queue.append((value, depth + 1))
+            elif isinstance(obj, (list, tuple, set, frozenset)):
+                for value in obj:
+                    queue.append((value, depth + 1))
+            elif hasattr(obj, "__dict__"):
+                for value in vars(obj).values():
+                    queue.append((value, depth + 1))
+            for cell in getattr(obj, "__closure__", None) or ():
+                try:
+                    queue.append((cell.cell_contents, depth + 1))
+                except ValueError:
+                    # empty closure cell
+                    continue
+        return None, module_files
+
+    candidate_files: list[str] = []
+    for root in (getattr(functor, "kernel", None), functor):
+        if root is None:
+            continue
+        name, files = _bfs(root)
+        if name:
+            return name
+        candidate_files.extend(f for f in files if f not in candidate_files)
+
+    distinct_names: list[str] = []
+    for module_file in candidate_files:
+        for name in _scan_prim_func_names(module_file):
+            if name not in distinct_names:
+                distinct_names.append(name)
+    if len(distinct_names) == 1:
+        return distinct_names[0]
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Main API
 # ---------------------------------------------------------------------------
 
@@ -322,7 +434,23 @@ def bench_kernel_msprof(
             or a module-level callable (imported by ``__module__`` + ``__name__``).
         args: Tuple of input arguments (tensors saved via ``torch.save``).
         kernel_name: Kernel name filter for ``--kernel-name``.  If ``None``,
-            auto-detected from the Op (``_op_name`` attribute) or omitted.
+            resolved in order (explicit values win, derived default last):
+
+            1. this argument (programmatic, per-call);
+            2. ``functor.msprof_kernel_name`` (Op-level declaration, e.g.
+               multi-kernel dispatch pointing at the kernel its forward
+               actually invokes);
+            3. ``functor.kernel.msprof_kernel_name`` (Kernel-level
+               declaration);
+            4. the ``TILEOPS_MSPROF_KERNEL_NAME`` env var (manual session
+               override);
+            5. the derived default: the ``@T.prim_func`` function name,
+               read from the ``JitKernel_NPU`` object in the functor's
+               kernel object graph.
+
+            ``None`` after all of the above means no filter (legacy
+            behavior; ``benchmark_base`` warns if multiple ops are
+            captured).
         launch_count: Number of measured kernel launches (default from
             ``TILEOPS_MSPROF_LAUNCH_COUNT`` or 10).
         warm_up: Number of warm-up iterations (default from
@@ -381,13 +509,20 @@ def bench_kernel_msprof(
             f"Closures and lambdas are not supported — use events mode."
         )
 
-    # Auto-detect kernel name only from an explicit msprof_kernel_name
-    # attribute — NOT from _op_name (tilelang compiled kernels are named
-    # "main", not the op name).
+    # Kernel-name resolution: explicit values win, derived default last
+    # (see the bench_kernel_msprof docstring for the full chain).  NOT
+    # from _op_name: tilelang compiled kernels are named after the
+    # @T.prim_func function, not the op name.  Empty-string declarations
+    # (the Kernel base-class default) are normalized to None.
     if kernel_name is None and is_op:
-        kernel_name = getattr(functor, "msprof_kernel_name", None)
+        kernel_name = getattr(functor, "msprof_kernel_name", None) or None
+    if kernel_name is None and is_op:
+        kernel = getattr(functor, "kernel", None)
+        kernel_name = getattr(kernel, "msprof_kernel_name", None) or None
     if kernel_name is None:
         kernel_name = os.environ.get("TILEOPS_MSPROF_KERNEL_NAME") or None
+    if kernel_name is None and is_op:
+        kernel_name = _derive_kernel_name_from_prim_func(functor)
 
     # --- Create temp workspace --------------------------------------------
     tmp_dir = tempfile.mkdtemp(prefix="tileops_msprof_")

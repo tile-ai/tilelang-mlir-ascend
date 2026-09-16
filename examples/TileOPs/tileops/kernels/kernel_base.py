@@ -31,6 +31,14 @@ class Kernel(ABC):
     config: Dict[str, Any]
     supported_archs: Optional[list] = None
     kernel: Optional[Any] = None
+    # Optional explicit msprof kernel-name override: the tilelang
+    # ``@T.prim_func`` function name of the device kernel.  Empty string
+    # (the default) means "not declared": the benchmark framework derives
+    # the default ``msprof op --kernel-name`` filter from the
+    # ``JitKernel_NPU`` object graph, which carries exactly that name.
+    # Declare it only when auto-derivation would pick the wrong kernel
+    # (e.g. several kernels instantiated at once in one Op).
+    msprof_kernel_name: str = ""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.config = {}

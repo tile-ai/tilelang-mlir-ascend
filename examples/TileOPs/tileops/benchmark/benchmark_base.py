@@ -295,11 +295,34 @@ class BenchmarkBase(Generic[W], ABC):
         result: dict[str, Any] = {"latency_us": latency_us}
 
         if prof_mode == "msprof" and prof_output_dir and parse_bin_file is not None:
-            roofline_metrics = self._parse_msprof_roofline(prof_output_dir)
+            roofline_metrics = self._parse_msprof_roofline(prof_output_dir, latency_us=latency_us)
             if roofline_metrics is not None:
                 result.update(roofline_metrics)
                 self._dump_roofline_log(roofline_metrics, prof_mode)
                 print(f"=== [msprof] latency_us: {latency_us}, roofline: {roofline_metrics}")
+                # Cross-validation tripwire: the msprof-counted FLOP
+                # throughput must be within ~an order of magnitude (20x) of
+                # the theoretical workload throughput.  A wild divergence
+                # means the roofline entry likely belongs to a different
+                # kernel than the op under test (e.g. an auxiliary ACL op
+                # captured because no --kernel-name filter resolved).
+                flops = self.calculate_flops()
+                if flops:
+                    theoretical_tops = flops / latency * 1e-9
+                    perf_tops = roofline_metrics.get("Perf(TOps/s)")
+                    if perf_tops and theoretical_tops > 0:
+                        divergence = perf_tops / theoretical_tops
+                        if divergence > 20 or divergence < 0.05:
+                            _logger.warning(
+                                "msprof roofline Perf (%.6f TOPS/s) diverges from the "
+                                "theoretical workload throughput (%.2f TOPS/s) by %.1fx -- "
+                                "the roofline entry may describe a different kernel than "
+                                "the op under test (multi-op capture without a "
+                                "--kernel-name filter?)",
+                                perf_tops,
+                                theoretical_tops,
+                                max(divergence, 1.0 / divergence),
+                            )
                 return result
 
             _logger.warning("msprof roofline parsing failed; falling back to theoretical metrics.")
@@ -316,17 +339,42 @@ class BenchmarkBase(Generic[W], ABC):
     @staticmethod
     def _parse_msprof_roofline(
         prof_output_dir: str,
+        latency_us: Optional[float] = None,
     ) -> Optional[dict[str, Any]]:
         """Parse ``visualize_data.bin`` and extract ``GM Read + Write`` roofline metrics.
 
-        Searches *prof_output_dir* recursively for ``visualize_data.bin``,
-        calls :func:`parse_bin_file`, and filters the roofline entries for
-        the ``GM Read + Write`` bandwidth point.
+        Searches *prof_output_dir* recursively for ``visualize_data.bin``
+        and filters the roofline entries for the ``GM Read + Write``
+        bandwidth point.
+
+        When the capture contains bins from **multiple distinct ops**
+        (msprof ran without a ``--kernel-name`` filter and the op under
+        test launched auxiliary ACL kernels -- e.g. a ``torch.zeros`` zbuf
+        allocation showing up as ``ZerosLike``), this method no longer
+        silently takes the alphabetically-first bin: it warns with the
+        full op list and selects the op whose task duration best matches
+        *latency_us* (falling back to the longest duration).
 
         Returns:
-            Dict with ``roofline_*`` keys, or ``None`` if the bin file is
-            not found or no matching entry exists.
+            Dict with ``roofline_*`` keys, or ``None`` if no bin file is
+            found or no matching entry exists.
         """
+
+        def _op_key(bin_path: str) -> str:
+            # .../OPPROF_x/<OpName>/<launch>/visualize_data.bin -> OpName
+            # .../OPPROF_x/<OpName>/visualize_data.bin          -> OpName
+            # .../OPPROF_x/visualize_data.bin                   -> OPPROF_x
+            parts = os.path.normpath(bin_path).split(os.sep)[:-1]
+            if parts and parts[-1].isdigit():
+                parts = parts[:-1]
+            return parts[-1] if parts else bin_path
+
+        def _duration(bin_data: dict) -> float:
+            try:
+                return float(bin_data.get("base_info", {}).get("duration", 0) or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
         bin_files = sorted(
             glob.glob(
                 os.path.join(prof_output_dir, "**", "visualize_data.bin"),
@@ -337,11 +385,44 @@ class BenchmarkBase(Generic[W], ABC):
             _logger.warning("visualize_data.bin not found under %s", prof_output_dir)
             return None
 
-        try:
-            bin_data = parse_bin_file(bin_files[0])
-        except Exception as e:
-            _logger.warning("parse_bin_file failed for %s: %s", bin_files[0], e)
+        candidates: list[tuple[str, dict]] = []
+        for bin_path in bin_files:
+            try:
+                candidates.append((bin_path, parse_bin_file(bin_path)))
+            except Exception as e:
+                _logger.warning("parse_bin_file failed for %s: %s", bin_path, e)
+        if not candidates:
             return None
+
+        op_groups: dict[str, list[tuple[str, dict]]] = {}
+        for bin_path, data in candidates:
+            op_groups.setdefault(_op_key(bin_path), []).append((bin_path, data))
+
+        if len(op_groups) > 1:
+            summary = ", ".join(
+                f"{op}(duration~{_duration(grp[0][1]):.1f}us)"
+                for op, grp in sorted(op_groups.items())
+            )
+            _logger.warning(
+                "msprof captured %d distinct ops under %s: [%s]. The roofline "
+                "entry will be selected by %s and may not describe the op "
+                "under test. Pass a kernel name (kernel_name argument, "
+                "msprof_kernel_name attribute, TILEOPS_MSPROF_KERNEL_NAME env) "
+                "so msprof op filters with --kernel-name.",
+                len(op_groups),
+                prof_output_dir,
+                summary,
+                "duration match to the reported latency" if latency_us else "longest duration",
+            )
+            if latency_us:
+                chosen_op = min(
+                    op_groups, key=lambda op: abs(_duration(op_groups[op][0][1]) - latency_us)
+                )
+            else:
+                chosen_op = max(op_groups, key=lambda op: _duration(op_groups[op][0][1]))
+            bin_data = op_groups[chosen_op][0][1]
+        else:
+            bin_data = candidates[0][1]
 
         entries = bin_data.get("roofline_entries", [])
         gm_entries = [

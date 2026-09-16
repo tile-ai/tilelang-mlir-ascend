@@ -124,7 +124,7 @@ repro: none
 
 **durable 载体**：attention.md PL-1.8（bf16 直连）、traps-compiler/runtime.md attention 族陷阱条目（正文自包含）。
 
-Expert 模式 GQA/MHA prefill attention 完整档案：v0→v1→v2 设计修订链（K_A ceildiv→floordiv 差 1 反例 + 检视建议自我纠正全程 + per-lane 阈值符号错误）+ 3 轮 REVIEW + debug_log D1–D6（load_nd2nz 误读 / T.copy 语义 / 解析器规则 / tier-3 精度分类）+ bf16 直连 + E7 守卫不变式。适用触发条件：attention 族 Expert 迁移/重设计；跨引擎 flag 流水协议设计；bf16 Cube 直连决策；分界公式检视反例。
+Expert 模式 GQA/MHA prefill attention 完整档案：v0→v1→v2 设计修订链（K_A ceildiv→floordiv 差 1 反例 + 检视建议自我纠正全程 + per-lane 阈值符号错误）+ 3 轮 REVIEW + debug_log D1–D6（load_nd2nz 误读 / T.copy 语义 / 解析器规则 / tier-3 精度分类）+ bf16 直连 + E7 守卫不变式。适用触发条件：attention 族 Expert 迁移/重设计；跨引擎 flag 流水协议设计；bf16 Cube 直连决策；分界公式检视反例。〔2026-09-15 注：该目录 DESIGN.md/REVIEW.md 已被两相位 v3 重设计覆盖（见 CASE-attention-twophase-causal-regen）；v0→v2 修订链与 E1-E7 单遍设计存档于 history_version/（design_v0/v1/v2.md），debug_log.md（含 D1–D6）仍在本目录——引用本条修订链/检视反例时以 history_version/ 为准。origin_task: multi_head_attention-_gqa_prefill_fwd_kernel-20260907T115424Z〕
 
 ---
 id: CASE-attention-expert-stage4
@@ -231,6 +231,42 @@ repro: none
 norm/row-reduction 族完整调优档案（6 轮，全组几何平均 2.14x）：wrapper 部署态 bm=1 → per-shape 调优表（第一杠杆）+ per-input staging 解耦（PL-1.10-loads-first-decoupling）+ bm 任务几何精搜（bm=7 非单调局部最优）+ 调优表条目 U 曲线闭合验证 + A/B 交错协议两次防误判 + 保护性泛化验证（「UB 85% 松弛律」单点否定）。适用触发条件：norm/规约族 Stage 4 调优；多输入 staging 复用链串行化诊断（pipe 忙时和 ≈ wall 信号）；调优表条目鲁棒性验证方法参考。
 
 ---
+id: CASE-attention-twophase-causal-regen
+kind: case
+family: [attention]
+mode: [expert]
+dtype: [fp16, bf16]
+status: verified
+origin_task: multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z（Stage 1→3 重生成）/ multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z（第五轮 Stage 4 调优）/ multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z（第六轮 Stage 4 调优）
+toolchain: tilelang 0.1.2+28783f454705cadab047805c1e0f5e054ba4b967（Stage 1→3）+ tilelang 0.1.2+6797758（2026-09-15 07:45 HEAD，第五轮）+ tilelang 0.1.2+a13585dc（第六轮），均 + CANN 8.5.0 / Ascend910B2C
+repro: none
+---
+
+### `examples/multi_head_attention/_gqa_prefill_fwd_kernel/`（任务工作区，未上库）
+
+**durable 载体**：两相位 causal 适配五机制待 queue VP-2026-0057（1/2）；config 依赖性数据已合入 attention.md §1.9-twophase causal 域 bullet（VP-2026-0063 两证，2026-09-15）；第五轮调优知识自包含于 attention.md PL-1.11 + traps-compiler.md TRAP-expert-v-operands/TRAP-UB 第四证 + constants.md CONST-capacity UB 系数；**第六轮调优知识自包含于 attention.md PL-1.12 + repro/PL-1.12-bn-clamp-bm-guard.py**（屏障审计 / 深度 2 / f32 载体 / Ratio 口径 / r9 分派守卫）。
+
+两相位 S/P 物化 v3 重生成完整档案（manifest causal 多头域 Stage 1→3 重跑，用户判定上一版为 case_fa 特化后从设计层重新生成）：DESIGN.md v3（persistent 24 核双 Scope + per-n-block 同 id 三次握手 + E6 flag 预算-bn 耦合守卫）+ verify_equiv.py（13/13 EQUIV_PASS，双跑一致——等价性机器验证脚本结构参照：基线式忠实到常数与运算序 / fp64 参照 / 违反率双口径 / 探针行分离，torch CPU 无 NPU 依赖）+ REVIEW.md 9 维度通过 + Stage 3 `--level all` 29/29 + RETROSPECTIVE.md 2026-09-15 章节（gate 误报修复姿势 / T.ceildiv 空核钳制 / per-core ws 槽 row0 索引 / 装载不满宽掩码门控口径 / dump IR 新 cache 目录）。**第五轮 Stage 4 调优（2026-09-15，4 轮，14.2x）**：判别实验链教科书档案（因子分离 → bn/bm 扫描证伪 → TILELANG_DUMP_IR 编译警告定位 → 微探针定案）锁定 vcmp int16 标量化根因（占壁钟 45%）→ 算术惩罚掩码 + UB diet 宽块解锁 + zbuf l1_b 零初始化；探针族 probe_vcmp_forms/penalty_chain/nan_clamp/rt_slice/l2flake 等（微探针方法论参照）；perf_records.jsonl 36 行 + profiles/{phase1,round2,round3,final}/。**第六轮 Stage 4 调优（2026-09-16，roofline Ratio 硬目标 20%→35% 口径）**：TASKDONE 屏障冗余审计删除（全域 −7~−21%，纯程序顺序论证零实验成本）+ Cube 深度 2 任务流水（flag slot 双槽 2×nk≤15）+ per-shape bm 分派 + fp16 域 f32 ws_s 载体（8b-long 1191.63→989.26µs = −16.8%，vs 第五轮启动基线累计 17.1x；long 4 配置 Ratio 22.64–23.63%——20% 口径达标、35% 口径差 11.4–12.4pt）；r9 precision_fix 分派守卫收窄（bn 钳位域 × bm80 联合 UB 核算判据，S_kv≥3841 域修复，TileOPs pytest 6/6）+ 双镜像同步先例。适用触发条件：causal 多头域两相位/persistent 结构设计参考；causal mask 链标量化排查与判别实验设计参照；verify_equiv 脚本结构参照；per-n-block flag 协议与尾块门控设计；task 级流水与同步屏障审计参照；派发守卫组合的联合 UB 核算参照；msprof roofline Ratio 口径目标调优参照；前谱系（Sep-07 E1-E7 单遍）见 history_version/ 与 CASE-attention-gqa-expert-full，调优轮次史见 CASE-attention-expert-stage4。
+
+---
+id: CASE-attention-mha-config-unvalidated
+kind: case
+family: [attention]
+mode: [expert]
+dtype: [fp16, bf16]
+status: verified
+origin_task: multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z
+toolchain: tilelang 0.1.2+28783f454705cadab047805c1e0f5e054ba4b967 + CANN 8.5.0 + Ascend910B2C / 2026-09-15
+repro: none
+---
+
+### 反例：设计默认 config 路径未经目标域编译验证即出厂（`examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/integration_log.md` Round 2；任务工作区，未上库——溯源允许失效，根因链要点已自包含于本条）
+
+**durable 载体**：UB 预算偏差实证已合入 traps-compiler.md TRAP-UB-multibuffer-inflation 第四证（VP-2026-0059 两证，2026-09-15，含 ×1.10–1.12 系数 + UB diet 绕法）；能力缺口本体见 capability-gaps CG-2026-0008（recurring）。
+
+反例档案：设计默认 config（E6 替换路径 bn_eff=256）在 dim=128 causal 域的首次编译发生在 Stage 5 bench 且直接 UB 硬溢出（8/10 失败）——根因三层：Stage 3 L1 门禁变体集不含 wrapper-default 派发路径（VP-2026-0065）+ DESIGN §4.5 手工预算低估实际分配 ~26KB（VP-2026-0059 / CG-2026-0008）+ pytest 域全 non-causal 掩盖（causal dim=128 traced 变体从未被 pytest 编译）。修复 = wrapper default_config num_stages 1→2 路由到门禁验证过的逐字路径（VP-2026-0074 config-契约范式），1 attempt 闭环、bench 10/10 复核。适用触发条件：带 config 替换语义 kernel 的集成期 bench 编译失败排查；「pytest 全绿 ≠ manifest 域全绿」的域覆盖核对；宽 config UB 预算校准。
+
+---
 id: CASE-CG-INDEX
 kind: case
 family: [general]
@@ -255,5 +291,6 @@ capability-gaps 登记簿（`.agents/evolution/capability-gaps.md`）open 条目
 | CG-2026-0005 | Frontend API / codegen | 前端 API 能力缺口 |
 | CG-2026-0006 | TileLangIR pass / codegen（向量算子融合与 f16 打包发射） | 向量算子融合缺口（f16≈f32 发射速率的机制根源，见 attention.md PL-1.9-hardlimits） |
 | CG-2026-0007 | runtime / codegen（跨引擎同步原语粒度） | 跨引擎同步原语粒度缺口 |
+| CG-2026-0008 | BishengIR（UB 基础分配可见性） | UB 手工预算 vs 实际分配差（宽 config 不可编译形态） |
 
 > BLOCKED 终态任务的反例根因链条目同入本节（由 evolver 追加，标注「反例」）。

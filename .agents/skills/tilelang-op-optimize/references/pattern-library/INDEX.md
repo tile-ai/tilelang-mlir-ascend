@@ -40,8 +40,8 @@
 
 | ID | 一句话 | 状态 |
 |----|--------|------|
-| PL-1.6-copy-floor | copy-floor 标定法 + MTE2 带宽退化曲线（1M 33.9→256M 18.4 GB/s/core；3:1 混合地板 ~1.26TB/s）+ grid-stride 反直觉 + 标量削减判定式 | verified |
-| PL-1.10-loads-first-decoupling | 单 staging 复用链致 MTE2/VEC 零重叠 → per-input staging + 三输入前置装载（prefill -31.7%；nl=1 退化 tie） | verified |
+| PL-1.6-copy-floor | copy-floor 标定法 + MTE2 带宽退化曲线 + 混合流量地板 + grid-stride 反直觉 + 标量削减判定式（数字见条目） | verified |
+| PL-1.10-loads-first-decoupling | 单 staging 复用链致 MTE2/VEC 零重叠 → per-input staging + 三输入前置装载（收益数字见条目） | verified |
 
 ### attention.md — Expert persistent / attention 族
 
@@ -49,21 +49,23 @@
 |----|--------|------|
 | PL-1.7-expert-persistent-boundary | Expert persistent vs 简单 tiling 收益分界：长 KV 1.57–1.63x 提速、短 KV ~1.31x 回退 | verified |
 | PL-1.8-bf16-cube-direct | bf16 Cube 直连链实测可用且无延迟税（含两轮负向断言被推翻的证伪更正） | verified |
-| PL-1.9-blockwidth | 块宽摊减律 + cbuf 512KB 硬上限 + wide 单槽 + 工厂分派 + H=1 任务平衡 | verified |
-| PL-1.9-hardlimits | 第二轮硬上限测绘：L0C 128KB / L1 端口 148–154GB/s/核 / 发射 ~0.5µs/op / fabric ≥1.73TB/s + f16 softmax 链 | verified |
-| PL-1.9-twophase | 第三轮两相位重构达标（12.94/18.11/30.88/98.05µs）+ morph 阶梯方法 | verified |
+| PL-1.9-blockwidth | 块宽摊减律 + cbuf 硬上限 + wide 单槽 + 工厂分派 + H=1 任务平衡 | verified |
+| PL-1.9-hardlimits | 第二轮硬上限测绘：L0C/L1 端口/发射/fabric 常数 + f16 softmax 链（数字见条目） | verified |
+| PL-1.9-twophase | 两相位重构达标 + morph 阶梯方法 + causal 域画像与宽块解锁反转（第五轮） | verified |
+| PL-1.11-causal-mask-scalartrap | 第五轮 causal 域 14.2x：vcmp int16 全形态标量化陷阱 + 算术惩罚掩码 + zbuf l1_b 零初始化（NaN 边界）+ UB ×1.10–1.12 开销 | verified |
+| PL-1.12-task-pipeline-depth2 | 第六轮：TASKDONE 屏障冗余审计（全域 −7~−21%）+ Cube 深度 2 任务流水（flag slot 双槽，2×nk≤15）+ f32 S 载体；Vec 侧同构 blocked（MTE2/MTE3 同 buffer WAR）；r9：bn 钳位域×bm80 UB 耦合→守卫 `bn_min≤tuned_bn`（UB∝half） | verified |
 
 ### traps-compiler.md — 编译器/解析器陷阱
 
 | ID | 一句话 | 状态 |
 |----|--------|------|
-| TRAP-C1-old-compiler-transpose | 旧编译器 transpose/C-slice 不可用（已失效，合法形态见 PL-1.1/1.2） | overturned |
+| TRAP-C1-old-compiler-transpose | 旧编译器 transpose/C-slice 不可用（已失效，见 PL-1.1/1.2） | overturned |
 | TRAP-C10-strided-gather | 跨步 gather 向量指令缺失 | verified |
 | TRAP-C11-parser-vartable | parser var-table 作用域问题 | verified |
 | TRAP-C12-copy-dtype-cast | T.copy 静默跨 dtype 转换（勿用作 cast 融合） | verified |
 | TRAP-UB-multibuffer-inflation | auto-multi-buffer UB 膨胀 ~1.7x 超 192KB | verified |
 | TRAP-vbrc-scalar-shared | vbrc 标量→shared 不可用；serial 变量条件 segfault | verified |
-| TRAP-threads-kwarg-noop | T.Kernel(threads=) 在 npuir 无效果（源码核对） | verified |
+| TRAP-threads-kwarg-noop | T.Kernel(threads=) 在 npuir 无效果 | verified |
 | TRAP-tvm-parser-rules | TVM script 解析器四条硬规则（if/三元式/条件 alloc/T.rs 作用域） | verified |
 | TRAP-expert-v-operands | Expert v 算子操作数规则（vcmp 拒绝 tir.Cast 等） | verified |
 | TRAP-transpose-epilogue-poison | 活跃源 transpose epilogue 毒化整 kernel（2.6x；绕法 = 增维视图） | verified |
@@ -78,7 +80,7 @@
 | TRAP-load-nd2nz-strided | load_nd2nz / T.copy base+size 对跨步区域静默平坦误读（绕法 = slice 形态） | verified |
 | TRAP-T-copy-region-semantics | T.copy 区域语义三规则（前向补 1 / 越界写坏相邻 GM / [N,1] 越界读） | verified |
 | TRAP-zero-input-crash | 零输入 kernel 必崩 MTE DDR（同款崩溃形态易误诊） | verified |
-| TRAP-vrsqrt-plain-precision | vrsqrt 近似指令 ~2.9e-3（绕法 vsqrt+vdiv 1.07e-7；fp32 违反/bf16 掩盖指纹） | verified |
+| TRAP-vrsqrt-plain-precision | vrsqrt 近似指令 ~2.9e-3（绕法 vsqrt+vdiv 1.07e-7；dtype 指纹见条目） | verified |
 
 ### constants.md — 硬件常数表（D-2，设计期 roofline 口径）
 
@@ -88,8 +90,8 @@
 | CONST-L1-port-bw | L1 端口 r+w ≈ 148–154 GB/s/核（Cube 操作数流地板） | verified |
 | CONST-vector-launch-overhead | 向量发射 ~0.5µs/op；f16≈f32 | verified |
 | CONST-fabric-bw | fabric 聚合 ≥1.73 TB/s | verified |
-| CONST-mte2-degradation | MTE2 带宽退化曲线 + 混合流量地板 ~1.26 TB/s + L2 驻留口径 43.1 GB/s/core | verified |
-| CONST-copy-floor-method | copy-floor 标定法（方法学常数） | verified |
+| CONST-mte2-degradation | MTE2 带宽退化曲线 + 混合流量地板 + L2 驻留口径（数字见条目） | verified |
+| CONST-copy-floor-method | copy-floor 标定法（方法学） | verified |
 | CONST-flag-id-budget | flag id 预算 ≤15/核（n-block 下标可贴限） | verified |
 | CONST-store-fixpipe-gm-only | store_fixpipe 仅 L0C→GM（跨引擎传输强制 GM 往返） | verified |
 | CONST-aicore-910B2C | 物理核数 24 AICore + persistent 任务平衡公式 | verified |
@@ -108,10 +110,12 @@
 | CASE-attention-expert-stage4 | attention expert Stage 4 三轮调优档案（含 [DESIGN_LIMIT] 修正闭环） | verified |
 | CASE-attention-developer-stage4 | developer 谱系同门对照档案 | verified |
 | CASE-deepseek-v4-highperf | Expert 跨引擎结构先例（vcmp/flag 协议） | verified |
-| CASE-ref-flash-attn-npuir | **参考实现集首条**：两相位结构参照锚点（[DESIGN_LIMIT] 参照锚定门槛强制对照） | verified |
+| CASE-ref-flash-attn-npuir | **参考实现集首条**：两相位结构参照锚点（[DESIGN_LIMIT] 强制对照） | verified |
 | CASE-CG-INDEX | 反例档案（capability-gaps open 条目互链） | verified |
 | CASE-norm-adalayern-migration | norm 族首个迁移档案（vrsqrt 精度链 + pad 校正舍弃 + 双判据验证） | verified |
 | CASE-norm-adalayern-stage4 | norm/row-reduction 调优档案（bm 第一杠杆 + loads-first + 2.14x 几何平均） | verified |
+| CASE-attention-twophase-causal-regen | 两相位 causal 域重生成 + 第五轮（标量化判别链 14.2x）+ 第六轮（屏障审计/深度 2/Ratio 口径/r9 守卫）调优档案 | verified |
+| CASE-attention-mha-config-unvalidated | 反例：设计默认 config 路径未编译验证即出厂（bench 期 UB 溢出） | verified |
 
 ### repro/ — 最小可复现代码（ED-B）
 

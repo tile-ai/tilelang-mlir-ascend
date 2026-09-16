@@ -189,32 +189,13 @@ decided_by: evolver / human / -   # 裁决者
 - decided_by: -
 - decided_note: -
 
-## VP-2026-0014
-- type: P
-- title: 块内 mask 的向量构造链模式：arrange strides → vsub → vcmp(int16 索引) → vand → vselect；−1e38 有限哨兵 + mask 后置 softcap + 两段式分界零 mask 开销块
-- evidence:
-  - examples/multi_head_attention/_gqa_prefill_fwd_kernel/DESIGN.md#§0.6-E3 / #§1.6.2-#1
-  - examples/deepseek_v4/example_sparse_attn_kernel_highperf.py#L345-354（vcmp 标量 PrimExpr + vand 链）/ #L611（PIPE_V 内 T.arange strides）
-  - developer 谱系对照：同函数 T.Parallel 谓词预填形态 aiv_scalar 88–89% 实测（opt_log §1，**谱系注明** tilelang 67db6f3 + CANN 26.0.rc1）
-- repro: 任一含块内 mask 的 attention/causal/sliding-window 算子，以向量链替代谓词预填后对照 aiv_scalar 占比与 Task Duration
-- toolchain_stamp: tilelang dev root build 2026-09-07（HEAD 21586b5）+ CANN 8.5.0 + Ascend910B2C（本轮 Expert 实现验证）；developer 对照侧 67db6f3 + CANN 26.0.rc1
-- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library.md
-- delta: |
-    add §1 新小节「向量 mask 构造链（替代谓词预填）」：
-    链结构：T.arange strides=[0,1]/[1,0] 生成行列索引 → T.vsub 相对位置 → T.vcmp(整型 PrimExpr 阈值, int16 索引矩阵)（标量操作数拒 tir.Cast，见 §2 v 算子行）→ T.vand 合取 → T.vselect 应用；NaN 无关（vselect 按位选择不看 S 值）。
-    三个关键设计点：① masked 哨兵用有限 −1e38 替 −inf（e^{−1e38−m} 对有限 m 下溢为精确 0，与 e^{−inf} 同效，从根上规避 −inf−(−inf) 的 NaN 路径）；② mask 应用放 softcap 之后（vselect 与值无关，可同时吃掉 NaN/Inf 垃圾分数；反例：mask→softcap 顺序下 softcap(−1e38)≈−softcap 非精确 0，破坏 P(OOB)=0 不变式）；③ 两段式 K_A 分界（全有效块零 mask 开销、对角/尾块走 mask 链）——分界公式取整方向推导模板见 VP-2026-0018 与 §4 expert attention 案例行（K_A ceildiv→floordiv 反例）。
-- status: pending
-- confirmations: 1/2
-- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260907T115424Z 2026-09-07
-- decided_by: -
-- decided_note: -
-
 ## VP-2026-0015
 - type: P
 - title: Expert 跨引擎 workspace 的跨任务槽位复用握手：per-task 槽位重启 + FLAG_TASKDONE 边界（避免 causal 变长 NK 的全局块前缀索引）
 - evidence:
   - examples/multi_head_attention/_gqa_prefill_fwd_kernel/DESIGN.md#§6.3（flag 协议安全性传递性论证）+ #§7.2（四族 flag + FLAG_V 写侧 staging 补全）
   - examples/multi_head_attention/_gqa_prefill_fwd_kernel/REVIEW.md（维度 5 附核对记录：三族 + 单槽 + 跨任务五条论证独立推演全部成立）
+  - 〔2026-09-16 第六轮限定，task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z〕TASKDONE 屏障在两相位 v3 结构经 WAR 全链审计判定**冗余**并删除（全域 −7~−21%）：ws_s/ws_p/ws_o 的跨 task WAR 由「Cube 单指令流程序顺序 + P-ready 消费链 + AIV 串行」闭合（attention.md PL-1.12）——握手模式是保守安全默认而非必要条件，**本条合入时须附该限定**（结构特定的程序序闭合可免除屏障；另见 VP-2026-0080 屏障冗余审计 BP 提案，两案互链）
 - repro: 任一 per-task 变长内循环（causal NK 变长）的 Expert staggered 流设计
 - toolchain_stamp: tilelang dev root build 2026-09-07（HEAD 21586b5）+ CANN 8.5.0 + Ascend910B2C
 - target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library.md
@@ -375,6 +356,145 @@ decided_by: evolver / human / -   # 裁决者
 - decided_by: -
 - decided_note: 原提案 target 为 tilelang-debug-helper SKILL.md（Tier 2 写域）；知识本体为精度定位手法（数据/模式类），改路由至 error-fixer precision-patterns.md（P 类 Tier 1，与 VP-2026-0006/0017/0038 同域互链）——保守序内降档处理，如需保持原 target 请在审批时说明。
 
+## VP-2026-0057
+- type: P
+- title: 两相位结构的 causal 多头域适配机制集（persistent 变长任务循环 / 尾块钳位 + 装载不满宽掩码门控 / K_A 对角链承接 / flag 预算-bn 耦合守卫 / per-n-block flag 跨任务复用条件）——fa 域母本的 causal 化五机制
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/DESIGN.md v3 §0.6 E1/E2/E3/E6/E7 + §5.2/§7.2（机制设计）+ §6.4（flag 协议传递性论证）
+  - Stage 3 实证：同目录 RETROSPECTIVE.md Stage 3（2026-09-15）章节——`--level all` 29/29 全绿（L0 4 + L1 8 + L2 10 + Boundary 7；E7 缺口域四例 + M7 单块退化 + GQA 位形覆盖）
+  - 母本对照：examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/perf_opt/_gqa_prefill_fwd_kernel.py `_builder_2phase`（fa 域 B=1/H=1/整除/非 persistent 特化——五机制均为其不具备的 causal 多头增量）
+  - 〔2026-09-16 第六轮机制集存活验证，task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z——同 op 谱系不计独立确认（VP-2026-0035 先例）〕跨工具链迁移 6797758→a13585dc 后 stale 重验（probe_ub.py 直跑 4 点复校，config 空间封闭性结论全部维持）+ 第六轮全部门禁绿；机制⑤ 预言的双槽 id-offset 变体（flag id = i + slot×nk_total，2×nk_total ≤ 15）由 r7f 实现并实测（短域 −7.4%）；机制④ E6 钳位域在 S_kv=4096 首次触发并经 r9 守卫收窄修复（联合 UB 核算判据）。**合入注意**：pipe2 slot-offset 与 E6 钳位分析已写入 attention.md PL-1.12，本条合入时以五机制清单为主体、机制③⑤细节指向 PL-1.12 防重复
+- repro: repro-missing（机制效应只在完整 kernel 规模显现；ED-B delta 骨架待同族任务回填）
+- toolchain_stamp: tilelang 0.1.2+28783f454705cadab047805c1e0f5e054ba4b967 + CANN 8.5.0 + Ascend910B2C / 2026-09-15
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library/attention.md
+- delta: |
+    add 条目 PL-1.9-twophase-causal（置于 PL-1.9-twophase 之后；attention.md 已近 16KB 预算，合入时触发 consolidate）：
+    **两相位结构 causal 多头域适配五机制**（fa 域母本 → causal 多头域的必要增量，Stage 3 29/29 实证）：
+    ① per-task 变长 NK 的 persistent 任务循环 + 轮转均衡（母本为非持久定长）；② 尾块分形下限钳位（M/N≥16、K≥32 的 tmc/tnc 公式）+ **尾带 OOB 掩码门控按「装载不满宽」口径**——Vector 装载宽是 tn_real 而非分形宽，统一门控 `has_kv_tail = (S_kv % bn_eff != 0)` + 运行时 `i >= K_A`（non-causal 时 K_A=kv_full；按「分形带存在」判定会漏 rem≥32 且 16|rem 的不满宽残留）；③ causal 对角 mask 链平移进 pass-1（K_A floordiv 两段式 + per-AIV K_blk = base + row0 阈值）；④ flag 预算-bn 耦合守卫：per-n-block 下标 flag 方案要求 NK_max + TASKDONE ≤ 16 → 工厂期强制 `bn_eff = max(bn_caller, ceil16(ceildiv(S_kv, 15)))`——守卫恒生效、设计默认仅替换 wrapper 默认值（config 契约分层：正确性守卫不可被用户 config 绕过）；⑤ per-n-block 同 id 三次握手的跨任务复用安全条件（单槽）：Cube 到达任务 t+1 的 set_S(i) 前程序序必经 pass-2(t) 的 wait_P(i)（同 id 前一生命周期消费点）——id 事件在任务边界前排空；双槽变体需 id-offset（2·NK_max+2 ≤ 16 才合规）。
+- status: pending
+- confirmations: 1/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0058
+- type: D
+- title: T.ceildiv 负数域 lower 静默错误（divsi 截断 + 后续 pass 复活恒正改写）——persistent 空核越界任务 MTE 崩溃；绕法 = cid = T.min(task_id·N+kernel_id, num_logical-1) 幂等钳制
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 3（2026-09-15）Skill Flow Issues 首行 + Value Point Proposals 首行
+  - 复现链：one-task (1,1,1,64,64) 崩溃（num_logical < 24 时空核执行越界任务 cid ≥ num_logical → s_lo ≥ S_q → MTE write-out-of-range）+ dump_ir2.log L130-134/L371-374（多 pass 快照对照：lower 成 `divsi(x,N)+1`，x∈(-N,0] 时返回 1 而非 0；恒正参数的 `floordiv(n-k+N-1,N)` 改写被后续 pass 重新规范化回错误形态——纯表达式改写不可靠）
+  - 幂等性验证：two-batch (2,1,1,64,64) 钳制下 PASS（幽灵任务重算最后一个合法任务，同输入同指令序位级一致；各核独立 ws 槽 + 核内 flag 通道保证安全；饱和域 num_logical ≥ 24 零开销）
+- repro: repro-missing（NPU 编译探针 + dump IR 对照待同族 persistent 任务回填；任务内复现条件 = 任一 num_logical < 24 的 persistent case 如 (1,1,1,64,64)）
+- toolchain_stamp: tilelang 0.1.2+28783f454705cadab047805c1e0f5e054ba4b967 + CANN 8.5.0 + Ascend910B2C / 2026-09-15
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library/traps-compiler.md
+- delta: |
+    add 条目 TRAP-ceildiv-negative-lower：
+    **`T.ceildiv` 对非正参数的 lower 是静默错误**：`T.ceildiv(n-k, N)` lower 成截断除法 `divsi(x,N)+1`，x∈(-N,0] 时返回 1 而非 0——persistent kernel 空核（kernel_id ≥ num_logical，仅 num_logical < 物理核数 24 时存在）执行越界任务直接 MTE write-out-of-range 崩溃；更隐蔽的是后续 BishengIR pass 会把恒正参数的 `floordiv(n-k+N-1, N)` 改写重新规范化回 divsi+1 错误形态（纯表达式改写不可靠）。**绕法 = cid 钳制幂等方案**：`cid = T.min(task_id*N + kernel_id, num_logical-1)` 把幽灵任务钉到最后一个合法任务——幂等安全（同输入同指令序位级一致重算 + 各核独立 ws 槽）、饱和域零开销、比 if 守卫（parser var-table 风险）与表达式改写（pass 复活）都稳。官方 persistent 模板（docs/开发指南.md §3.3）在 num_logical ≥ 核数域从未触发该分支。
+- status: pending
+- confirmations: 1/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0060
+- type: D
+- title: lse [B,H,S,1] 视图直写形态实测可用——`T.copy(ub[0:rm,0:1], lse[bz,by,s:s+rm,0])`（2D src → 1D dst 切片）bit-exact；[N,1] 源 MTE DDR fault 限定于特定 size= 组合而非该直写形态的普遍性质
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 3（2026-09-15）Skill Flow Issues 末行（probe_lse_store.py 三形态 A/B/C 全过 bit-exact + 全量 29/29 lse 门通过；E6 transpose-free 方案落地无障碍）
+  - 被澄清条目：pattern-library traps-runtime.md TRAP-T-copy-region-semantics 规则③（"[N,1] UB 源 + size=[1,N] 按步长 N 越界读——lse 需先 T.transpose 到 [1,N]"，源自 Sep-07 任务 E1-E7 impl note 2）；traps-compiler.md TRAP-transpose-epilogue-poison 的绕法（[B,H,S,1] 视图 + 2D 区域拷贝）即本形态，第三轮已生产使用
+- repro: repro-missing（NPU 探针；任务内复现条件 = probe_lse_store.py 三形态对照——session-local provenance，关键发现镜像于 RETROSPECTIVE Stage 3）
+- toolchain_stamp: tilelang 0.1.2+28783f454705cadab047805c1e0f5e054ba4b967 + CANN 8.5.0 + Ascend910B2C / 2026-09-15
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library/traps-runtime.md
+- delta: |
+    update 条目 TRAP-T-copy-region-semantics 规则③（边界澄清，原规则保留）：
+    ③ [N,1] UB 源 + **size=[1,N]** 组合按步长越界读（MTE DDR fault）——fault 限定于该 size= 组合；**2D src → 1D dst 切片直写 `T.copy(ub[0:rm, 0:1], gm[b, h, s:s+rm, 0])` 实测 bit-exact 可用**（2026-09-15 探针三形态全过 + 29 用例 lse 门；Sep-07 记载的「[N,1] UB 源 MTE DDR fault」不构成对该直写形态的否定）——行向量写 GM 尾维连续区首选 [B,H,S,1] 增维视图 + 2D 区域直写（transpose-free lse，与毒化条目绕法一致），T.transpose 到 [1,N] 仅在必须 base+size 形态时需要。
+- status: pending
+- confirmations: 1/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0061
+- type: P
+- title: 错误指纹速查——lse 恒等于 log2(S_kv) ⇒ S 通道读到未初始化零页（伴生指纹：前几行 NaN = 越界更远脏页），秒级定位上游 workspace 生产者/槽位错误
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 3（2026-09-15）Value Point Proposals 第 2 行 + Skill Flow Issues 第 2 行（two-task (1,1,1,128,128)：lse=7.0=log2(128) 恒值直接锁定 ws_s 通道；bx=1 任务全错〔lse 恒值 + 4 行 NaN〕而 bx=0 完美 = per-core 槽 row0 索引 bug——全局/本地行基巧合掩盖）
+- repro: 复现条件——two-task (1,1,1,128,128) 类位形（S 通道读到 torch.empty 零页时指纹必现）；无固定脚本（指纹判据形态）
+- toolchain_stamp: tilelang 0.1.2+28783f454705cadab047805c1e0f5e054ba4b967 + CANN 8.5.0 + Ascend910B2C / 2026-09-15
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library/traps-runtime.md
+- delta: |
+    add 诊断指纹条目（置于 TRAP-zero-input-crash 之后，同「部分行数据错」诊断族）：
+    **lse 恒值 log2(S_kv) 指纹**：lse = log2(ell) + m·LOG2E——输入全零分数（S 通道读到未初始化零页 workspace）时 ell=S_kv、m=0 → lse 精确恒值 log2(S_kv)；「前几行 NaN = 越界更远读到脏页」为伴生指纹。判据指向「上游生产者未写 / 读错槽位」（workspace 槽位索引、flag 时序），先查 Cube 是否写/Vector 是否读对槽位再查计算链，无需逐指令分析（2026-09-15 per-core ws 槽全局行基误用案例：bx=0 任务「全局=本地」巧合掩盖、bx≥1 全错，指纹秒级锁定）。
+- status: pending
+- confirmations: 1/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0062
+- type: P
+- title: MTE 越界类三层崩溃定位法（崩溃边界矩阵 → 错误值指纹 → TILELANG_DUMP_IR + 新 TILELANG_CACHE_DIR）——tilelang 缓存命中跳过编译也跳过 IR 打印，dump 必须换 cache 目录
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 3（2026-09-15）Value Point Proposals 第 3 行 + Transferable Lessons（one-task 崩溃 40 分钟定位：矩阵 5 分钟锁定「nl<24 崩 / bx≥1 错 / NK 无关」→ IR divsi 对照 → pass 复活确认；probe_nd2nz_offset.py 排除法）
+  - 工具行为实证：TILELANG_CACHE_DIR 命中缓存时跳过编译也跳过 IR 打印——TILELANG_DUMP_IR=TRUE 对已缓存 kernel 无输出
+- repro: 复现条件——任一 MTE 越界崩溃的 persistent kernel（任务数 × NK × bx 三维隔离矩阵 + dump IR 对照）；cache 行为 = 对已缓存 kernel 设 TILELANG_DUMP_IR=TRUE 观察无输出、换新 TILELANG_CACHE_DIR 后有输出
+- toolchain_stamp: tilelang 0.1.2+28783f454705cadab047805c1e0f5e054ba4b967 + CANN 8.5.0 + Ascend910B2C / 2026-09-15
+- target_doc: .agents/skills/tilelang-debug-helper/references/mlir-dump-guide.md
+- delta: |
+    add 增补两节（置于环境变量段之后）：
+    **① dump IR 必须配新 TILELANG_CACHE_DIR**：tilelang 缓存命中时跳过编译也跳过 IR 打印——`TILELANG_DUMP_IR=TRUE` 对已缓存 kernel 无输出，须指向新 cache 目录强制重编译。
+    **② 崩溃边界矩阵法（MTE 越界类三层定位）**：一层 崩溃边界矩阵（任务数 × NK × bx 三维隔离小用例各跑一次，快速锁定崩溃维度——如「nl<24 崩 / bx≥1 错 / NK 无关」）→ 二层 错误值指纹（恒值/NaN/部分行分布——如 lse 恒 log2(S_kv) ⇒ S 通道零页，见 traps-runtime 指纹条目）→ 三层 TILELANG_DUMP_IR（新 cache 目录）看 TIR/MLIR 双层指令形态（lower 结果 vs pass 后形态对照，确认被哪层改写）。
+- status: pending
+- confirmations: 1/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0080
+- type: P
+- title: BP_sync_barrier_redundancy：persistent/两相位结构的同步屏障冗余审计前置（列出每个 barrier 保护对象集，逐对象找更细粒度已有信号覆盖）——TASKDONE 全 drain 屏障删除实测全域 −7~−21%，纯程序顺序论证零实验成本
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z（第六轮 Stage 4）：opt_log Phase 1 诊断归因（单槽 ws + TASKDONE 全 drain 屏障使每 task 边界完全串行；WAR 全链审计结论：屏障在数据竞争角度冗余——ws_s/ws_p/ws_o 的所有跨 task WAR 由「Cube 单指令流程序顺序 + P-ready 消费链 + AIV 串行」闭合）+ Round 6 r6a（删除后全域 −7~−21%：8b-long 1189.18→1021.58 / 8b-short 397.79→315.58 / smoke 49.97→46.26µs；全引擎利用率等比提升 cube 20.4→23.7% / vec 49.9→57.4% / mte2 52.1→62.1% 而 GM 流量不变——节约纯等待）
+  - 知识域锚点：attention.md PL-1.12「TASKDONE 屏障冗余审计」段（方法 + 逐对象论证 + 数字自包含）
+  - 交叉引用：queue VP-2026-0015（FLAG_TASKDONE 跨任务握手模式——保守安全默认，本条是其「可审计免除」限定，两案合入时互链）；VP-2026-0034（BP_cross_engine_serial_chain——块宽/深度之外的第三杠杆）
+- repro: repro-missing（delta 最小形态 = 删除 task 边界的 TASKDONE set/wait 同步对〔2 个 sync op〕，效应依赖完整 kernel 的跨 task 指令流衔接；机制归因与逐对象 WAR 论证自包含于 PL-1.12——知识域骨架待同族 persistent 任务回填）
+- toolchain_stamp: tilelang 0.1.2+a13585dc / CANN 8.5.0 / Ascend910B2C / 2026-09-16
+- target_doc: .agents/skills/tilelang-op-optimize/references/bottleneck-patterns.md
+- delta: |
+    add 新 BP 条目 BP_sync_barrier_redundancy（目录行 + 正文，追加于 BP_run_state_bimodality 之后）：
+    触发信号：persistent / 两相位（跨引擎 task 循环 + GM workspace）结构存在 task 边界全 drain 屏障（TASKDONE 类：下一 task 的生产等待上一 task 全部消费完成）；时长因子分解显示 per-task 固定成本 F 主导（引擎利用率低而 GM 流量已定、busy 核 scalar 占比高但非 flag 自旋类）。
+    审计方法（零实验成本）：列出每个 barrier 保护的对象集（ws buffer × 读写者对），逐对象找更细粒度的已有信号覆盖——同引擎单指令流程序顺序（天然保序）、消费链 flag（P-ready/S-ready 类既有握手）、AIV 串行流。全部对象被覆盖 ⇒ 屏障在数据竞争角度冗余、可删。
+    实测（attention 第六轮 r6a，a13585dc）：TASKDONE 删除全域 −7~−21%，引擎利用率等比提升而 GM 流量不变（归因成立的判据：节约的是纯等待）。
+    边界：删除前提是 WAR 链逐对象闭合论证（数据竞争角度），非盲目删同步；跨引擎同 buffer WAR 无同步原语的形态不可删（CG-2026-0009 / PL-1.12「Vec 侧同构改造 blocked」教训——引擎独占 buffer 是流水深度 >1 的隐含前提）。
+    验证：全域 dispatch 非回退（--level all 全绿）+ 利用率等比提升 + GM 流量不变。
+- status: pending
+- confirmations: 1/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z 2026-09-16
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0081
+- type: P
+- title: msprof roofline Ratio 采数管线规则——--aic-metrics=Roofline 与 --kernel-name 过滤缺一不可（metrics 集不含 Roofline 不产出 visualize_data.bin；无过滤全捕获把 ZerosLike 等辅助 op 当目标，Ratio 0.15–0.65% 伪影实录）
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z（第六轮 Stage 4）：opt_log 第六轮头部「度量管线」段（TileOPs bench 框架 2026-09-16 修复：kernel-name 经 JitKernel_NPU 对象图解析 + 多 op 检测 + duration 匹配；禁止回退无过滤全捕获——profile_run_msprof_20260915_105716.log 的 0.15–0.65% 即该伪影，描述的是 ZerosLike 等辅助 op）+ Phase 1（修复后管线验证：--aic-metrics=Roofline + --kernel-name 过滤 → 单 op 捕获 mix_aic 无 ZerosLike 污染、bin roofline 条目可提取——第五轮 metrics 集不产出 bin 的问题确认并规避）+ DESIGN.md §11.2 指标结构锚定（Ratio = Perf/359.33 TOps/s，Computility 按 48 核计而实机 24 核——口径基数须实测锚定核对）
+  - 现行 profile-collection.md 已有 target_kernel_name 命令模板与 captured_op 追溯要求（基础规则存在）；本条补 Roofline-metrics↔bin 耦合、全捕获伪影实录与口径基数核对（2026-09-15 会话产出过伪影 log——规则存在下的执行复发）
+- repro: repro-missing（需 msprof + 目标算子环境；伪影对照 = 同 workload 无过滤 vs --kernel-name 过滤双跑，Ratio 条目差异即伪影量级）
+- toolchain_stamp: CANN 8.5.0 msprof / Ascend910B2C / 2026-09-16（采数侧 tilelang 0.1.2+a13585dc）
+- target_doc: .agents/skills/tilelang-op-optimize/references/profile-collection.md
+- delta: |
+    动作: update（captured_op 追溯要求行扩展）
+    定位锚: "- `captured_op_name` 能通过命令、输出目录和运行日志追溯到本次 `target_kernel_name` 或目标 TileLang kernel。"
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+  - `captured_op_name` 能通过命令、输出目录和运行日志追溯到本次 `target_kernel_name` 或目标 TileLang kernel。**roofline Ratio 口径采数（2026-09-16 attention 第六轮实证）**：① `--aic-metrics=Roofline` 单命令同时产出 Task Duration + 诊断 CSV + `visualize_data.bin` 预计算 roofline 条目（Ratio =「GM/L2 · GM Read + Write」条目 ratio×100）——metrics 集不含 Roofline 时不产出 bin（第五轮实证）；② `--kernel-name` 过滤缺一不可：无过滤全捕获会把 ZerosLike 等辅助 op 当目标 kernel（实录：Ratio 0.15–0.65% 伪影，描述的是辅助 op 而非目标）；③ Ratio = Perf/Computility，Perf = msprof 计数 FLOPs / Task Duration——指标奖励执行利用率、不奖励 padding 缩减（flops 与时长同降时 Ratio 不动），Computility 归一基数以实测锚定核对（如 359.33 TOps/s 按 48 核计而实机 24 核——attention.md PL-1.12 指标结构段）。
+    动机: Ratio 类硬目标的采数链路三处坑（bin 不产出 / 辅助 op 污染 / 口径基数错）任一都会使目标判定失真——2026-09-15 会话已产出伪影 log，2026-09-16 修复管线后才可靠；规则化使下一次 Ratio 目标任务第一轮即采对。
+- status: pending
+- confirmations: 1/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z 2026-09-16
+- decided_by: -
+- decided_note: -
+
 ### Tier 2（R 类，结构化 diff 提案，待人工批准后 mode=apply 执行）
 
 ## VP-2026-0008
@@ -478,6 +598,7 @@ decided_by: evolver / human / -   # 裁决者
   - examples/multi_head_attention/_gqa_prefill_fwd_kernel/.task_timeline.jsonl（Stage 1 两次 runtime fail：2026-09-07T12:44:47Z〔2960s〕与 13:47:06Z〔1518s〕，stage_retry_count 1→2）
   - .agents/tools/gate_lint.py#L36（TEMPLATE_BRACE_RE 定义）+ #L208-215（S1-PLACEHOLDER 判定）
   - 正则行为机械复现（2026-09-07 蒸馏会话）：`TEMPLATE_BRACE_RE.finditer("槽位尾行状态恒 ∈ {零, 有限真实数据}")` 命中 `{零, 有限真实数据}` → fail；误判文本出现在被门禁拒绝的中间版本上（归档 design_v0/v1/DESIGN.md 已无中文花括号——修订后通过）；发生账户来自 conductor 终态钩子输入（复盘工件未覆盖该两次 fail 的 gate 侧原因，同时构成复盘缺口）
+  - 〔2026-09-15 复发，task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z〕新形态两处误报（Stage 1 gate 修复重试的 2×S1-PLACEHOLDER）：`e^{块内分数 − m_cur}`（CJK 数学上标，无列表分隔符）与 `_{\text{Cube 部和，f16 物化回传}}`（LaTeX \text{中文} 下标）——**前者不受本提案正则排除**（负向前瞻仅排除 [,、;；∈≤≥]，无分隔符的 `^{中文 − var}` 形态仍命中），审批时建议扩大排除集（brace 组前缀为 `^`/`_` 或含 `\text{` 时跳过）；writer 侧排版规则另立 VP-2026-0066 互补（改写消除模式命中：括号形式 / 注解移出公式，语义零变化）；纯 ASCII 花括号（`e^{m_prev − m_cur}`）不触发
 - repro: python3 -c "import re; print([m.group(0) for m in re.finditer(r'\{[^{}\n]*[\u4e00-\u9fff][^{}\n]*\}', '恒 ∈ {零, 有限真实数据}')])"
 - toolchain_stamp: gate_lint.py 现行版本（statectl gate 1 机械核对层）；误判发生于 2026-09-07 expert 迁移任务
 - target_doc: .agents/tools/gate_lint.py
@@ -797,6 +918,7 @@ decided_by: evolver / human / -   # 裁决者
 - evidence:
   - examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/integration_log.md（§Bench observations 末条 + Files 清单：perf_opt/ 保留的 developer 谱系产物〔mtime 09-07 04:51，43KB〕早于 expert 基线 kernel〔09-07 17:22，52KB〕）
   - examples/multi_head_attention/RETROSPECTIVE.md#Stage-5（Skill Flow Issues 行 + Transferable 首条）
+  - 〔2026-09-15 预警场景实际发生，task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z〕换代重集成（单遍 expert→两相位 v3）再次命中且以另一形态：integrate_kernel.py 幂等检查误判 already integrated（正则匹配到 r1-r3 调优轮注释掉的 baseline 行），wrapper 未重写、Sep-07 谱系 perf_opt import 静默保持激活（`w._gqa_prefill_fwd_kernel.__module__` 修复前解析到 perf_opt 旧谱系 kernel）；证据：integration_log.md Round 2 Integration steps Step 1（`wrapper_rewritten: false`）+ Step 2 人工胶水修复记录 + op 级 RETROSPECTIVE.md Stage 5 round-2 Skill Flow Issues 首行。互补缺陷另立 VP-2026-0064（幂等检查剥离注释行——修「不重写」侧；本条修「重写后不告警」侧），同 VP-2026-0055/0056 集群建议同批审批
 - repro: repro-missing（知识域最小 repro 待同族任务回填；原任务内复现命令见 evidence 末行 provenance 项）
   - 〔provenance，允许失效〕任务内复现命令：换代重集成后 `ls -la tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/perf_opt/` 对比基线源 mtime——本任务实测旧谱系早 12.5 小时
 - toolchain_stamp: tilelang dev build 21586b5（2026-09-07）+ CANN 8.5.0；TileOPs pyproject 环境
@@ -1364,7 +1486,577 @@ decided_by: evolver / human / -   # 裁决者
 - decided_by: -
 - decided_note: -
 
+## VP-2026-0064
+- type: R
+- title: integrate_kernel.py 幂等检查只认未注释的激活 import——rewrite_wrapper_import 的 "already integrated" 探测正则匹配到被注释的 baseline 行（调优轮 perf_opt 激活态遗留），wrapper 不重写、旧谱系 perf_opt kernel 静默保持生效
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/integration_log.md Round 2 Integration steps Step 1（`[wrapper] ... already integrated`〔wrapper_rewritten: false〕时 wrapper L65 baseline 被注释、L67 perf_opt import 生效；`[smoke]` 仅 import 冒烟不区分激活源）+ Step 2 人工胶水修复（`w._gqa_prefill_fwd_kernel.__module__` 修复前解析到 perf_opt 旧谱系）
+  - examples/TileOPs/.agents/skills/add-npu-op/scripts/integrate_kernel.py#L224-226（text 全文 re.search，不剥离注释行）
+  - 交叉引用：queue VP-2026-0032（stale perf_opt lineage 告警——预警场景本轮实际发生的另一形态，修「重写后不告警」侧）、VP-2026-0055/0056（同文件幂等与校验缺口集群，建议同批审批）
+- repro: 复现条件——wrapper 处于 perf_opt 激活态（调优轮遗留：baseline import 被注释）时重跑 integrate_kernel.py → 输出 already integrated 且 wrapper_rewritten=false，旧谱系 perf_opt import 保持激活
+- toolchain_stamp: tilelang 0.1.2+28783f45 + CANN 8.5.0 + Ascend910B2C / 2026-09-15；脚本现行版本
+- target_doc: examples/TileOPs/.agents/skills/add-npu-op/scripts/integrate_kernel.py
+- delta: |
+    动作: update（幂等检查剥离注释行后匹配）
+    定位锚: |
+      (rewrite_wrapper_import 函数体内)
+          text = wrapper_path.read_text(encoding="utf-8")
+          if re.search(rf"from \.{op_slug}_kernel(?:\.\w+)?\s+import", text):
+              return False
+    old 文本: |
+          text = wrapper_path.read_text(encoding="utf-8")
+          if re.search(rf"from \.{op_slug}_kernel(?:\.\w+)?\s+import", text):
+              return False
+    new 文本: |
+          text = wrapper_path.read_text(encoding="utf-8")
+          # Idempotency must consider only ACTIVE (uncommented) imports: a
+          # commented-out baseline line (left by a perf_opt-activation tuning
+          # round) must not satisfy this probe -- otherwise the wrapper is
+          # never rewritten and the stale perf_opt import stays active
+          # (factory-compatible signature; import smoke does not detect it).
+          active_lines = [
+              line for line in text.splitlines()
+              if not line.lstrip().startswith("#")
+          ]
+          if re.search(rf"from \.{op_slug}_kernel(?:\.\w+)?\s+import", "\n".join(active_lines)):
+              return False
+    动机: 换代重集成遇 perf_opt 激活态 wrapper 时被注释的 baseline 行骗过幂等检查——旧谱系调优 kernel 静默保持生效且 smoke 不拦截（2026-09-15 实际发生，靠人工 __module__ 核对才发现）；与 VP-2026-0032 成对互补。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0065
+- type: R
+- title: develop SKILL.md Phase 4 L1 门禁补「wrapper-default 派发路径」——带 config 替换语义的 kernel，出厂 dispatch 的 traced 变体必须 ∈ 被门禁编译验证过的变体集
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/RETROSPECTIVE.md Stage 5 round-2 Skill Flow Issues 第 2 行（Stage 3 L1 门禁用逐字 config `fn(64,64,ns=2)` → bn_eff∈{64,144} 验证 manifest 域，wrapper 实际派发走 E6 替换路径 (64,64,1)→(64,256)；L0-3/L0-4 仅 dim=64 smoke 验证替换路径）
+  - integration_log.md Round 2 §Design-layer finding（E6 替换路径在 dim=128 causal 域的首次编译发生在 Stage 5 bench 且直接 UB 溢出 8/10；pytest 4 参数全 causal=False 三重掩盖）
+  - 〔2026-09-16 第二证（不同任务），task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z r9 precision_fix〕同类失效再发生：r7e per-shape bm=80 分派 × E6 bn 钳位（S_kv≥3841 → bn_eff=288）的组合变体从未被任何门禁编译（standalone 29 例 S_kv≤2048 / manifest S≤2048 / 此前 pytest 域未覆盖该 S），首次编译发生在 TileOPs pytest full-fwd-bf16 且直接 UB 溢出 13472B（bishengir-compile exit 1）——「出厂 dispatch 的 traced 变体 ∉ 门禁验证集」的同一失效类，且两个守卫各自安全、组合超限（联合核算判据 + repro：attention.md PL-1.12 r9 update / repro/PL-1.12-bn-clamp-bm-guard.py）。Tier 2 人工门不因证据数豁免，供审批参考；与 VP-2026-0074（修复侧 config-契约范式）互补
+- repro: 复现条件——任一 kernel 工厂带 config 替换/分派语义的迁移任务（wrapper default_config 派发的 traced 变体未入 L1 变体集时，出厂首编后移到 Stage 5 bench 暴露）
+- toolchain_stamp: tilelang 0.1.2+28783f45 + CANN 8.5.0 + Ascend910B2C / 2026-09-15
+- target_doc: .agents/skills/tilelang-op-develop/SKILL.md
+- delta: |
+    动作: update（Phase 4 第 2 步扩展）
+    定位锚: "2. L0 通过后扩展 L1/L2/Boundary 并跑全量 `--level all`。"
+    old 文本: |
+      2. L0 通过后扩展 L1/L2/Boundary 并跑全量 `--level all`。
+    new 文本: |
+      2. L0 通过后扩展 L1/L2/Boundary 并跑全量 `--level all`。**门禁变体集覆盖 wrapper-default 派发路径**：kernel 工厂带 config 替换/分派语义时，wrapper `default_config` 实际派发的 traced 变体（含替换路径与惰性旋钮组合）必须被 L1 在目标域（dtype/dim/causal 维度）编译验证——至少一组与 wrapper `default_config` 全同的调用 + 替换路径的目标域案例（2026-09-15 反例：E6 替换路径 bn_eff=256 在 dim=128 causal 域首次编译发生在 Stage 5 bench 且 UB 硬溢出 8/10，L1 逐字 config + L0 dim=64 smoke + pytest 全 non-causal 三重掩盖）。
+    动机: 出厂 dispatch 变体不在门禁变体集内时，唯一编译门控后移到 Stage 5 bench——集成期编译失败按功能缺陷查根因的成本远高于 L1 期发现。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0066
+- type: R
+- title: design SKILL.md Phase 4 补 CJK 排版规则——数学记号中 CJK 只出现在圆括号或正文、不进 {...}（含 LaTeX \text{中文} 下标与 e^{中文 − var} 上标），规避 S1-PLACEHOLDER 误报；命中合法记号时改写消除模式命中而非申诉豁免
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 1 gate-修复重试章节 Skill Flow Issues 首行（DESIGN.md L41/L446 两处误报 `e^{块内分数 − m_cur}`、`_{\text{Cube 部和，f16 物化回传}}`；修复 = 括号形式改写 + 注解移出公式，`grep -P '\{[^}]*[\x{4e00}-\x{9fff}][^}]*\}'` 复核清零，语义零变化）
+  - 交叉引用：queue VP-2026-0019（gate_lint 正则侧修复——本条为 writer 侧互补；2026-09-15 新形态 `e^{中文 − var}` 无列表分隔符，VP-2026-0019 现提案正则不覆盖，见其证据链追加）
+- repro: 复现条件——DESIGN.md 数学记号含 CJK-in-braces 形态（`grep -P '\{[^}]*[\x{4e00}-\x{9fff}][^}]*\}' DESIGN.md` 有命中）时跑 gate 1
+- toolchain_stamp: gate_lint.py 现行版本；误报发生于 2026-09-15 任务
+- target_doc: .agents/skills/tilelang-op-design/SKILL.md
+- delta: |
+    动作: update（Phase 4 首行后追加一条 blockquote）
+    定位锚: "基于 [templates/design-template.md](templates/design-template.md) 模板，填充所有章节："
+    old 文本: |
+      基于 [templates/design-template.md](templates/design-template.md) 模板，填充所有章节：
+    new 文本: |
+      基于 [templates/design-template.md](templates/design-template.md) 模板，填充所有章节：
+
+      > **CJK 排版规则（S1-PLACEHOLDER 误报规避）**：DESIGN.md 数学记号中的 CJK 只出现在圆括号或正文，不进 `{...}`（含 LaTeX `\text{中文}` 下标与 `e^{中文 − var}` 形态上标）——gate 1 的 CJK-in-braces 模式会命中此类记号判「疑似模板变量未替换」。命中合法记号时的修复姿势 = 改写消除模式命中（括号形式 `e^(...)` / 注解移出公式为正文括注），语义零变化、门禁可机械复核，不申诉豁免（2026-09-15 实证：两处误报改写后 `grep -P` 复核清零；纯 ASCII 花括号不触发）。
+    动机: gate 1 误报消耗整段修复重试（本任务 Stage 1 重试的 2/4 项）；writer 侧预防与 gate 侧正则修复（VP-2026-0019）双管齐下，正则修复未落地前排版规则是唯一防线。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0067
+- type: R
+- title: design SKILL.md「超长文档分段落盘」从条件建议升级为阈值无条件触发——VP-2026-0022 于 2026-09-11 apply 后 2026-09-15 仍复现首写截断（「预计超过」的自行判断是失效点），heredoc 分段追加为可靠替代
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 1 v3 章节 Skill Flow Issues 首行（1116 行 / ~95KB DESIGN.md 首次 write 即截断——上版建议已合入仍复现且更早失败；bash heredoc 6 段追加成功）
+  - .agents/skills/tilelang-op-design/SKILL.md Phase 4 blockquote（VP-2026-0022 2026-09-11 apply 文本——条件式「预计超过 ~60KB」）
+  - 旁证（同任务 Stage 3 侧 sibling）：.task_timeline.jsonl Stage 3 attempt 1 fail 809s（空返回——单次 LLM 响应生成整个大文件被 provider 截断；VP-2026-0021 同样 2026-09-11 apply 后仍首发失败，conductor 增量写入流程指令后才成功）——分段纪律的条件式表述在两个 agent 上同日失效
+- repro: 复现条件——单次 Write 输出 >60KB 的 DESIGN.md（2026-09-15 本任务首设计 attempt，规则已合入状态下复现）
+- toolchain_stamp: 会话层行为（无运行时依赖）；复现环境 2026-09-15
+- target_doc: .agents/skills/tilelang-op-design/SKILL.md
+- delta: |
+    动作: update（替换 Phase 4「超长文档分段落盘」blockquote 措辞）
+    定位锚: "> **超长文档分段落盘**：DESIGN.md 预计超过 ~60KB / ~1200 行时，分段落盘后合并（每段先 Write 到 /tmp 再 cat 合并，或分节增量追加），不以单次整文件 Write 交付——单次巨型 Write 会因 JSON 体积截断失败（2026-09-07 attention expert 任务：1249 行 DESIGN 首写即截断，5 段拼接才成功，白耗一次 attempt 2960s）。"
+    old 文本: |
+      > **超长文档分段落盘**：DESIGN.md 预计超过 ~60KB / ~1200 行时，分段落盘后合并（每段先 Write 到 /tmp 再 cat 合并，或分节增量追加），不以单次整文件 Write 交付——单次巨型 Write 会因 JSON 体积截断失败（2026-09-07 attention expert 任务：1249 行 DESIGN 首写即截断，5 段拼接才成功，白耗一次 attempt 2960s）。
+    new 文本: |
+      > **超长文档分段落盘（>60KB 一律执行）**：DESIGN.md 预计超过 ~60KB / ~1200 行时一律分段落盘（bash heredoc 分段追加为可靠替代——单次 Write 截断后 heredoc 不受工具 JSON 体积限制），不以单次整文件 Write 交付，不以「预计不会超」的自行判断跳过——单次巨型 Write 会因 JSON 体积截断失败（2026-09-07 首证：1249 行首写即截断；**2026-09-15 复发**：本规则 2026-09-11 合入后 designer 仍先单次 Write 且首写即截断〔~95KB〕，heredoc 6 段恢复——条件式「预计超过」判断是失效点）。
+    动机: 条件式建议在两个 agent（design/develop）上同日失效（Stage 3 侧 VP-2026-0021 同款复发）——阈值触发改为无条件 + 明示 heredoc 替代，把「是否分段」从 agent 自由裁量变为机械规则。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0068
+- type: R
+- title: design SKILL.md Phase 2 等价性机器验证补「判定口径」bullet 三条——ULP 阈值按恒等式域界第一性推导（勿拍小常数）/ 逐项隔离显式关闭其他量化开关 / 探针行与判定行分离
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 1 gate-修复重试章节 Value Point Proposals 后三行（M1 首跑 15 ulp 对拍定 8/16 阈值假 FAIL → 域界推导 |t|≤87 → 上界 ~120 ulp，阈值 128 后 viol 双口径 0；M14 沿用默认管线被 M12 的 ~2.6e-3 相对误差污染 viol 87% 假 FAIL → 隔离后 0；基线式失败演示只进 info 不参与判定）+ verify_equiv.py（13/13 EQUIV_PASS，双跑 diff 一致）
+- repro: 复现条件——任一含 softcap/深尾域或多项量化开关的 verify_equiv 编写（任务内复现命令见 evidence provenance 项，torch CPU）
+- toolchain_stamp: torch 2.7.1+cpu / 2026-09-15
+- target_doc: .agents/skills/tilelang-op-design/SKILL.md
+- delta: |
+    动作: update（Phase 2 第 5 项「对照对象」bullet 后追加一条）
+    定位锚: "   - **对照对象**：容差内等价的采纳项，对照基准 = 原式（基线）在同 dtype 舍入路径下的输出；golden opmath 域问题（如 fp16 torch CPU 经 fp32 opmath）在角点用例中显式覆盖（lerp_tensor 实证：此类分歧设计期可机器拦截，Stage 3 才暴露损失 2485s）；"
+    old 文本: |
+      （即上述定位锚原文，保持不变）
+    new 文本: |
+      （定位锚原文保留）其后追加：
+         - **判定口径**：① ULP 阈值按恒等式结构第一性推导，不拍小常数——exp 类恒等式的 ulp 差与指数入参域界成正比（|δt| ≤ c·u·|t|max → P 域 ulp ≤ c·|t|max·ln2；softcap 域 |t|≤87 → 上界 ~120 ulp，实测 15——拍 8/16 在深尾假 FAIL）；② 逐项隔离对照显式关闭其他量化/物化开关（被验证项之外全 off，否则他项误差污染本项参照门——M14 实测 viol 87% 假 FAIL → 隔离后 0）；③ 基线式失败模式演示（溢出/NaN/发散）只进 info 不进 PASS/FAIL（探针行与判定行分离）（2026-09-15 attention 两相位 verify_equiv 实证，13/13）。
+    动机: 首跑两类假 FAIL（阈值拍脑袋 + 隔离缺失）都发生在「脚本已产出、口径不当」阶段——判定口径入 skill 可在首次编写时避开，省一轮 gate 往返（本任务 gate 重试 4 项中 2 项属 EQUIV-EXEC 类）。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0069
+- type: R
+- title: algorithm-research.md §6 信息源层「本仓 examples 同类实现」补全目录清单完成标准——结构先例检索以 grep -rl 族关键词显式列举命中清单并逐一归类为完成，不以命中第一个目录为完成
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 1 v3 章节（Research-flow 行：本轮以 `grep -rl "softmax\|attention" examples/` 显式列举 12+ 文件并逐一归类〔结构原型 / tuned 母本 / 机制先例 / 证据档案〕才闭环；仅按 AGENTS.md 关键词路由会漏 deepseek/mixcv/torch_tl_ops 侧先例）+ Transferable 首条
+  - 前序根因（provenance）：examples/TileOPs/.../perf_opt/perf_feedback.md 修正附录（上版漏检两遍式先例 → 三轮调优 + [DESIGN_LIMIT] 才纠正）
+- repro: 复现条件——任一迁移/重设计任务的结构先例检索（对照「已调研」断言 vs grep -rl 清单）
+- toolchain_stamp: 流程规则（无运行时依赖）；证据环境 2026-09-15
+- target_doc: .agents/skills/tilelang-op-design/references/algorithm-research.md
+- delta: |
+    动作: update（§6 第 3 层扩展）
+    定位锚: "3. 本仓 `examples/` 同类实现所用算法；"
+    old 文本: |
+      3. 本仓 `examples/` 同类实现所用算法；
+    new 文本: |
+      3. 本仓 `examples/` 同类实现所用算法——**完成标准 = 全目录清单**：结构先例检索以 `grep -rl "<族关键词>" examples/` 显式列举命中文件并逐一归类（结构原型 / tuned 母本 / 机制先例 / 证据档案），不以命中第一个目录（如关键词路由的 flash_attention/）为完成（2026-09-15 实证：上版漏检 deepseek/mixcv 侧两遍式先例致 [DESIGN_LIMIT] 才纠正，本轮清单法 12+ 文件闭环；检索动作可复现、清单可检视，优于「已调研」断言）；
+    动机: 调研漏检的代价是整条结构选型错误（上版三轮调优 + DESIGN_LIMIT 才暴露）；清单化完成标准使检视可机械化对账。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0070
+- type: R
+- title: algorithm-research.md §3 R4「流水可融合性」补行为维度注记——flag wait 是否阻塞发射流属结构属性须引实测档案佐证；候选间流量近似（<10%）不构成结构裁决依据，裁决权移交行为维度
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 1 v3 章节（Info-source 行 + Transferable 第 2 条：R3 流量口径下单遍链与两相位仅差 ~10%〔2.51 vs 2.78GB〕，实测性能差 2.31×，决定项是 R4 的发射流行为〔wait 与依赖对齐方式〕——R3/R4 分工「流量筛选 vs 行为定序」应显式提示）
+- repro: 复现条件——任一候选间 fabric 流量差 <10% 的结构裁决（纸面流量对比无法区分的位形）
+- toolchain_stamp: 流程规则；证据环境 2026-09-15（2.31× 锚点 = fa 域 perf_records 实测，tilelang 0.1.2+3a214cde 2026-09-09）
+- target_doc: .agents/skills/tilelang-op-design/references/algorithm-research.md
+- delta: |
+    动作: update（§3 R4 检查清单第 5 项扩展）
+    定位锚: "  5. **流水可融合性**：多阶段可否 `T.Pipelined` 双缓冲；Cube 段与 Vector 段可否 CV 融合并行；"
+    old 文本: |
+      5. **流水可融合性**：多阶段可否 `T.Pipelined` 双缓冲；Cube 段与 Vector 段可否 CV 融合并行；
+    new 文本: |
+      5. **流水可融合性**：多阶段可否 `T.Pipelined` 双缓冲；Cube 段与 Vector 段可否 CV 融合并行——flag wait 是否阻塞发射流属**结构属性**（非 tiling 可解），结论须引用 examples/ 实测档案（msprof pipe 利用率 / aic_scalar 占比）而非纸面推断；R3 类流量近似（候选间差 <10%）不构成结构裁决依据，此时裁决权移交本维度行为侧（2026-09-15 实证：单遍链 vs 两相位 fabric 流量差 ~10% 而实测差 2.31×，决定项是发射流行为）；
+    动机: 上版误选单遍结构的根因之一即「流量相近时按流量拍板」——R3（流量筛选）与 R4（行为定序）分工显式化后，流量平局候选自动进入行为维度举证。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0071
+- type: R
+- title: T.sync_block_set.md 补「同一 event_id 多次 set 的聚合语义」条款——2-AIV 同 id 双生产（各 set 一次、Cube 单次 wait）的放行条件（双 AIV 均完成 vs 任一完成）无文档规定，设计只能以先例背书
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 2（2026-09-15）Skill Flow Issues 首行（T.sync_block_set.md §1 仅「同一 block 中的其他执行单元」一句、无多生产者语义条款；reviewer 只能以双生产先例〔E1-E7 29/29 + v11nt fa-tuned〕背书；设计侧列为 R-1 风险项 + 拆双 id 回退）
+  - docs/Tilelang.language/同步管道操作/T.sync_block_set.md §1（现行文本无该条款）
+- repro: 只读核对（无运行时依赖）——docs/Tilelang.language/同步管道操作/T.sync_block_set.md §1 无聚合语义条款
+- toolchain_stamp: 仓库 docs 现状 2026-09-15；与 tilelang 版本无关（文档条款缺失）
+- target_doc: docs/Tilelang.language/同步管道操作/T.sync_block_set.md
+- delta: |
+    动作: update（§1 简介段后追加语义说明段）
+    定位锚: "简介：`tilelang.language.sync_block_set` 用于在当前 block 内设置一个同步标志（flag），通知同一 block 中的其他执行单元可以继续执行。"
+    old 文本: |
+      简介：`tilelang.language.sync_block_set` 用于在当前 block 内设置一个同步标志（flag），通知同一 block 中的其他执行单元可以继续执行。
+    new 文本: |
+      简介：`tilelang.language.sync_block_set` 用于在当前 block 内设置一个同步标志（flag），通知同一 block 中的其他执行单元可以继续执行。
+
+      **同一 event_id 的多次 set 语义**：同一 block 内两个执行单元（如 2-AIV 半分类）对同一 event_id 各 set 一次、消费侧单次 wait 的聚合/覆盖语义（双生产者均完成才放行，还是任一完成即放行）本文档未规定——依赖该形态的设计应以仓内可运行先例佐证（examples/flash_attention/flash_attn_npuir.py 两相位、examples/multi_head_attention/ 双生产形态），并在设计文档中单列风险项与拆双 id 回退方案。
+    动机: 2-AIV 半分类是 attention 族 Expert 设计的常见形态，聚合语义无文档时 reviewer 无法独立核验 flag 协议安全性（只能先例背书）——条款化（哪怕先标注「未规定 + 推荐单生产者」）使该风险项可在 docs 层闭环。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0072
+- type: R
+- title: T.gemm.md §1 签名模式标注与 Expert 生产用法口径不一致——L1/L0C 形态在 Scope("Cube") 内生产使用 T.gemm 名称（flash_attn_npuir / fp8_lighting_indexer 先例），与 [Expert mode] T.npuir_dot 标注的关系未澄清（两任务连续检视提出）
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 2（2026-09-15）Skill Flow Issues 第 2 行（T.gemm.md L8-9 两行签名标注 vs examples/flash_attention/flash_attn_npuir.py L102-109 Scope("Cube") 内 `T.gemm(l1, l1, l0c, initC, b_transpose, size)` 生产使用——reviewer 依先例判定可行但文档层无法自洽闭环）
+  - 前序独立证据：同文件 Sep-07 Stage 2 round 2 Skill Flow Issues 第 3 行（examples/deepseek_v32/fp8_lighting_indexer.py L72-79 同款形态落差——两轮检视连续提出）
+- repro: 只读核对（无运行时依赖）——T.gemm.md §1 两行签名标注与仓内 Expert 生产先例的形态落差（先例路径见 evidence）
+- toolchain_stamp: 仓库 docs 与 examples 现状 2026-09-15；与工具链版本无关（文档-先例落差）
+- target_doc: docs/Tilelang.language/线性代数操作/T.gemm.md
+- delta: |
+    动作: update（§1 签名区追加关系说明行）
+    定位锚: "T.npuir_dot(src1, src2, dst, size=[], initC=False, a_transpose=False, b_transpose=False) # [Expert mode]"
+    old 文本: |
+      T.gemm(src1, src2, dst, size=[], initC=False, a_transpose=False, b_transpose=False) # [Developer mode]
+      T.npuir_dot(src1, src2, dst, size=[], initC=False, a_transpose=False, b_transpose=False) # [Expert mode]
+    new 文本: |
+      T.gemm(src1, src2, dst, size=[], initC=False, a_transpose=False, b_transpose=False) # [Developer mode]
+      T.npuir_dot(src1, src2, dst, size=[], initC=False, a_transpose=False, b_transpose=False) # [Expert mode]
+
+      > 注：Expert 模式 `Scope("Cube")` 内以 L1/L0C 张量为操作数的形态（如 `T.gemm(l1, l1, l0c, initC, b_transpose, size)`）在仓内先例（examples/flash_attention/flash_attn_npuir.py、examples/deepseek_v32/fp8_lighting_indexer.py）中以 `T.gemm` 名称生产使用；上两行签名标注按 fragment（Developer）形态理解，L1/L0C 形态下 `T.gemm` 与 `T.npuir_dot` 的别名/等价关系以先例为准。
+    动机: 同一形态落差在两轮独立检视中被连续提出（reviewer 每次都须以先例对抗文档标注）——一句关系说明消除文档-先例张力，使维度 1 API 存在性核对可从 docs 层闭环。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0073
+- type: R
+- title: develop SKILL.md Phase 2 补「母本移植逐项甄别」检查项——结构母本只提供 API 形态与程序序，布局假设/整除域特化/非 persistent 假设须按目标任务重推导；移植后首个回归须含 S_q > bm 的多头用例
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 3（2026-09-15）Value Point Proposals 第 4 行 + Transferable 第 2 条（v11_2phase _builder_2phase 为 fa 域〔B=1/H=1/整除/非 persistent〕特化实验形态：全局行 ws 布局/无 mask 链/无 TASKDONE/无钳位在 persistent+多头+causal+尾块域全部需适配——ws 槽全局行基误用即直接诱因之一：bx=0 任务「全局=本地」巧合掩盖、bx≥1 全错〔lse 恒 log2(S_kv) 指纹〕，row0 索引修复后 29/29）
+- repro: 复现条件——任一从实验文件/先例 kernel 移植结构的开发任务（对照母本假设清单 vs 目标任务域）
+- toolchain_stamp: tilelang 0.1.2+28783f454705cadab047805c1e0f5e054ba4b967 + CANN 8.5.0 + Ascend910B2C / 2026-09-15
+- target_doc: .agents/skills/tilelang-op-develop/SKILL.md
+- delta: |
+    动作: update（Phase 2 清单追加第 4 项）
+    定位锚: "3. 遵循项目根 AGENTS.md："不要凭记忆猜 API"、"从示例入手"——先 Glob `examples/` 同类实现参考。"
+    old 文本: |
+      3. 遵循项目根 AGENTS.md："不要凭记忆猜 API"、"从示例入手"——先 Glob `examples/` 同类实现参考。
+    new 文本: |
+      3. 遵循项目根 AGENTS.md："不要凭记忆猜 API"、"从示例入手"——先 Glob `examples/` 同类实现参考。
+      4. **母本移植逐项甄别**：从实验文件/先例 kernel 移植结构时，「结构母本」只提供 API 形态与程序序——布局假设（全局行 vs per-core 本地行）、整除域特化（尾块/掩码/TASKDONE 缺失）、非 persistent 假设须按目标任务域重推导并显式列差异清单（2026-09-15 实证：v11_2phase 全局行 ws 布局直接移植致 per-core 槽 row0 索引 bug——bx=0 任务巧合掩盖、bx≥1 全错，lse 恒 log2(S_kv) 指纹锁定；移植后首个回归须含 S_q > bm 的多头用例）。
+    动机: 母本的隐藏域假设（整除、全局行基、无尾块）只在目标域位形暴露——差异清单 + 定向回归用例把该类 bug 从「bx≥1 用例碰运气发现」变为「首个回归必现」。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0074
+- type: R
+- title: integrator 已知修复目录「config 参数（block/tile）不适配 NPU」行补 config-契约集成范式——kernel 带 config 替换语义时 wrapper default_config 是出厂契约决策：惰性旋钮路由到门禁验证过的逐字路径（1 行胶水修复恢复整个域可编译）
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/integration_log.md Round 2 §调试历史 attempt 1（分类命中该已知修复行 → 根因链 5 项 → 最小复现双路径 A fail / B ok → 修复 = wrapper default_config num_stages 1→2：(64,64,2) 在 E6 替换集外 → 逐字路径 bn_eff∈{64,144} = Stage 3 L1 门禁验证过的 traced 变体；num_stages 为结构惰性旋钮〔单槽两相位 stage 不变，DESIGN R-7〕语义零影响 → smoke 4/4 + full 6/6 + bench 10/10 复核）
+  - .opencode/agents/tilelang-op-integrator.md L102（现行已知修复行——未展开带替换语义 kernel 的契约层选法）
+- repro: 复现条件——任一 kernel 工厂带 config 替换/分派语义的集成期编译失败（wrapper 还原 (64,64,1) 时 `pytest "benchmarks/ops/bench_multi_head_attention.py::test_mha_fwd_bench[llama-3.1-8b-short-float16]" -v --tb=short` 复现 UB 溢出）
+- toolchain_stamp: tilelang 0.1.2+28783f45 + CANN 8.5.0 + Ascend910B2C / 2026-09-15
+- target_doc: .opencode/agents/tilelang-op-integrator.md
+- delta: |
+    动作: update（已知修复目录表「config 参数」行扩展）
+    定位锚: "| config 参数（block/tile）不适配 NPU | wrapper `default_config` 调整（仅 wrapper 文件） |"
+    old 文本: |
+      | config 参数（block/tile）不适配 NPU | wrapper `default_config` 调整（仅 wrapper 文件） |
+    new 文本: |
+      | config 参数（block/tile）不适配 NPU | wrapper `default_config` 调整（仅 wrapper 文件）。**config-契约范式（kernel 带 config 替换语义时）**：wrapper `default_config` 是出厂契约决策而非 GPU 遗产直搬——替换集外的**逐字路径 + 惰性旋钮**（如 num_stages，结构 stage 不变的设计保留项）是集成层对齐「Stage 3 门禁验证过的 traced 变体」的合法工具：改惰性旋钮选中逐字路径即路由回门禁变体集（2026-09-15 实证：num_stages 1→2 使 (64,64,2) 落在 E6 替换集外 → bn_eff∈{64,144} 逐字路径，1 行胶水修复恢复 manifest 域可编译，pytest/bench 全绿复核）；修复后以工厂解析检查（`w.{func}.__module__`）确认激活源 |
+    动机: 该修复形态已验证（1 attempt 闭环）但检索无门——现行行只说「调整 default_config」，未展开替换语义 kernel 的契约层选法（何时改旋钮、为何逐字路径合法）；范式入目录后同类集成失败可一次定位。Stage 3 门禁对 wrapper-default 派发路径的覆盖缺口另立 VP-2026-0065（防患侧），本条为修复侧。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0075
+- type: R
+- title: optimize SKILL.md 证伪协议第 4 条「标量占比触发换轴」前置编译警告排查——aiv_scalar 高占比与 flag 自旋同形，`will execute by scalar instruction` 警告是两者的区分器（vcmp int16 标量化占壁钟 45% 实证）
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z（第五轮 Stage 4）：examples/multi_head_attention/_gqa_prefill_fwd_kernel/perf_opt/opt_log.md#Phase-1（baseline aiv_scalar 94.5–96.8% 全 24 核均匀、两引擎 >90% 时间等待、aic_cube 0.7–1.4%——非引擎吞吐非带宽瓶颈）+ #判别实验（TILELANG_DUMP_IR + stderr 定位 `Op 'hivm.hir.vcmp' will execute by scalar instruction with low efficiency`，仅 causal trace 有、每变体 2 处）+ #Round-2（根因定案：vcmp int16 全形态标量化 236µs/链 @[32,256]，对角块聚合 ≈ 壁钟 45%；修复后 14.2x）
+  - pattern-library/traps-compiler.md TRAP-expert-v-operands 第五轮补充段（「与 flag 自旋同形，须查编译警告区分」）+ attention.md PL-1.11（数据面档案）
+  - 误诊路径对照：bottleneck-patterns BP_cross_engine_serial_chain（VP-2026-0034）触发信号即「busy 核 scalar 占比 30%+ 且归因为 flag 等待自旋」——两种根因（标量化陷阱 / flag 自旋）在 aiv_scalar 指标上同形，归因步骤缺区分器是误诊源头
+- repro: `TILELANG_DUMP_IR=TRUE`（配新 `TILELANG_CACHE_DIR`，见 VP-2026-0062——缓存命中跳过编译也跳过 IR 打印）重编译目标 kernel，stderr grep `will execute by scalar instruction`；命中则热点段含被降级的 v-op（对照 msprof aiv_scalar 占比与「链宽 × 实测单链耗时」估算贡献占比）
+- toolchain_stamp: tilelang 0.1.2+6797758（2026-09-15 07:45 HEAD）+ CANN 8.5.0 / Ascend910B2C
+- target_doc: .agents/skills/tilelang-op-optimize/SKILL.md
+- delta: |
+    动作: update（证伪协议第 4 条原位扩展）
+    定位锚: "4. **诊断信号强制触发换轴分析**：msprof 显示热点段标量执行占比 > 50% 时，强制评估向量化轴/布局重排候选（pattern-library/layout.md），不得只在原轴上微调参数。"
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+      4. **诊断信号强制触发换轴分析（先排查标量化，再评估换轴）**：msprof 显示热点段标量执行占比 > 50% 时，第一步先用 `TILELANG_DUMP_IR=TRUE`（配新 `TILELANG_CACHE_DIR`）重编译并 grep stderr 的 `will execute by scalar instruction` 警告——命中说明热点 v-op（如 vcmp int16）被降级为标量指令执行（traps-compiler.md TRAP-expert-v-operands：与 flag 等待自旋在 profile 上同形，第五轮实证占壁钟 ~45%），按对应 TRAP 条目绕法处理；未命中且归因为等待/自旋时再强制评估向量化轴/布局重排候选（pattern-library/layout.md），不得只在原轴上微调参数。
+    动机: 第五轮 baseline aiv_scalar 94–97% 与良性 flag 自旋同形，若直接走「换轴」路径会漏掉 vcmp int16 全形态标量化这一占壁钟 45% 的根因（本轮靠 IR dump 警告 + 微探针才定案，修复即 14.2x）；编译警告 grep 是零成本区分器，前置可避免一类高代价误诊。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0076
+- type: R
+- title: iteration-diagnosis.md 注意事项补微探针输出分片规范——`T.Kernel` 多 AIV 并发写同一 GM 输出缓冲存在竞态，探针结论（「链坏」类）可能是探针自身 artifact 而非被测机制缺陷
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z（第五轮 Stage 4）：examples/multi_head_attention/_gqa_prefill_fwd_kernel/perf_opt/probe_penalty_chain.py（P9 修正前后对照）+ opt_log.md#Round-2-实现要点（调试链：P9 探针因 T.Kernel(1) 双 AIV 写同一 GM 输出而竞态，产出误导性「链坏」结论，浪费一轮调试）
+  - 同族先例（不同形态）：pattern-library/attention.md PL-1.9-blockwidth「探针教训」——缺 Cube→Vector flag 同步的数值崩坏是探针自身竞态而非 API 缺陷（跨引擎形态）；本条补多 AIV 写竞态形态，两形态同属「探针异常先怀疑探针自身」
+- repro: 微探针 kernel 以 `T.Kernel` 启动 ≥2 AIV 且输出为单一 GM 张量时，对照按 subid 分片（`out[subid, ...]` 各写各区）或单 AIV 版本的输出稳定性（P9 实证：分片前结果不可复现地「坏」、分片后稳定）
+- toolchain_stamp: tilelang 0.1.2+6797758（2026-09-15 07:45 HEAD）+ CANN 8.5.0 / Ascend910B2C
+- target_doc: .agents/skills/tilelang-op-optimize/references/iteration-diagnosis.md
+- delta: |
+    动作: update（「## 注意事项」列表末尾追加一条）
+    定位锚: "- 如果所有候选优化点都不够直接，先补充 profile 或检查 profile 口径，不要盲目扩大搜索空间。"
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+  - 如果所有候选优化点都不够直接，先补充 profile 或检查 profile 口径，不要盲目扩大搜索空间。
+  - 微探针（判别实验 kernel）的输出缓冲按 AIV 分片（`out[subid, ...]` 各写各区）或显式单 AIV——`T.Kernel` 多 AIV 并发写同一 GM 输出区域存在竞态，会产出误导性的「机制坏」结论（2026-09-15 实证：双 AIV 竞态使向量链探针误报「链坏」，浪费一轮调试；同族形态见 pattern-library PL-1.9 探针教训——探针数值异常先怀疑探针自身同步/写冲突，再怀疑被测机制）。
+    动机: 微探针是第五轮定案 vcmp 标量化的关键手段，但其自身的多 AIV 写竞态曾误导一轮调试——判别实验的可信性以探针正确性为前提，分片输出是零成本规范。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z 2026-09-15
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0077
+- type: R
+- title: optimize SKILL.md Phase 3 TileOPs 集成算子条目补「perf_opt 双镜像同步」规则——conductor 工作区与 tileops 集成目录为独立 inode，单侧修复时 pytest 门禁测旧拷贝（错误位级相同无法区分源与镜像）
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z：DESIGN.md §11.2 集成拓扑注意（「TileOPs wrapper import 的是 tileops/kernels/.../perf_opt/ 镜像拷贝（独立 inode），perf_opt 侧任何修改须双镜像同步，否则 pytest 门禁测的是旧拷贝」——conductor 收束补记）
+  - 同任务 opt_log Round 10（r9 precision_fix：修复 conductor 工作区 perf_opt 后手动同步 TileOPs 集成镜像 `tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/perf_opt/_gqa_prefill_fwd_kernel.py`，wrapper 的 baseline/perf_opt 切换块不动；同步后 TileOPs pytest 6/6 passed）
+  - 双 inode 实核（2026-09-16 蒸馏会话）：`examples/multi_head_attention/_gqa_prefill_fwd_kernel/perf_opt/_gqa_prefill_fwd_kernel.py` 与 `examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/perf_opt/_gqa_prefill_fwd_kernel.py` 两份 81708B 拷贝并存（mtime 06:22 / 06:26）
+- repro: 复现条件——conductor 工作区与 TileOPs 集成目录存在两份独立 perf_opt 拷贝的 optimize/precision_fix 任务，单侧修改工作区 kernel 后直接跑 TileOPs pytest（门禁测的是未同步的集成镜像，错误位级相同无法区分源与镜像）
+- toolchain_stamp: tilelang 0.1.2+a13585dc + CANN 8.5.0 + Ascend910B2C / 2026-09-16；TileOPs pyproject 环境
+- target_doc: .agents/skills/tilelang-op-optimize/SKILL.md
+- delta: |
+    动作: update（Phase 3 第 3 条扩展）
+    定位锚: "3. TileOPs 集成算子（算子目录为 `tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/`）：`perf_opt/` 建在该目录下；wrapper 的 baseline/perf_opt 双 import 切换块由 conductor 在回归通过后翻转采纳（perf_opt 默认激活），本 skill 不修改 wrapper。若 tuned kernel 与基准 kernel 的默认参数不同（如 block_size），须在 `perf_opt/{op}.py` 中以模块级常量暴露 tuned 默认值，供 wrapper 切换块成对引用。"
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+      3. TileOPs 集成算子（算子目录为 `tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/`）：`perf_opt/` 建在该目录下；wrapper 的 baseline/perf_opt 双 import 切换块由 conductor 在回归通过后翻转采纳（perf_opt 默认激活），本 skill 不修改 wrapper。若 tuned kernel 与基准 kernel 的默认参数不同（如 block_size），须在 `perf_opt/{op}.py` 中以模块级常量暴露 tuned 默认值，供 wrapper 切换块成对引用。**双镜像同步（conductor 工作区 + TileOPs 集成目录）**：任务工作区（`examples/{project}/{op}/perf_opt/`）与 TileOPs 集成目录（`tileops/.../perf_opt/`）是独立 inode 的两份拷贝——凡修改任务工作区 perf_opt kernel（含 precision_fix 会话），须同步拷贝到 TileOPs 集成镜像（wrapper 的 baseline/perf_opt 切换块不动）后再跑 TileOPs pytest/回归门禁；单侧修复时门禁测的是旧拷贝，且位级相同的错误使门禁无法区分源与镜像（2026-09-16 r9 precision_fix 实证：同步后 pytest 6/6）。
+    动机: TileOPs wrapper import 的是集成目录镜像而非任务工作区文件；r9 precision_fix 若只修工作区，pytest 门禁会在旧拷贝上复现位级相同的 UB 溢出——既浪费修复验证又可能误判修复无效。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z 2026-09-16
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0078
+- type: R
+- title: statectl.py 状态迁移命令加并发互斥锁（flock）——双 conductor 会话并行驱动同一任务目录时 load→modify→write 交错，产出零产物 runtime fail 与交叉状态写入（4 次实证）
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z：.task_timeline.jsonl（6 次 fail 中 4 次 runtime 归因双会话竞争：03:38–06:15 期间另一窗口与本会话交错驱动——attempt 1「03:38 并行调度 #1 已 runtime 失败（819s 零产物）」记录于 .stage_state.json user_requirement；attempt 2 期间出现外来 set/snapshot 写入〔03:58:15〕；stage_retry_count 被推至 6 污染 E-2 指标）
+  - .agents/tools/statectl.py 现行版本（Ctx.load→write 为无锁 read-modify-write；cmd_start 无活跃 attempt 互斥；atomic_write_json 只保证单次写原子性不保证序列化）
+- repro: 复现条件——两个进程同时对同一 op 目录执行 statectl start/set/fail（本任务 2026-09-16 03:38–06:15 实录：interleaved set/snapshot + 819s 零产物 runtime fail ×1 + 竞争性 fail ×3）
+- toolchain_stamp: statectl.py 现行版本；发生环境 2026-09-16（与 tilelang 工具链无关）
+- target_doc: .agents/tools/statectl.py
+- delta: |
+    动作: update（main() 分发加互斥锁 + 新增 acquire_op_lock 辅助函数）
+    定位锚: |
+      def main(argv=None) -> int:
+          parser = build_parser()
+          args = parser.parse_args(argv)
+          if getattr(args, "func", None) is None:
+              parser.error("missing command")
+          return args.func(args)
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+      MUTATING_ACTIONS = {"init", "start", "fail", "complete", "set", "snapshot", "repair"}
+
+
+      def acquire_op_lock(op_dir: str):
+          """Exclusive lock for state-mutating commands.
+
+          Two conductor sessions driving the same op dir interleave
+          load->modify->write cycles: silent state corruption, phantom
+          runtime fails and cross-written snapshots (2026-09-16 gqa
+          task: 4 competing runtime fails, first one 819s zero-artifact).
+          flock converts that into a loud immediate E-BUSY.
+          """
+          import fcntl
+
+          lock_path = os.path.join(op_dir, ".stage_state.json.lock")
+          fh = open(lock_path, "w", encoding="utf-8")
+          try:
+              fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+          except OSError:
+              try:
+                  holder = open(lock_path, encoding="utf-8").read().strip() or "?"
+              except OSError:
+                  holder = "?"
+              fh.close()
+              emit(
+                  {
+                      "action": "busy",
+                      "errors": [
+                          err(
+                              "E-BUSY",
+                              f"另一 statectl 会话持有 {lock_path}（holder pid {holder}）"
+                              "——同一任务目录禁止并行驱动；确认无活跃会话后可删除锁文件重试",
+                          )
+                      ],
+                  },
+                  1,
+              )
+              return None
+          fh.write(f"{os.getpid()}\n")
+          fh.flush()
+          return fh
+
+
+      def main(argv=None) -> int:
+          parser = build_parser()
+          args = parser.parse_args(argv)
+          if getattr(args, "func", None) is None:
+              parser.error("missing command")
+          lock_fh = None
+          if args.command in MUTATING_ACTIONS:
+              lock_fh = acquire_op_lock(os.path.abspath(args.dir or os.getcwd()))
+              if lock_fh is None:
+                  return 1
+          try:
+              return args.func(args)
+          finally:
+              if lock_fh is not None:
+                  lock_fh.close()  # releases flock
+      （注：只读命令 show/verify/gate/timeline-summary 不加锁；migration 子树若同构需要可另行评估，本提案只覆盖主状态命令）
+    动机: 并行双会话的每一次交错都产生真实成本（819s 零产物 attempt + 交叉写入使时间线不可信 + stage_retry_count 污染 E-2 北极星指标）；flock 是 OS 级机械守卫，比「conductor 自觉不并行」可靠——同任务目录的第二驱动者立即收到 E-BUSY 而非静默竞争。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z 2026-09-16
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0079
+- type: R
+- title: statectl.py cmd_fail 补「未闭合 start 前置校验」——重复 fail 记账（无中间 start 的第二个 fail）虚增 stage_retry_count，污染重试指标与 E-2 抽取
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z：.task_timeline.jsonl L14–15（06:15:32 fail 971s / 06:15:39 fail 978s——第二个 fail 前无任何 start，duration 均回溯到同一 start#5，stage_retry_count 5→6 虚增；conductor 归因记账侧重复调用）
+  - .agents/tools/statectl.py 现行版本（cmd_fail 非 BLOCKED 路径无「本 stage 存在未闭合 attempt」校验；stage_attempt_duration 只回溯最近 start，第二个 fail 复用同一 start 的 duration）
+- repro: 复现条件——对同一 stage 连续调用两次 statectl fail（无中间 start）：第二条 fail 照常追加时间线并递增 stage_retry_count（本任务 2026-09-16 06:15 实录，7 秒间隔双记账）
+- toolchain_stamp: statectl.py 现行版本；发生环境 2026-09-16
+- target_doc: .agents/tools/statectl.py
+- delta: |
+    动作: update（cmd_fail 非 BLOCKED 路径头部插入校验块）
+    定位锚: |
+      （cmd_fail 函数体内，E-TERMINAL 守卫块之后、design_revision 分支之前）
+          if state["phase"] in TERMINAL_PHASES:
+              errors.append(err("E-TERMINAL", f"phase={state['phase']} 已终态，禁止 fail"))
+              return emit({"action": "fail", "stage": n, "errors": errors}, 1)
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+          if state["phase"] in TERMINAL_PHASES:
+              errors.append(err("E-TERMINAL", f"phase={state['phase']} 已终态，禁止 fail"))
+              return emit({"action": "fail", "stage": n, "errors": errors}, 1)
+
+          # A fail must close an OPEN attempt: the most recent start/fail/
+          # complete event for this stage has to be a start. Duplicate fail
+          # invocations (2026-09-16: two fails 7s apart, no intervening
+          # start) otherwise inflate stage_retry_count and pollute the
+          # E-2 retry metrics.
+          last_stage_action = None
+          for ev in read_timeline_events(ctx.op_dir):
+              if ev.get("stage") == n and ev.get("action") in (
+                  "start", "fail", "complete"
+              ):
+                  last_stage_action = ev.get("action")
+          if last_stage_action != "start":
+              errors.append(
+                  err(
+                      "E-NO-OPEN-ATTEMPT",
+                      f"Stage {n} 无未闭合的 start（最近事件为 {last_stage_action}）"
+                      "——重复 fail 记账拒绝，不递增 stage_retry_count",
+                  )
+              )
+              return emit({"action": "fail", "stage": n, "errors": errors}, 1)
+    动机: fail 是「闭合一个 attempt」的语义事件；无 start 的第二个 fail 只能来自记账侧重复调用——照单全收会虚增重试计数（本任务 6→实为 5），并使 duration 回溯到已消费的 start 产出误导性 duration_s。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z 2026-09-16
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0082
+- type: R
+- title: optimize SKILL.md T-4 实验批处理 runner 补适用边界——结构重构类分支（指令流重排/流水深度/同步协议）默认手工 diff 串行，生成脚本化仅用于参数扫描类
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z：opt_log Skill Retrospective（第六轮）第 6 条（T-4 runner 未搭建的决策依据：分支数 8、依赖交互调试多，手工串行可控性更高；r8g 结构分支的生成脚本引入 3 次脚本 bug，叠加 2 次编译错 + 1 次精度失败 + 1 次 flaky 超时，消耗 ~40% 轮次时间）
+- repro: 复现条件——以脚本生成结构重构类分支（指令流重排/多槽 buffer/flag 协议变更）且需多轮交互调试的调优轮（本任务 r8g 实证形态）
+- toolchain_stamp: 会话层工作流（无运行时依赖）；发生环境 tilelang 0.1.2+a13585dc / 2026-09-16
+- target_doc: .agents/skills/tilelang-op-optimize/SKILL.md
+- delta: |
+    动作: update（T-4 段末尾追加一句）
+    定位锚: "脚本模板与适配说明见 [autotune.md](references/autotune.md)「实验批处理 runner」节。"
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+      脚本模板与适配说明见 [autotune.md](references/autotune.md)「实验批处理 runner」节。**适用边界**：runner 适用于参数扫描/配置类分支（同 kernel 改 config）；**结构重构类分支（指令流重排 / 流水深度 / 同步协议 / 多槽 buffer 变更）默认手工 diff 串行**——此类分支依赖完整 kernel 上下文且需交互调试，脚本生成的变体一旦携带 bug，其调试成本高于手工串行（2026-09-16 attention 第六轮 r8g 实证：生成脚本引入 3 次脚本 bug，叠加编译/精度/flaky 共消耗 ~40% 轮次时间）。
+    动机: T-4 的收益模型（交互轮次下降 60%+）建立在「分支可批量执行」的前提上；结构分支不满足该前提，脚本化反而放大失败面——边界标注使 runner 用在参数类刀刃上。
+- status: pending
+- confirmations: -/-
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z 2026-09-16
+- decided_by: -
+- decided_note: -
+
 ## Decided（merged / rejected / expired / conflict 归档）
+
+## VP-2026-0014
+- type: P
+- title: 块内 mask 的向量构造链模式：arrange strides → vsub → vcmp(int16 索引) → vand → vselect；−1e38 有限哨兵 + mask 后置 softcap + 两段式分界零 mask 开销块
+- evidence:
+  - examples/multi_head_attention/_gqa_prefill_fwd_kernel/DESIGN.md#§0.6-E3 / #§1.6.2-#1
+  - examples/deepseek_v4/example_sparse_attn_kernel_highperf.py#L345-354（vcmp 标量 PrimExpr + vand 链）/ #L611（PIPE_V 内 T.arange strides）
+  - developer 谱系对照：同函数 T.Parallel 谓词预填形态 aiv_scalar 88–89% 实测（opt_log §1，**谱系注明** tilelang 67db6f3 + CANN 26.0.rc1）
+  - 第二证（不同任务，2026-09-15 蒸馏追加）：task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z 第五轮 Stage 4——opt_log.md Phase 1 判别链 + Round 2：**vcmp int16 全形态标量化实测**（236µs/链 @[32,256]，对角块聚合 ≈ 壁钟 45%，probe_vcmp_forms.py P6）——原 delta 链结构中 vcmp(int16) 主路径形态被证伪；核心方向（向量链替代谓词预填/规避标量化）二次实证：**算术惩罚掩码**（clamp+vmax/vmin 标量广播+vmul，band-free trace）修复后 14.2x；两段式分派升级为 trace 级（band-free 算术惩罚 / band-carrying 保留 vcmp/vselect 值替换语义——vcmp 标量化代价在该 trace 仅次要路径）
+- repro: 任一含块内 mask 的 attention/causal/sliding-window 算子，以向量链替代谓词预填后对照 aiv_scalar 占比与 Task Duration（第五轮复现：`python perf_opt/bench.py perf_opt/_gqa_prefill_fwd_kernel.py --case 8b-long --use-default-config --msprof-loop 25` 外部 msprof op 同口径）
+- toolchain_stamp: 第一证 tilelang dev root build 2026-09-07（HEAD 21586b5）+ CANN 8.5.0（developer 对照侧 67db6f3 + CANN 26.0.rc1）；第二证 tilelang 0.1.2+6797758（2026-09-15）+ CANN 8.5.0 / Ascend910B2C
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library.md（历史路径——按 queue 头部映射规则解析为 pattern-library/attention.md）
+- delta: |
+    （第二证修正后合入形态）原 add §1「向量 mask 构造链」小节 → 实际合入：主体（算术惩罚掩码 + trace 两段式分派 + NaN 免疫边界 + 终值）已由第五轮 optimizer 任务内回写 attention.md PL-1.11 + traps-compiler.md TRAP-expert-v-operands 补充段；evolver 补遗两点入 PL-1.11：「−1e38 哨兵与 softcap 顺序」bullet（e^{−1e38−m} 对有限 m 下溢精确 0 规避 −inf−(−inf) NaN 路径 + mask 后置 softcap 保 P(OOB)=0 不变式）。③ K_A 分界公式取整方向推导模板仍归 VP-2026-0018（pending，合入时并入）。
+- status: merged
+- confirmations: 2/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260907T115424Z 2026-09-07
+- confirmed_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z 2026-09-15（第五轮 Stage 4：vcmp 标量化证伪 + 算术惩罚掩码 14.2x——同主题不同任务的第二次独立实测，含链形态修正）
+- decided_by: evolver
+- decided_note: 两次独立证据来自不同任务（2026-09-07 expert 迁移 / 2026-09-15 第五轮调优），达 Tier 1 阈值 2/2。第二证对原提案是「方向确认 + 形态修正」关系：向量链替代谓词预填的核心主张被 14.2x 二次实证，但 vcmp(int16) 主路径形态被证伪（标量化陷阱）——合入时以修正后形态为准（PL-1.11 算术惩罚掩码 + band-carrying 保留 vselect），原 delta 的 vcmp 链仅适用于 band-carrying 次要 trace。本蒸馏周期执行合入。
+
+---
+
+## VP-2026-0059
+- type: D
+- title: 逐 buffer 手工 UB 预算 vs BiShengIR 基础分配差 ~26KB@192KB（auto-multi-buffer 关闭仍溢出）——预算表 ≠ 可编译证明，宽 config 上靶前须编译探针
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/integration_log.md Round 2 §Design-layer finding（DESIGN §4.5 预算 causal trace (bm=64,bn_eff=256,dim=128) = 178.2KB ≤ 192KB "✓"、§5.3 复述；实际 ~204.1KB 硬编译失败 `ub overflow, requires 1666048–1672192 bits while 1572864 bits available`）
+  - 排除 multi-buffer 通胀：`bishengir-compile --enable-auto-multi-buffer=false` 仍溢出 → 基础分配差（疑未记载 extra/sync buffers，Stage 5 未进一步定位）；dim=64 smoke ~161.7KB 可过
+  - 双路径复现（/tmp/opencode/s5_repro_mha_config.py，工厂直调 (4,512,32,128) causal fp16）：A `(64,64,1)` → E6 替换 (64,256) FAIL；B `(64,64,2)` → 逐字 bn_eff∈{64,144} OK（out/lse finite）
+  - 第二证（不同任务，2026-09-15 蒸馏追加）：task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z 第五轮 Stage 4 Phase 1——probe_ub.py 编译探针 4 点标定（工具链 6797758，跨 commit 复现并精化为系数律）：(64,256) +9.6% / (80,256) +12.2% / (96,256) +12.0% / (128,256) +12.1% → **BishengIR UB 实际需求 ≈ 真实手工预算 × 1.10–1.12**；另实证 DESIGN §4.5 漏计 ub_cond2 8.2KB（「勿漏计小 buffer」）+ UB diet 绕法（N/D staging 合并 −24.6KB + rowmat 删除 −16.3KB → (64,256) 宽块解锁，解锁后掩码修复红利显形）
+- repro: repro-missing（NPU 编译探针；两次任务内复现命令见各 evidence 末行——首证工厂直调双路径对照 / 第二证 probe_ub.py 变体扫描）
+- toolchain_stamp: 首证 tilelang 0.1.2+28783f454705cadab047805c1e0f5e054ba4b967 / 第二证 tilelang 0.1.2+6797758（2026-09-15 07:45 HEAD），均 + CANN 8.5.0 / Ascend910B2C（跨 commit 复现）
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library/traps-compiler.md
+- delta: |
+    update 条目 TRAP-UB-multibuffer-inflation（追加第四证/姊妹现象，与 20/26 B/elem 平台律并列）——已执行：正文追加「第四证/姊妹现象（基础分配差）」段（×1.10–1.12 4 点标定 + 预算表≠可编译证明 + 编译探针校准法 + UB diet 绕法实证 + 与 constants.md CONST-capacity-910B2C / CG-2026-0008 互链）+ front-matter origin_task/toolchain 机械更新（追加两任务）。
+- status: merged
+- confirmations: 2/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- confirmed_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z 2026-09-15（第五轮 Stage 4：跨 commit 复现 + 4 点标定精化为系数律 + UB diet 绕法）
+- decided_by: evolver
+- decided_note: 两次独立证据来自不同任务且跨工具链 commit（28783f45 / 6797758 均复现基础分配差），达 Tier 1 阈值 2/2。定量系数（×1.10–1.12）已由第五轮 optimizer 任务内回写 constants.md CONST-capacity-910B2C；本蒸馏周期合入 TRAP-UB-multibuffer-inflation 第四证段（陷阱视角与常数视角互链）。CG-2026-0008 同轮升级 recurring。
+
+---
+
+## VP-2026-0063
+- type: D
+- title: causal 多头域画像（从未结构化优化，headroom >10×）+ 两相位收益的 config 依赖性——窄 config 短 KV 1.30–1.32x 提速 / 长 KV 0.78x 回退 vs 单遍 expert；宽块解锁后反转（第五轮刷新）
+- evidence:
+  - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/integration_log.md Round 2 §Bench（vs Sep-07 expert 基线同门对照列；profile_run_msprof_20260915_065835.log vs 20260907_173440.log）
+  - 基线画像（provenance，Sep-09 采数）：perf_opt/perf_records.jsonl round 11 reg* 行——上一版 full 路径 (64,64,1) reg8bshort 3764.05µs（2.25 TFLOPS）/ reg8blong 13265.27µs（5.17 TFLOPS）vs fa4096 两相位 87.6 TFLOPS
+  - 第二证（不同任务，2026-09-15 蒸馏追加）：task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z 第五轮 Stage 4——opt_log.md Final Summary：UB diet 解锁 (64,256) 后 config 依赖性画像刷新——长 KV 从 0.78x 回退**反转为 11.1x 领先**（8b-long 16962.44→1191.63µs = 14.23x vs baseline / 11.1x vs 单遍 13265µs）、短 KV 7.25–7.35x、全域几何 8.53x；原 delta 的预言「宽块收益需 mask 链缓冲精简（DESIGN §5.4 Stage 4 候选形态）」被完整实现（UB diet −40.9KB + 掩码修复后宽块红利显形 bn=256 vs 144 再 −40%）
+- repro: repro-missing（端到端 msprof bench；任务内复现 = wrapper tuned 分派激活下 `msprof op --kernel-name=_gqa_prefill_fwd_main --launch-count=20 --warm-up=5 ... python perf_opt/bench.py ... --use-default-config`，raw 对账 profiles/{phase1,final}/）
+- toolchain_stamp: 首证 tilelang 0.1.2+28783f454705cadab047805c1e0f5e054ba4b967 / 第二证 tilelang 0.1.2+6797758（2026-09-15），均 + CANN 8.5.0 / Ascend910B2C（基线侧 0.1.2+3a214cde 2026-09-09 采数——跨 commit 对比，倍率含版本差异成分）
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library/attention.md
+- delta: |
+    update 条目 PL-1.9-twophase（附加 causal 域数据点 bullet）——已执行：追加「causal 多头域画像与宽块解锁反转」bullet（headroom >10× 画像 + 窄 config 1.30–1.32x/0.78x config 依赖性 + 第五轮 UB diet 解锁后 11.1x 反转与几何 8.53x + bf16/fp16 平价，完整档案指向 PL-1.11）。
+- status: merged
+- confirmations: 2/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z 2026-09-15
+- confirmed_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z 2026-09-15（第五轮 Stage 4：宽块解锁 + 0.78x→11.1x 反转的刷新证据）
+- decided_by: evolver
+- decided_note: 两次独立证据来自不同任务（v3 重生成集成期 / 第五轮调优期），达 Tier 1 阈值 2/2。第二证是证据刷新而非矛盾：0.78x 回退系窄 config 下的结论，第五轮在宽 config 下将其反转——同一 config 依赖性主张的完整闭环。本蒸馏周期合入 PL-1.9-twophase causal 域 bullet。
+
+---
 
 ## VP-2026-0035
 - type: P

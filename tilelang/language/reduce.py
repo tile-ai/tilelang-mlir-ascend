@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 """The language interface for tl programs."""
 
-from tvm import tir
+from tilelang.tvm import tir
 from typing import Optional
 from tilelang.language import copy, macro, alloc_shared
 

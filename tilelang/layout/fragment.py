@@ -3,9 +3,9 @@
 """Wrapping Layouts."""
 # pylint: disable=invalid-name, unsupported-binary-operation
 
-import tvm
-from tvm.ir import Range
-from tvm.tir import IterVar, Var, PrimExpr, IndexMap
+from tilelang import tvm
+from tilelang.tvm.ir import Range
+from tilelang.tvm.tir import IterVar, Var, PrimExpr, IndexMap
 from tilelang import _ffi_api
 from tilelang.layout import Layout
 from typing import List

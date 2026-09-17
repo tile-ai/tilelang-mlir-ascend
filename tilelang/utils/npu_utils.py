@@ -15,6 +15,7 @@ import uuid
 import logging
 from hashlib import sha256
 from tilelang import env
+from tilelang.env import THIRD_PARTY_ROOT
 from typing import Union
 
 import pybind11
@@ -352,8 +353,15 @@ def get_cxx_precompiled(header_path):
 
 
 @functools.lru_cache()
-def get_npucompiler_path():
-    """Get bishengir-compile"""
+def get_npucompiler_path(prefer_bundled=True):
+    """Prefer TileLang's compiler, then use the existing PATH/override lookup."""
+    if prefer_bundled:
+        bundled = shutil.which(
+            "bishengir-compile", path=os.path.join(THIRD_PARTY_ROOT, "bin")
+        )
+        if bundled is not None:
+            return bundled
+
     npu_compiler_path = shutil.which("bishengir-compile")
     if npu_compiler_path is None:
         npu_compiler_root = os.getenv("TILELANG_NPU_COMPILER_PATH", "")

@@ -4,7 +4,7 @@
 
 from typing import Union, List, Optional
 from tilelang import language as T
-from tvm import tir
+from tilelang.tvm import tir
 
 
 def region(buffer: tir.BufferLoad, access_type: str, *args: tir.PrimExpr):

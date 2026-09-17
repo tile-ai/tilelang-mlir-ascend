@@ -4,7 +4,7 @@ import tilelang.testing
 from tilelang import carver
 from tilelang.carver.roller import PrimFuncNode, OutputNode, Edge
 from tilelang.carver.template.base import auto_infer_current_arch
-from tvm import te
+from tilelang.tvm import te
 
 
 def run_general_matmul_emit_configs(M, N, K, topk: int = 20):

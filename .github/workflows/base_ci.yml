@@ -2,7 +2,7 @@ name: Base CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, sglang-dpv4-poc]
   release:
     types: [published, prereleased]
 
@@ -90,10 +90,16 @@ jobs:
   # ============================================================
   test:
     needs: build-wheel
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        python-version: ['3.11', '3.12']
     uses: ./.github/workflows/test_npuir_wheel.yml
     with:
       checkout-ref: ${{ github.ref }}
-      report-name: ${{ github.event_name == 'pull_request' && 'npuir-test-report' || 'npuir-release-test-report' }}
+      python-version: ${{ matrix.python-version }}
+      report-name: ${{ github.event_name == 'pull_request' && 'npuir-test-report' || 'npuir-release-test-report' }}-py${{ matrix.python-version }}
 
   # ============================================================
   # Scenario 2: Pre-release — upload wheel assets after test
@@ -105,15 +111,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download x64 wheel
+      - name: Download all Python and architecture wheels
         uses: actions/download-artifact@v4
         with:
-          name: tilelang-npuir-py3.11-x64
-          path: release-wheels
-      - name: Download arm64 wheel
-        uses: actions/download-artifact@v4
-        with:
-          name: tilelang-npuir-py3.11-arm64
+          pattern: tilelang-npuir-py*-*
+          merge-multiple: true
           path: release-wheels
       - name: Upload to Pre-release
         uses: softprops/action-gh-release@v2
@@ -133,15 +135,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download x64 wheel
+      - name: Download all Python and architecture wheels
         uses: actions/download-artifact@v4
         with:
-          name: tilelang-npuir-py3.11-x64
-          path: release-wheels
-      - name: Download arm64 wheel
-        uses: actions/download-artifact@v4
-        with:
-          name: tilelang-npuir-py3.11-arm64
+          pattern: tilelang-npuir-py*-*
+          merge-multiple: true
           path: release-wheels
       - name: Upload to Release
         uses: softprops/action-gh-release@v2

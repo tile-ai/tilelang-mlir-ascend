@@ -43,6 +43,67 @@ pytest tests/ -v
 pytest benchmarks/ -v
 ```
 
+## Unified Evaluation Reports
+
+The existing correctness tests and benchmarks remain the execution source of
+truth.  ``tileops-report`` only orchestrates them: correctness runs first, the
+benchmark runs only after it passes, and the existing pytest/msprof results are
+collected into JSON, Markdown, and HTML reports.
+
+```bash
+# List manifest operators and their pytest entry points
+tileops-report list
+
+# Run the complete correctness suite, then the complete benchmark suite
+tileops-report run --all --prof-mode msprof
+
+# Correctness gate -> msprof benchmark -> structured report
+tileops-report run --op MishFwdOp --prof-mode msprof --kernel-name main
+
+# Device-event mode (useful when msprof is unavailable)
+tileops-report run --op MishFwdOp --prof-mode events
+
+# An operator not yet registered in the manifest can provide both pytest paths
+tileops-report run --op PoolFwdOp \
+  --test-file tests/ops/test_pool.py \
+  --benchmark-file benchmarks/ops/bench_pool.py \
+  --prof-mode msprof --kernel-name main
+```
+
+Reports are written under ``reports/tileops/<run-id>_<operator>/``.  Each run
+contains the canonical ``run.json``, human-readable ``report.md`` and
+``report.html``, pytest JUnit/log files, the structured benchmark JSON, and
+uniquely named retained msprof artifacts.  Performance benchmarks profile only
+the TileOps implementation.  PyTorch reference implementations remain in
+``tests/ops`` for correctness validation and are not profiled for performance.
+
+The HTML view follows the CANN-Bench report hierarchy and is filled from
+``tileops/reporting/report_template.html`` without an additional template-engine
+dependency.  It contains experiment metadata and the detected runtime environment,
+an overall pass-rate summary, a per-operator analysis table, and per-operator shape
+details.  The per-operator ``Correctness`` cell uses ``Pass Rate (Passed/Total)``,
+for example ``100.0% (22/22)``.  ``Ratio Range`` shows the minimum and maximum of
+the individual shapes; it is not an average across unrelated shapes.  Correctness
+and performance counts are shown separately because pytest cases and benchmark
+shapes do not necessarily match.  ``Avg Max Abs Error`` is calculated from the
+``max_abs_err`` values emitted by numerical correctness tests.
+
+Performance tables begin with ``Label``, ``Latency``, and ``Ratio``.  The label is
+captured from the workload's pytest parameter ID; old records without a label fall
+back to the real workload shape.  Shapes and dtypes remain visible alongside it,
+while stable hashed ``case_id`` values and full artifact paths remain available in
+the expandable details and ``run.json``.  Existing results can be rendered again
+without rerunning NPU tests:
+
+```bash
+tileops-report render reports/tileops/<run-id>/run.json
+```
+
+Report runs must be serial.  Do not pass pytest-xdist ``-n`` or
+``--numprocesses`` options: benchmark records are process-local and cannot yet be
+merged safely across workers.  The CLI rejects these options instead of producing an
+incomplete report.
+
 ## Adding a New Op
 
 See `.agents/skills/add-npu-op/SKILL.md` for the step-by-step guide. The skill ports an

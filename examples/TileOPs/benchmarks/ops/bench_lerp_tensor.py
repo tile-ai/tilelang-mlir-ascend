@@ -56,8 +56,6 @@ def test_lerp_tensor_manifest_bench(shape: tuple[int, ...], dtype: torch.dtype) 
     bm = ManifestBenchmark(_LERP_TENSOR_OP, op, test)
     result = bm.profile(op, x, end, weight)
     BenchmarkReport.record(op, locals(), result, tag="tileops")
-    result_bl = bm.profile(torch.lerp, x, end, weight)
-    BenchmarkReport.record(op, locals(), result_bl, tag="torch")
 
 
 if __name__ == "__main__":

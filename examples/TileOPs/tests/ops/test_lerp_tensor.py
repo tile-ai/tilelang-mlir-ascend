@@ -18,8 +18,10 @@ NPU adaptations (T1-T4):
 import pytest
 import torch
 
+from tileops.benchmark.msprof import _extract_op_init_args
 from tileops.device import get_device_backend
 from tileops.ops.elementwise.lerp_tensor import LerpTensorFwdOp
+from tileops.testing import record_check_result
 
 _LERP_TENSOR_DTYPES = [torch.float16, torch.bfloat16, torch.float32]
 
@@ -55,6 +57,7 @@ def test_lerp_tensor_same_shape(dtype: torch.dtype) -> None:
     op = LerpTensorFwdOp(input=shape, end=shape, weight=shape, dtype=dtype)
     out = op(a, b, w)
     ref = torch.lerp(a, b, w)
+    record_check_result(op, out, ref)
     torch.testing.assert_close(out, ref, **_lerp_tol(dtype))
 
 
@@ -75,6 +78,7 @@ def test_lerp_tensor_broadcast() -> None:
     )
     out = op(a, b, w)
     ref = torch.lerp(a, b, w)
+    record_check_result(op, out, ref)
     torch.testing.assert_close(out, ref, atol=1e-6, rtol=1e-6)
     assert tuple(out.shape) == (3, 4)
 
@@ -131,6 +135,15 @@ def test_lerp_tensor_eval_roofline() -> None:
     assert mem_bytes == 4 * n_total * elem_bytes, (
         f"bytes {mem_bytes} != 4 * N * elem_bytes = {4 * n_total * elem_bytes}"
     )
+
+    # The msprof runner reconstructs Op instances in a subprocess from
+    # constructor-name attributes.  Keep this contract covered explicitly.
+    assert _extract_op_init_args(op) == {
+        "input": shape,
+        "end": shape,
+        "weight": shape,
+        "dtype": dtype,
+    }
 
 
 if __name__ == "__main__":

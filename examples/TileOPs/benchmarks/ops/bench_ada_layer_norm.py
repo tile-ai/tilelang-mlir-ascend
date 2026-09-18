@@ -14,7 +14,6 @@ custom parametrization helper (same pattern as ``bench_lerp_tensor.py``).
 
 import pytest
 import torch
-import torch.nn.functional as F
 
 from tileops.benchmark.benchmark_base import BenchmarkReport, ManifestBenchmark
 from tileops.manifest import load_workloads
@@ -44,14 +43,6 @@ def test_ada_layer_norm_bench(m: int, n: int, dtype: torch.dtype) -> None:
     bm = ManifestBenchmark(_ADA_OP_NAME, op, test)
     result = bm.profile(op, *inputs)
     BenchmarkReport.record(op, locals(), result, tag="tileops")
-
-    # Baseline: PyTorch composite F.layer_norm + arithmetic
-    def baseline_fn(x, scale, shift):
-        normed = F.layer_norm(x, (n,), weight=None, bias=None, eps=test.eps)
-        return scale * normed + shift
-
-    result_bl = bm.profile(baseline_fn, *inputs)
-    BenchmarkReport.record(op, locals(), result_bl, tag="torch-ref")
 
 
 if __name__ == "__main__":

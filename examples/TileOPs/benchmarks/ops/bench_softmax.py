@@ -32,15 +32,6 @@ def test_logsumexp_bench(shape: tuple, dtype: torch.dtype, op_params: dict) -> N
     result = bm.profile(op, *inputs)
     BenchmarkReport.record(op, locals(), result, tag="tileops")
 
-    # dim = op_params["dim"]
-    # keepdim = op_params.get("keepdim", False)
-
-    # def baseline_fn(x):
-    #     return torch.logsumexp(x, dim=dim, keepdim=keepdim)
-
-    # result_bl = bm.profile(baseline_fn, *inputs)
-    # BenchmarkReport.record(op, locals(), result_bl, tag="torch")
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-vvs"])

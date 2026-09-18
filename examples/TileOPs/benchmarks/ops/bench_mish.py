@@ -31,9 +31,6 @@ def test_mish_bench(shape: tuple, dtype: torch.dtype, op_params: dict) -> None:
     result = bm.profile(op, *inputs)
     BenchmarkReport.record(op, locals(), result, tag="tileops")
 
-    # result_bl = bm.profile(F.mish, *inputs)
-    # BenchmarkReport.record(op, locals(), result_bl, tag="torch")
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-vvs"])

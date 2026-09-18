@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{PAGE_TITLE}}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --ink: #1a1a2e;
+      --ink-mid: #4a4a5e;
+      --ink-light: #7a7a8e;
+      --rule: #c8c8d0;
+      --rule-light: #e8e8ee;
+      --bg-page: #f0f2f5;
+      --bg-paper: #fff;
+      --bg-stripe: #f8f9fb;
+      --bg-callout: #f4f6fa;
+      --score-high: #1a6b3c;
+      --score-mid: #a66c00;
+      --score-low: #c0392b;
+      --accent: #1e4d7b;
+      --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
+        "PingFang SC", "Microsoft YaHei", sans-serif;
+      --font-mono: "SF Mono", "Cascadia Code", Consolas, "Noto Sans Mono SC", monospace;
+      --content-width: 980px;
+      --pad-h: 40px;
+    }
+    html { font-size: 16px; }
+    body {
+      display: flex;
+      justify-content: center;
+      padding: 24px 8px 48px;
+      background: var(--bg-page);
+      color: var(--ink);
+      font-family: var(--font-stack);
+      line-height: 1.6;
+    }
+    .report {
+      width: 100%;
+      max-width: var(--content-width);
+      background: var(--bg-paper);
+      box-shadow: 0 0 0 1px rgb(0 0 0 / 6%), 0 2px 16px rgb(0 0 0 / 8%);
+    }
+    .report-header {
+      padding: 10px var(--pad-h);
+      background: var(--ink);
+      color: #fff;
+      font-size: .6875rem;
+      letter-spacing: .18em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .report-header span { opacity: .55; font-weight: 400; }
+    .title-area {
+      padding: 34px var(--pad-h) 27px;
+      border-bottom: 3px double var(--ink);
+      text-align: center;
+    }
+    .title-area h1 { margin-bottom: 7px; font-size: 1.5rem; line-height: 1.4; }
+    .title-area h2 {
+      color: var(--ink-mid);
+      font-size: .875rem;
+      font-style: italic;
+      font-weight: 400;
+    }
+    .meta-line { margin-top: 13px; color: var(--ink-mid); font-size: .75rem; }
+    .meta-line + .meta-line { margin-top: 2px; }
+    .status {
+      display: inline-block;
+      margin-left: 7px;
+      padding: 1px 7px;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      font-size: .625rem;
+      font-style: normal;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .status.passed { color: var(--score-high); }
+    .status.partial { color: var(--score-mid); }
+    .status.failed { color: var(--score-low); }
+    .abstract {
+      margin: 20px var(--pad-h) 0;
+      padding: 18px 22px;
+      border: 1px solid var(--rule-light);
+      border-radius: 4px;
+      background: var(--bg-callout);
+    }
+    .abstract h3 {
+      margin-bottom: 7px;
+      font-size: .8125rem;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .abstract p { color: var(--ink-mid); font-size: .8125rem; line-height: 1.75; }
+    .section { padding: 0 var(--pad-h); margin-top: 28px; }
+    .section h3 {
+      margin-bottom: 16px;
+      padding-bottom: 7px;
+      border-bottom: 1px solid var(--rule);
+      font-size: 1rem;
+    }
+    .section h4 { margin: 20px 0 8px; font-size: .875rem; }
+    .operator-block { margin-top: 22px; }
+    .operator-block + .operator-block {
+      margin-top: 32px;
+      padding-top: 8px;
+      border-top: 1px solid var(--rule-light);
+    }
+    .sec-num { margin-right: 8px; }
+    .kpi-strip {
+      display: flex;
+      margin: 16px 0;
+      overflow: hidden;
+      border: 1px solid var(--rule-light);
+      border-radius: 4px;
+    }
+    .kpi-item {
+      flex: 1;
+      padding: 18px 10px;
+      border-right: 1px solid var(--rule-light);
+      text-align: center;
+    }
+    .kpi-item:last-child { border-right: 0; }
+    .kpi-value { color: var(--ink); font-size: 1.45rem; font-weight: 700; line-height: 1.2; }
+    .kpi-label {
+      margin-top: 5px;
+      color: var(--ink-light);
+      font-size: .6875rem;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+    }
+    .kpi-sub { margin-top: 2px; color: var(--ink-light); font-size: .625rem; }
+    .table-wrap { margin: 14px 0; overflow-x: auto; }
+    .table-wrap caption {
+      margin-bottom: 8px;
+      caption-side: top;
+      color: var(--ink-mid);
+      font-size: .75rem;
+      font-weight: 600;
+      text-align: center;
+    }
+    .table-wrap table { width: 100%; border-collapse: collapse; font-size: .75rem; }
+    .table-wrap thead th {
+      padding: 9px 8px;
+      border-top: 2px solid var(--ink);
+      border-bottom: 1.5px solid var(--ink);
+      background: var(--bg-paper);
+      color: var(--ink);
+      font-size: .65rem;
+      letter-spacing: .025em;
+      text-align: center;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .table-wrap tbody td {
+      padding: 8px;
+      border-bottom: 1px solid var(--rule-light);
+      color: var(--ink-mid);
+      text-align: center;
+      vertical-align: middle;
+    }
+    .table-wrap tbody tr:nth-child(even) { background: var(--bg-stripe); }
+    .table-wrap tbody tr:last-child { border-bottom: 1.5px solid var(--ink); }
+    .table-wrap .col-name { color: var(--ink); font-weight: 600; text-align: left; }
+    code { font-family: var(--font-mono); font-size: .6875rem; }
+    .number { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .strong { color: var(--ink) !important; font-weight: 700; }
+    .cell-sub { display: block; margin-top: 1px; color: var(--ink-light); font-size: .6rem; }
+    .score-cell { font-weight: 600; }
+    .score-high { color: var(--score-high) !important; }
+    .score-mid { color: var(--score-mid) !important; }
+    .score-low { color: var(--score-low) !important; }
+    .case-link { color: var(--accent); font-weight: 700; text-decoration: none; }
+    .case-link:hover { text-decoration: underline; }
+    .note { margin-top: 6px; color: var(--ink-light); font-size: .6875rem; font-style: italic; }
+    .callout {
+      margin: 12px 0;
+      padding: 12px 16px;
+      border: 1px solid var(--rule-light);
+      border-left: 3px solid var(--accent);
+      border-radius: 4px;
+      background: var(--bg-callout);
+      color: var(--ink-mid);
+      font-size: .75rem;
+    }
+    .callout.warning { border-left-color: var(--score-mid); }
+    .callout ul { margin: 5px 0 0 18px; }
+    .case-detail {
+      margin-bottom: 8px;
+      border: 1px solid var(--rule-light);
+      border-radius: 4px;
+      background: var(--bg-paper);
+    }
+    .case-detail[open] { border-left: 3px solid var(--accent); }
+    .case-detail summary {
+      display: grid;
+      grid-template-columns: minmax(100px, 160px) 90px 70px minmax(190px, 1fr) 90px 36px;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 14px;
+      color: var(--ink-mid);
+      cursor: pointer;
+      font-size: .75rem;
+      list-style-position: inside;
+    }
+    .case-detail summary strong { color: var(--ink); text-align: right; }
+    .case-detail summary::after { content: "展开"; color: var(--accent); font-size: .625rem; }
+    .case-detail[open] summary::after { content: "收起"; }
+    .case-index { color: var(--accent); font-weight: 700; }
+    .detail-grid { padding: 0 14px 14px; }
+    .detail-grid table { width: 100%; border-collapse: collapse; font-size: .6875rem; }
+    .detail-grid td { padding: 5px 7px; border-bottom: 1px solid var(--rule-light); }
+    .detail-grid .kv-k { width: 29%; color: var(--ink); font-weight: 600; }
+    .setup-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 14px;
+      align-items: start;
+    }
+    .setup-block {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--rule-light);
+      border-radius: 5px;
+      background: var(--bg-paper);
+    }
+    .setup-block h4 {
+      margin: 0;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--rule-light);
+      background: var(--bg-callout);
+      font-size: .6875rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .setup-block table {
+      width: 100%;
+      table-layout: fixed;
+      border-collapse: collapse;
+      font-size: .6875rem;
+    }
+    .setup-block td {
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--rule-light);
+      color: var(--ink-mid);
+      line-height: 1.45;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+    .setup-block tr:last-child td { border-bottom: 0; }
+    .setup-block .kv-k {
+      width: 36%;
+      color: var(--ink);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .empty { padding: 24px !important; color: var(--ink-light) !important; text-align: center; }
+    .footnote {
+      margin-top: 28px;
+      padding: 14px var(--pad-h);
+      border-top: 1px solid var(--rule);
+      color: var(--ink-light);
+      font-size: .625rem;
+      line-height: 1.8;
+    }
+    @media (max-width: 760px) {
+      :root { --pad-h: 20px; }
+      body { padding: 0; }
+      .kpi-strip { flex-wrap: wrap; }
+      .kpi-item { flex: 1 1 50%; }
+      .setup-grid { grid-template-columns: 1fr; }
+      .case-detail summary { grid-template-columns: 70px 1fr; }
+      .case-detail summary::after { display: none; }
+      .case-detail summary strong { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+<main class="report">
+  <div class="report-header">TILEOPS EVALUATION REPORT <span>· STRUCTURED NPU OPERATOR BENCHMARK</span></div>
+
+  <div class="title-area">
+    <h1>TileOPs 算子评测报告</h1>
+    <h2>Correctness-gated NPU Performance Evaluation</h2>
+    <div class="meta-line"><strong>{{OPERATOR}}</strong> · {{PERFORMANCE_CASES}} Workloads · Profiler: {{PROFILE_MODE}}</div>
+    <div class="meta-line">{{GENERATED_AT}} <span class="status {{STATUS_CLASS}}">{{STATUS}}</span></div>
+  </div>
+
+  <div class="abstract">
+    <h3>Abstract / 摘要</h3>
+    <p>{{ABSTRACT}}</p>
+  </div>
+
+  <section class="section">
+    <h3><span class="sec-num">1.</span> Experiment Setup / 评测配置</h3>
+    <div class="setup-grid">{{SETUP_BLOCKS}}</div>
+  </section>
+
+  <section class="section">
+    <h3><span class="sec-num">2.</span> Results Overview / 结果总览</h3>
+    <div class="kpi-strip">
+      <div class="kpi-item"><div class="kpi-value">{{PASS_RATE}}</div><div class="kpi-label">Pass Rate / 通过率</div><div class="kpi-sub">{{PASSED_CASES}} / {{TOTAL_CASES}} cases</div></div>
+      <div class="kpi-item"><div class="kpi-value">{{OPERATOR_COUNT}}</div><div class="kpi-label">Operators / 算子数</div><div class="kpi-sub">evaluated operators</div></div>
+      <div class="kpi-item"><div class="kpi-value">{{TOTAL_CASES}}</div><div class="kpi-label">Total Cases / 总用例</div><div class="kpi-sub">correctness cases</div></div>
+      <div class="kpi-item"><div class="kpi-value">{{FAILED_CASES}}</div><div class="kpi-label">Failed Cases / 失败用例</div><div class="kpi-sub">failure + error</div></div>
+    </div>
+  </section>
+
+  {{DIAGNOSTICS_SECTION}}
+
+  <section class="section">
+    <h3><span class="sec-num">3.</span> Operator Analysis / 算子分析</h3>
+    <div class="table-wrap">
+      <table>
+        <caption>Table 1. Results by operator</caption>
+        <thead><tr><th>#</th><th>Operator</th><th>Correctness</th><th>Avg Max Abs Error</th><th>Performance Shapes</th><th>Ratio Range</th></tr></thead>
+        <tbody>{{OPERATOR_ANALYSIS_ROWS}}</tbody>
+      </table>
+    </div>
+    <p class="note">Correctness 格式为通过率 (通过用例/总用例)；Avg Max Abs Error 来自正确性测试，数值越低越好；Ratio 展示各 shape 的最小值–最大值，不跨 shape 求平均。</p>
+  </section>
+
+  {{OPERATOR_DETAILS_SECTION}}
+
+  <div class="footnote">
+    <strong>Framework:</strong> TileOPs Reporting ·
+    <strong>Data Source:</strong> pytest JUnit, BenchmarkReport JSON, msprof artifacts ·
+    <strong>Canonical Record:</strong> run.json
+  </div>
+</main>
+</body>
+</html>

@@ -72,9 +72,17 @@ class LerpTensorFwdOp(Op):
             raise ValueError(
                 f"LerpTensorFwdOp does not support dtype {dtype}. Supported: [{names}]"
             )
-        self.input_shape = tuple(input)
-        self.end_shape = tuple(end)
-        self.weight_shape = tuple(weight)
+        # Keep constructor-name aliases so the msprof subprocess can
+        # reconstruct this Op through ``_extract_op_init_args``.  That
+        # helper matches ``__init__`` parameter names to instance
+        # attributes; the former shape-only names made it emit
+        # ``LerpTensorFwdOp(dtype=...)`` without the three required shapes.
+        self.input = tuple(input)
+        self.end = tuple(end)
+        self.weight = tuple(weight)
+        self.input_shape = self.input
+        self.end_shape = self.end
+        self.weight_shape = self.weight
         self.dtype = dtype
         self.output_dtype = dtype  # same_as(input)
         self.out_shape = tuple(

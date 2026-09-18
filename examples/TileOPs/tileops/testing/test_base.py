@@ -66,6 +66,27 @@ def get_check_result() -> _CheckResult:
     return _check_result
 
 
+def record_check_result(op, outputs: Any, outputs_ref: Any) -> float:
+    """Record operator identity and maximum absolute error for pytest reports."""
+    outputs = _to_tuple(outputs)
+    outputs_ref = _to_tuple(outputs_ref)
+    assert len(outputs) == len(outputs_ref), (
+        f"outputs: {len(outputs)} and outputs_ref: {len(outputs_ref)} have different size"
+    )
+
+    max_abs_err = 0.0
+    for output, output_ref in zip(outputs, outputs_ref, strict=True):
+        if output_ref is not None:
+            wide = torch.complex64 if output.is_complex() else torch.float32
+            err = (output.to(wide) - output_ref.to(wide)).abs().max().item()
+            max_abs_err = max(max_abs_err, err)
+
+    _check_result.op_name = op.__class__.__name__
+    _check_result.op_module = op.__class__.__module__
+    _check_result.max_abs_err = max_abs_err
+    return max_abs_err
+
+
 class TestBase(WorkloadBase):
     """Abstract base class for op correctness testing.
 
@@ -108,20 +129,7 @@ class TestBase(WorkloadBase):
 
         outputs = _to_tuple(outputs)
 
-        assert len(outputs) == len(outputs_ref), (
-            f"outputs: {len(outputs)} and outputs_ref: {len(outputs_ref)} have different size"
-        )
-
-        max_abs_err = 0.0
-        for output, output_ref in zip(outputs, outputs_ref, strict=True):
-            if output_ref is not None:
-                wide = torch.complex64 if output.is_complex() else torch.float32
-                err = (output.to(wide) - output_ref.to(wide)).abs().max().item()
-                max_abs_err = max(max_abs_err, err)
-
-        _check_result.op_name = op_name
-        _check_result.op_module = op_module
-        _check_result.max_abs_err = max_abs_err
+        max_abs_err = record_check_result(op, outputs, outputs_ref)
 
         comparators = [compare] * len(outputs) if callable(compare) else list(compare)
         for output, output_ref, cmp in zip(outputs, outputs_ref, comparators, strict=True):

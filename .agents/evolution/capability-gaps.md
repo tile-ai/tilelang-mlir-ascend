@@ -366,6 +366,50 @@ created_by: multi_head_attention/_gqa_prefill_fwd_kernel 第六轮 Stage 4（dis
 last_seen: multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z 第六轮 Stage 4（2026-09-16）
 ```
 
+### CG-2026-0010
+
+```yaml
+gap_id: CG-2026-0010
+layer: Frontend API（TILELANG_ASCEND_MODE 作用域）
+capability: >-
+  编程模式（Expert / Developer）只能经进程级环境变量 TILELANG_ASCEND_MODE 设置，
+  无 per-kernel / per-jit 作用域参数：三处实时读 os.environ——
+  tilelang/language/customize_npuir.py:886（前端 trace，Scope/alloc 形态分派）、
+  tilelang/engine/lower.py:170（device_codegen）、tilelang/jit/jit_npu.py:1789
+  （--disable-hivm-tensor-compile 旗标）。docs/developer/EnvironmentVariables.md L31
+  仅登记环境变量一种设置方式，docs/Tilelang.language/ 无 per-kernel 模式 API
+  （全文无 ASCEND_MODE 条目）。后果：同一进程混编两种模式的 kernel 套件时，
+  后编译者被先入者锁定的模式污染。
+blocked_algo: >-
+  单 pytest 进程跑混合模式算子套件（TileOPs tests/ops/：mha=Expert 两相位
+  Cube/Vector 结构 vs ada_layer_norm/mish/logsumexp=Developer 向量链）——Developer
+  赢则 Expert kernel 报 'hivm.hir.store' op only support copy gm to ub or copy ub
+  to gm or copy ub to ub（mha full-fwd-bf16 变体更在 lower.py:180 device_codegen
+  原生段错误）；Expert 赢则 Developer kernel 报同类 store 约束错（44 case 失败）。
+evidence:
+  - 复现（tilelang 0.1.2+1990aa9 / CANN 8.5.0 / Ascend910B2C，2026-09-18）：
+    TILELANG_ASCEND_MODE=Developer pytest tests/ops/ → mha 失败+段错误（core dump）；
+    TILELANG_ASCEND_MODE=Expert pytest tests/ops/ → 44 failed / 22 passed
+    （ada/mish/logsumexp 全挂，mha 过）；不设环境变量 → import 顺序决定胜负
+    （pytest 参数形式〔目录 vs 整文件 vs node ID〕改变 import 顺序，两次同参运行
+    结果可反转——ada 先 import 则 mha 挂，mha 先 import 则 ada/mish 挂）。
+  - tileops 侧 import 竞争现场：kernel 模块级 os.environ.setdefault
+    （_gqa_prefill_fwd_kernel.py:92/126=Expert；_ada_layer_norm_kernel.py:86/130、
+    mish perf_opt/mish.py:57、logsumexp×2=Developer），setdefault=先 import 者赢。
+  - 源码三读取点（上文 layer 字段）；docs/developer/EnvironmentVariables.md L31。
+workaround: >-
+  tileops 级：kernel 模块 import 时 setdefault（现状，单算子进程正确、混合进程
+  按 import 顺序随机胜负）；或每次 compile 前后显式 set/restore 环境变量（待实施，
+  代价 = 每个 kernel 工厂包一层 env 作用域）。测试级绕法：按模式拆分 pytest 调用。
+  根治需 tilelang 提供 per-kernel 模式参数（如 tilelang.jit(..., mode="Expert")）。
+occurrences: 1
+tasks: [tileops-tests-ops-mode-battle-20260918]
+toolchain_stamp: tilelang 0.1.2+1990aa9(452f447 build) / CANN 8.5.0 / Ascend910B2C / 2026-09-18
+status: open
+created_by: tileops tests/ops/ 混合模式失败排查（conductor 会话），2026-09-18
+last_seen: tileops-tests-ops-mode-battle-20260918（2026-09-18）
+```
+
 ### CG-2026-0008 → 已升级 recurring，条目移入下方 Recurring 区（2026-09-15 occurrences 2）
 
 ---

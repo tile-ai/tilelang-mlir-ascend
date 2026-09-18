@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional
 
 import torch
 
+from tileops.utils import scoped_ascend_mode
+
 
 class Kernel(ABC):
     """Abstract base class for TileLang-based operator kernels.
@@ -31,6 +33,12 @@ class Kernel(ABC):
     config: Dict[str, Any]
     supported_archs: Optional[list] = None
     kernel: Optional[Any] = None
+    # npuir programming mode this kernel's source form requires
+    # ("Expert" / "Developer"; None = defer to the ambient env).  Every
+    # invocation is scoped to this mode (see __call__), fixing the
+    # process-global TILELANG_ASCEND_MODE battle between Expert and
+    # Developer kernels sharing one pytest process (CG-2026-0010).
+    ascend_mode: Optional[str] = None
     # Optional explicit msprof kernel-name override: the tilelang
     # ``@T.prim_func`` function name of the device kernel.  Empty string
     # (the default) means "not declared": the benchmark framework derives
@@ -76,4 +84,11 @@ class Kernel(ABC):
         raise NotImplementedError
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return self.forward(*args, **kwargs)
+        if self.ascend_mode is None:
+            return self.forward(*args, **kwargs)
+        # Scope TILELANG_ASCEND_MODE around forward: the jitted kernel's
+        # first invocation (trace + lower + bishengir cmd, the three env
+        # read points) happens inside, so this kernel always compiles
+        # under its own mode regardless of import order (CG-2026-0010).
+        with scoped_ascend_mode(self.ascend_mode):
+            return self.forward(*args, **kwargs)

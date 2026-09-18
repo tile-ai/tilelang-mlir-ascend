@@ -14,7 +14,7 @@ Workflow:
 
   3. Parse ``OpBasicInfo*.csv`` in the output directory to extract
      ``Task Duration(us)``.
-  4. Return the median latency in **milliseconds**.
+  4. Return the median latency across measured launches in **milliseconds**.
 
 Configuration (environment variables):
   TILEOPS_PROF_MODE           — "msprof" (default) or "events"
@@ -33,6 +33,7 @@ from __future__ import annotations
 import csv
 import glob
 import inspect
+import json
 import logging
 import os
 import re
@@ -247,8 +248,8 @@ def _generate_callable_script(
 # ---------------------------------------------------------------------------
 
 
-def _parse_op_basic_info(output_dir: str) -> tuple[list[float], str]:
-    """Parse all ``OpBasicInfo*.csv`` files and return ``(durations_us, op_name)``.
+def _parse_op_basic_info(output_dir: str) -> tuple[list[float], str, list[str]]:
+    """Return durations, the first op name, and all captured op names.
 
     The msprof output directory has the structure::
 
@@ -273,6 +274,7 @@ def _parse_op_basic_info(output_dir: str) -> tuple[list[float], str]:
 
     durations: list[float] = []
     op_name = ""
+    op_names: set[str] = set()
     for csv_path in csv_files:
         with open(csv_path, "r", newline="") as f:
             reader = csv.DictReader(f)
@@ -287,17 +289,19 @@ def _parse_op_basic_info(output_dir: str) -> tuple[list[float], str]:
                             csv_path,
                             val,
                         )
-                if not op_name:
-                    name_val = row.get("Op Name", "")
-                    if name_val and name_val.strip():
-                        op_name = name_val.strip()
+                name_val = row.get("Op Name", "")
+                if name_val and name_val.strip():
+                    captured_name = name_val.strip()
+                    op_names.add(captured_name)
+                    if not op_name:
+                        op_name = captured_name
 
     if not durations:
         raise ValueError(
             f"No Task Duration(us) values found in OpBasicInfo CSVs under {output_dir}"
         )
 
-    return durations, op_name
+    return durations, op_name, sorted(op_names)
 
 
 # ---------------------------------------------------------------------------
@@ -461,7 +465,8 @@ def bench_kernel_msprof(
 
     Returns:
         ``(latency_ms, prof_output_dir)`` where *latency_ms* is the median
-        kernel latency in milliseconds and *prof_output_dir* is the path
+        kernel latency across measured launches in milliseconds and
+        *prof_output_dir* is the path
         to the msprof output directory (containing ``OPPROF_*`` subdirs).
         On success the temp workspace is kept so the caller can parse
         ``visualize_data.bin``; the caller is responsible for cleanup via
@@ -527,6 +532,8 @@ def bench_kernel_msprof(
     # --- Create temp workspace --------------------------------------------
     tmp_dir = tempfile.mkdtemp(prefix="tileops_msprof_")
     _success = False
+    user_output = None
+    copied_to_persistent = False
     try:
         inputs_path = os.path.join(tmp_dir, "inputs.pt")
         script_path = os.path.join(tmp_dir, "prof_script.py")
@@ -580,6 +587,7 @@ def bench_kernel_msprof(
         # --- Run msprof (with retry if --kernel-name yields no CSV) -------
         durations_us: list[float] = []
         op_name = ""
+        captured_op_names: list[str] = []
         tried_kernel_names: list[Optional[str]] = []
 
         # Build the list of kernel-name candidates to try:
@@ -632,7 +640,7 @@ def bench_kernel_msprof(
                 continue
 
             try:
-                durations_us, op_name = _parse_op_basic_info(prof_output_dir)
+                durations_us, op_name, captured_op_names = _parse_op_basic_info(prof_output_dir)
             except (FileNotFoundError, ValueError) as e:
                 _logger.warning(
                     "No OpBasicInfo CSV found with --kernel-name=%s: %s",
@@ -671,21 +679,48 @@ def bench_kernel_msprof(
 
         # --- Optionally persist output -----------------------------------
         if (keep_output or os.environ.get("TILEOPS_MSPROF_KEEP_OUTPUT") == "1") and not user_output:
-            persistent = os.path.join(cwd, "msprof_output")
-            if os.path.exists(persistent):
-                shutil.rmtree(persistent)
+            artifact_root = os.environ.get(
+                "TILEOPS_MSPROF_ARTIFACT_ROOT", os.path.join(cwd, "msprof_output")
+            )
+            os.makedirs(artifact_root, exist_ok=True)
+            artifact_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", op_name or kernel_name or "kernel")
+            persistent = tempfile.mkdtemp(prefix=f"{artifact_name}_", dir=artifact_root)
             try:
-                shutil.copytree(prof_output_dir, persistent)
+                shutil.copytree(prof_output_dir, persistent, dirs_exist_ok=True)
                 _logger.info("msprof output copied to %s", persistent)
+                prof_output_dir = persistent
+                copied_to_persistent = True
             except Exception as e:
                 _logger.warning("Failed to copy msprof output: %s", e)
+
+        metadata_path = os.path.join(prof_output_dir, "tileops_msprof_metadata.json")
+        try:
+            with open(metadata_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "kernel_name_requested": kernel_name,
+                        "kernel_name_resolved": kn,
+                        "kernel_name_attempts": tried_kernel_names,
+                        "op_name": op_name or None,
+                        "captured_op_names": captured_op_names,
+                        "captured_op_count": len(captured_op_names),
+                        "sample_count": len(durations_us),
+                        "latency_us": median_us,
+                        "min_latency_us": durations_us[0],
+                        "max_latency_us": durations_us[-1],
+                    },
+                    f,
+                    indent=2,
+                )
+        except OSError as e:
+            _logger.warning("Failed to write msprof metadata: %s", e)
 
         _success = True
         return latency_ms, prof_output_dir
 
     finally:
         should_keep = keep_output or os.environ.get("TILEOPS_MSPROF_KEEP_OUTPUT") == "1"
-        if not should_keep and not _success:
+        if user_output or copied_to_persistent or not should_keep and not _success:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         elif not should_keep:
             _logger.debug(

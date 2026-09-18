@@ -167,6 +167,11 @@ class GQAPrefillFwdKernel(Kernel):
     # K5: [80, 89, 90] (CUDA SM) -> None (all architectures).
     supported_archs: Optional[list] = None
 
+    # Two-phase Cube/Vector Expert-form kernel (Scope/alloc_L1/L0C/ub,
+    # sync_block_set/wait): every invocation is scoped to Expert mode
+    # regardless of ambient TILELANG_ASCEND_MODE (CG-2026-0010).
+    ascend_mode = "Expert"
+
     def __init__(
         self,
         batch: int,

@@ -3,9 +3,8 @@
 Adapted from TileOPs ``benchmarks/ops/attention/bench_mha.py`` -- forward
 subset only.  The GPU bench file is shared with ``MultiHeadAttentionBwdOp``
 (not migrated yet), so the backward bench function and its imports are
-intentionally not ported.  The GPU file's FA3 (``flash_attn_interface``)
-and FlashInfer baselines are CUDA-only libraries and are not ported; the
-torch SDPA baseline is kept.
+intentionally not ported.  Performance benchmarks profile only the TileOps
+kernel; PyTorch remains the correctness reference in ``tests/ops``.
 
 MultiHeadAttentionFwdOp is a 3-input op (q, k, v), so the single-input
 ``workloads_to_params`` contract does not apply; the GPU
@@ -22,7 +21,6 @@ Adaptations (T3-T4):
 
 import pytest
 import torch
-from torch.nn import functional as F
 
 from tileops.benchmark.benchmark_base import BenchmarkReport, ManifestBenchmark
 from tileops.manifest import load_workloads
@@ -59,18 +57,6 @@ def _manifest_params(workloads: list[dict]) -> list:
     return params
 
 
-def _torch_mha_fwd(test: MhaFwdWorkload):
-    """Torch SDPA forward baseline (GPU FA3 / FlashInfer baselines not ported)."""
-
-    def fn(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
-        out = F.scaled_dot_product_attention(
-            q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), is_causal=test.is_causal
-        )
-        return out.transpose(1, 2)
-
-    return fn
-
-
 _MHA_FWD_BENCH_PARAMS = _manifest_params(load_workloads(_MHA_FWD_OP))
 
 
@@ -85,9 +71,6 @@ def test_mha_fwd_bench(
     bm = ManifestBenchmark(_MHA_FWD_OP, op, test)
     result = bm.profile(op, *inputs)
     BenchmarkReport.record(op, locals(), result, tag="tileops")
-
-    result_bl = bm.profile(_torch_mha_fwd(test), *inputs)
-    BenchmarkReport.record(op, locals(), result_bl, tag="torch-sdpa")
 
 
 if __name__ == "__main__":

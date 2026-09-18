@@ -9,6 +9,9 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.scripts]
+tileops-report = "tileops.reporting.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
@@ -25,7 +28,7 @@ where = ["."]
 include = ["tileops*"]
 
 [tool.setuptools.package-data]
-tileops = ["manifest/*.yaml"]
+tileops = ["manifest/*.yaml", "reporting/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "benchmarks"]

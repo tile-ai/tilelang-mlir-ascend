@@ -29,12 +29,15 @@ Adaptation from GPU (TileOPs) to NPU:
 from __future__ import annotations
 
 import glob
+import hashlib
+import json
 import logging
 import os
 import shutil
 import threading
 from abc import ABC, abstractmethod
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Generic, Optional, TypeVar
 
 import pytest
@@ -92,6 +95,11 @@ def profile_run_log_path(prof_mode: Optional[str] = None) -> str:
         stamp = _profile_log_stamp
     mode = (prof_mode or os.environ.get("TILEOPS_PROF_MODE", "msprof")).lower().strip()
     return f"profile_run_{mode}_{stamp}.log"
+
+
+def profile_run_json_path(prof_mode: Optional[str] = None) -> str:
+    """Return the JSON companion path for :func:`profile_run_log_path`."""
+    return str(Path(profile_run_log_path(prof_mode)).with_suffix(".json"))
 
 
 def _workload_contract(op_name: str) -> tuple[str, frozenset[str]]:
@@ -279,6 +287,18 @@ class BenchmarkBase(Generic[W], ABC):
             result = self._build_result(
                 latency, prof_mode=prof_mode, prof_output_dir=prof_output_dir
             )
+            if prof_output_dir and (
+                os.environ.get("TILEOPS_MSPROF_KEEP_OUTPUT") == "1"
+                or os.environ.get("TILEOPS_MSPROF_OUTPUT_DIR")
+            ):
+                result["artifact_dir"] = os.path.abspath(prof_output_dir)
+                metadata_path = os.path.join(prof_output_dir, "tileops_msprof_metadata.json")
+                if os.path.isfile(metadata_path):
+                    try:
+                        with open(metadata_path, encoding="utf-8") as f:
+                            result["msprof"] = json.load(f)
+                    except (OSError, json.JSONDecodeError) as e:
+                        _logger.warning("Failed to read msprof metadata: %s", e)
         finally:
             _cleanup_msprof_output(prof_output_dir)
         result["prof_mode"] = prof_mode
@@ -563,6 +583,66 @@ class BenchmarkReport:
     _prof_mode: str = "msprof"
 
     @staticmethod
+    def _json_safe(value: Any) -> Any:
+        """Convert benchmark values to stable JSON-compatible objects."""
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+        if isinstance(value, torch.dtype):
+            return str(value).removeprefix("torch.")
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, dict):
+            return {
+                str(k): BenchmarkReport._json_safe(v)
+                for k, v in sorted(value.items(), key=lambda item: str(item[0]))
+            }
+        if isinstance(value, (list, tuple)):
+            return [BenchmarkReport._json_safe(v) for v in value]
+        return str(value)
+
+    @staticmethod
+    def _case_id(name: str, params: dict) -> str:
+        """Build a deterministic identifier from the serializable case parameters."""
+        explicit = params.get("case_id")
+        if explicit:
+            return str(explicit)
+        payload = json.dumps(
+            BenchmarkReport._json_safe(params),
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+        return f"{name}-{digest}"
+
+    @staticmethod
+    def _case_label(params: dict[str, Any]) -> str:
+        """Return the human-readable pytest/workload label for a benchmark case."""
+        explicit = params.get("label")
+        if explicit not in (None, ""):
+            return str(explicit)
+
+        current_test = os.environ.get("PYTEST_CURRENT_TEST", "")
+        nodeid = current_test.rsplit(" (", 1)[0]
+        left = nodeid.rfind("[")
+        if left >= 0 and nodeid.endswith("]"):
+            param_id = nodeid[left + 1 : -1]
+            dtype = params.get("dtype")
+            if dtype not in (None, ""):
+                suffix = f"-{str(dtype).removeprefix('torch.')}"
+                if param_id.endswith(suffix):
+                    param_id = param_id[: -len(suffix)]
+            if param_id:
+                return param_id
+
+        for key, value in params.items():
+            if key == "shape" or key.endswith("_shape"):
+                if isinstance(value, (list, tuple)):
+                    return "x".join(str(dim) for dim in value)
+                return str(value)
+        return "N/A"
+
+    @staticmethod
     def set_prof_mode(mode: str) -> None:
         BenchmarkReport._prof_mode = mode
 
@@ -578,26 +658,33 @@ class BenchmarkReport:
             op_config = _extract_op_config(op_or_name)
 
         def _is_serializable(v: Any) -> bool:
-            if isinstance(v, (int, float, bool, str, torch.dtype)):
+            if v is None or isinstance(v, (int, float, bool, str, torch.dtype)):
                 return True
-            if isinstance(v, tuple):
+            if isinstance(v, (list, tuple)):
                 return all(_is_serializable(x) for x in v)
+            if isinstance(v, dict):
+                return all(isinstance(k, str) and _is_serializable(x) for k, x in v.items())
             return False
 
         filtered_params = {
             k: v
             for k, v in params.items()
-            if k not in ("test", "bm", "op", "inputs", "result", "result_bl", "baseline_fn")
+            if k not in ("test", "bm", "op", "inputs", "result")
             and not k.startswith("_")
             and _is_serializable(v)
         }
+        filtered_params = BenchmarkReport._json_safe(filtered_params)
+        label = BenchmarkReport._case_label(filtered_params)
+        filtered_params.pop("label", None)
         record_entry = {
+            "case_id": BenchmarkReport._case_id(name, filtered_params),
+            "label": label,
             "params": filtered_params,
-            "result": result,
+            "result": BenchmarkReport._json_safe(result),
             "tag": tag,
         }
         if op_config:
-            record_entry["config"] = op_config
+            record_entry["config"] = BenchmarkReport._json_safe(op_config)
         BenchmarkReport._records.setdefault(name, []).append(record_entry)
 
         if not hasattr(_bench_results, "entries"):
@@ -622,7 +709,12 @@ class BenchmarkReport:
             return
 
         if path is None:
+            path = os.environ.get("TILEOPS_BENCHMARK_REPORT_PATH")
+        if path is None:
             path = profile_run_log_path(BenchmarkReport._prof_mode)
+
+        path_obj = Path(path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
 
         backend = get_device_backend()
         lines = [
@@ -637,9 +729,14 @@ class BenchmarkReport:
         lines.append("")
 
         if BenchmarkReport._prof_mode == "msprof":
-            default_result_keys = ["latency_us"]
+            default_result_keys = ["latency_us", "Ratio(%)"]
         else:
-            default_result_keys = ["latency_us", "tflops", "bandwidth_tbs"]
+            default_result_keys = [
+                "latency_us",
+                "Ratio(%)",
+                "tflops",
+                "bandwidth_tbs",
+            ]
 
         for name, entries in BenchmarkReport._records.items():
             if not entries:
@@ -656,6 +753,10 @@ class BenchmarkReport:
                 for key in entry["result"]:
                     if key not in result_keys:
                         result_keys.append(key)
+            for key in reversed(("latency_us", "Ratio(%)")):
+                if key in result_keys:
+                    result_keys.remove(key)
+                    result_keys.insert(0, key)
 
             for tag, tag_group in tag_entries.items():
                 lines.append(f"### {tag}")
@@ -668,15 +769,21 @@ class BenchmarkReport:
                         param_keys.remove(k)
                         trailing_keys.append(k)
                 has_config = any("config" in e for e in tag_group)
-                header_parts = param_keys + result_keys
+                result_headers = {
+                    "latency_us": "Latency (us)",
+                    "Ratio(%)": "Ratio (%)",
+                }
+                header_parts = (
+                    ["Label"] + [result_headers.get(key, key) for key in result_keys] + param_keys
+                )
                 if has_config:
                     header_parts.append("config")
                 header_parts.extend(trailing_keys)
                 lines.append("| " + " | ".join(header_parts) + " |")
-                # lines.append("| " + " | ".join(["---"] * len(header_parts)) + " |")
+                lines.append("| " + " | ".join(["---"] * len(header_parts)) + " |")
 
                 for entry in tag_group:
-                    row = [str(entry["params"].get(k, "")) for k in param_keys]
+                    row = [str(entry.get("label") or "N/A")]
                     for rk in result_keys:
                         val = entry["result"].get(rk)
                         if val is None:
@@ -685,6 +792,7 @@ class BenchmarkReport:
                             row.append(f"{val:.4f}")
                         else:
                             row.append(str(val))
+                    row.extend(str(entry["params"].get(k, "")) for k in param_keys)
                     if has_config:
                         cfg = entry.get("config")
                         row.append(str(cfg) if cfg else "")
@@ -694,10 +802,40 @@ class BenchmarkReport:
 
                 lines.append("")
 
-        with open(path, "w") as f:
+        with path_obj.open("w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 
-        print(f"\nBenchmark report saved to {path}")
+        json_path = path_obj.with_suffix(".json")
+        BenchmarkReport.dump_json(str(json_path))
+        print(f"\nBenchmark report saved to {path_obj}")
+        print(f"Structured benchmark report saved to {json_path}")
+
+    @staticmethod
+    def to_dict() -> dict[str, Any]:
+        """Return all collected benchmark records in a stable interchange format."""
+        backend = get_device_backend()
+        records = []
+        for operator, entries in BenchmarkReport._records.items():
+            for entry in entries:
+                records.append({"operator": operator, **BenchmarkReport._json_safe(entry)})
+        return {
+            "schema_version": 1,
+            "generated_at": datetime.now().astimezone().isoformat(),
+            "profiling_mode_requested": BenchmarkReport._prof_mode,
+            "environment": backend.env_metadata(),
+            "records": records,
+        }
+
+    @staticmethod
+    def dump_json(path: Optional[str] = None) -> Optional[Path]:
+        """Write the structured benchmark records and return the output path."""
+        if not BenchmarkReport._records:
+            return None
+        output = Path(path or profile_run_json_path(BenchmarkReport._prof_mode))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with output.open("w", encoding="utf-8") as f:
+            json.dump(BenchmarkReport.to_dict(), f, indent=2, ensure_ascii=False)
+        return output
 
     @staticmethod
     def clear() -> None:

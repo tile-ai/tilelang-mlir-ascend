@@ -122,6 +122,10 @@ class MishFwdKernel(Kernel):
     # K5: [80, 86, 89, 90] (CUDA SM) -> None (all architectures).
     supported_archs: Optional[list] = None
 
+    # Developer-form vector kernel; invocations are scoped to Developer
+    # mode regardless of ambient TILELANG_ASCEND_MODE (CG-2026-0010).
+    ascend_mode = "Developer"
+
     # Float-only dtypes (inherited from GPU FloatUnaryKernel).
     SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 

@@ -29,7 +29,7 @@ def vec_atomic_add_1d(N, block_size, dtype="float32"):
             tail_size = T.min(block_size, t0)
             T.copy(A[start : start + tail_size], A_VEC[0:tail_size])
     
-            T.npuir_atomic_add(A_VEC, B[start], [tail_size])
+            T.npuir_atomic_add(B[start], A_VEC, [tail_size])  # args match wrapper signature: npuir_atomic_add(dst, src, size)
 
     return vecAtomicAdd1D
 

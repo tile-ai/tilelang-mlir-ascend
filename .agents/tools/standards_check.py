@@ -152,7 +152,7 @@ FINGERPRINTS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     ),
     "SC-DUP-PERFRECORDS": (
         f"{_STD}/signal-registry.md",
-        "{round, candidate_id, parent_id, dispatch_path, workload, duration_us, l0_pass, msprof_raw_path, timestamp}",
+        "{round, candidate_id, parent_id, kernel_id, workload_id, phase, artifact_path, artifact_sha256, duration_us, l0_pass, msprof_raw_path, timestamp}",
         (f"{_STD}/signal-registry.md",),
     ),
 }

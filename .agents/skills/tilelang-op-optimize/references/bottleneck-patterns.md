@@ -245,7 +245,7 @@
 
 - pass 数、UB 字节数或 buffer 数下降。
 - `Task Duration` 改善。
-- 精度不退化，必测 dispatch 不回退。
+- 精度不退化，当前 kernel 的全部非 smoke benchmark workload 无可信性能回退，smoke 精度通过。
 
 ## BP_pipeline_overlap：搬运和计算未重叠
 
@@ -364,7 +364,7 @@
 触发信号：
 
 - 已经确定结构方向，但 `block_size / num_cores / tile / stage` 多个配置都合理。
-- 不同 dtype 或 dispatch path 的最优参数可能不同。
+- 同一 kernel 内不同 shape/dtype workload 的最优参数可能不同。
 - 手动推理无法可靠选择 winner。
 
 常见反证/不确定点：

@@ -50,23 +50,17 @@
 
 ## 5. `perf_opt/perf_records.jsonl` 字段契约（append-only）
 
-每轮每个实验分支验证后追加一行 JSON（与 `.task_timeline.jsonl` 同纪律，只追加不改写不删行）：
+从迁移后 benchmark 展开全部案例，先写 `perf_opt/workload_inventory.json`，再逐测量向 `perf_opt/perf_records.jsonl` 追加一行（只追加不改写不删行）。
 
-`{round, candidate_id, parent_id, dispatch_path, workload, duration_us, l0_pass, msprof_raw_path, timestamp}`
+`workload_inventory.json`：`{"workloads": [...]}`。每项至少含 `benchmark_source`（非 TileOPs 独立算子的显式性能目标记 `explicit_target`）、`kernel_id`（可唯一定位实现文件与函数）、`workload_id`、`label`、`marks`（pytest 标记名数组）、`shape`（单输入可为列表，多输入可为按输入名组织的对象）、`dtype`、`params`、`kind`（`tune` / `smoke` / `skipped`）和 `reason`；同一 `(kernel_id, workload_id)` 不重复。`tune` 项在调优后须写 `tuning_status`：`winner_merged` / `no_gain` / `merge_blocked`，分别表示 winner 已核内合并、完整迭代无有效增益、或找到局部 winner 但未能安全合并；后两种状态须在 `reason` 说明原因，未处理或预算中断的 workload 不得伪装成已完成。`smoke` 项在最终及每次合并后只做精度回归，最终设置 `precision_pass: true/false`；`skipped` 项保留 benchmark skip 原因。若显式 `full` 标记与独立 smoke ID/label 冲突，按 smoke 排除性能调优并在 `reason` 留痕。不得仅凭 shape 或参数化顺序判定 smoke。
 
-| 字段 | 类型 | 语义 |
-|------|------|------|
-| `round` | int | 调优轮次（baseline 记 0） |
-| `candidate_id` | str | 候选标识（如 `baseline` / `v2_c轴重排`） |
-| `parent_id` | str \| null | 派生来源候选（baseline 为 null） |
-| `dispatch_path` | str | 目标 kernel 的 dispatch 路径 |
-| `workload` | str | 代表 workload 标识 |
-| `duration_us` | number | `msprof op Task Duration(us)`（唯一 kernel 时延口径） |
-| `l0_pass` | bool | 该分支 L0 精度回归是否通过 |
-| `msprof_raw_path` | str | raw profile 路径（如 `perf_opt/profiles/round2/`） |
-| `timestamp` | str | ISO 8601 UTC |
+`perf_records.jsonl` 每行字段：
 
-机械校验（gate 4 规则 `S4-PERF-RECORDS-*` / `S4-OPTLOG-COMPTABLE`，文件存在时执行）：① 每行必含全部必需字段且类型正确（`S4-PERF-RECORDS-SCHEMA`）；② `opt_log.md` 每轮须含「候选 vs current best」对比表——Task Duration(us)、AICore 利用率、memory 指标、L0 结果，数据取自本文件（`S4-OPTLOG-COMPTABLE`，B2 结构化回流）；③ Final Summary 须含 `final_latency: {N} us` 行且与记录中某 `duration_us` 偏差 ≤ 1%（`S4-PERF-RECORDS-RECON`，winner 对账——把最终加速比从自述变为可对账）。文件不存在 → 仅告警不阻塞（旧流程兼容）。
+`{round, candidate_id, parent_id, kernel_id, workload_id, phase, artifact_path, artifact_sha256, duration_us, l0_pass, msprof_raw_path, timestamp}`
+
+`phase` 为 `baseline` / `candidate` / `merged` / `final`。`artifact_path` 指向实际测量的候选 kernel 文件，`artifact_sha256` 是采集时该文件的 SHA256；final 记录的路径和哈希须与最终 `perf_opt/{op}.py` 一致。只有 inventory 中 `kind=tune` 的项可以有性能记录；每项必须有有效 baseline 和 final 记录。对同一个 `kernel_id`，全部 final 记录须使用同一个 `candidate_id`，且在最终文件上重新测得；合并时与上一已合并版本逐 workload 比较，最终再与 baseline 比较。Final Summary 须有 `Final Performance Test Data` 表，逐项列 `kernel_id | workload_id | baseline_us | final_us | final_candidate_id`，不得拼接各实验分支的最好成绩。`msprof op Task Duration(us)` 是唯一时延口径。无 tune 项的 kernel 可记录 `no_tunable_workload`，不生成虚假性能数据。
+
+机械校验（gate 4）：依据 inventory 核对分类与覆盖，逐 tune workload 校验 baseline/final、同一 kernel 的 final candidate 一致、Final Performance Test Data 逐项时延与 JSONL 偏差 ≤1%；smoke 仅核对 `precision_pass`，skip 核对 reason，二者不得有性能记录；迭代日志仍须含「候选 vs current best」对比表。
 
 ## 6. 关键术语的执行定义
 

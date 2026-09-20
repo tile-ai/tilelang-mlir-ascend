@@ -48,7 +48,7 @@
 
 重点检查：
 
-- 性能采集是否覆盖了必测 dispatch。
+- 性能采集是否覆盖 benchmark 的全部非 smoke、可运行 workload，并记录 smoke/skip 排除原因。
 - profile 口径是否清楚，是否误采到框架小算子。
 - `Task Duration` 复测是否稳定；候选差异落入噪声阈值时是否先解决测量分辨力再排序。
 - 当前现象分析是否足够解释候选优化点。

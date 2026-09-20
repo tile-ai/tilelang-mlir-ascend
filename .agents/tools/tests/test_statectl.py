@@ -23,6 +23,7 @@ conductor would call it. Fixtures build a hermetic fake repo per test.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -286,12 +287,11 @@ baseline msprof 记录（round 0，见 perf_records.jsonl）。
 | 候选 | Task Duration(us) | AICore 利用率 | Memory 指标 | L0 |
 |---|---|---|---|---|
 | current best (baseline) | 120.5 | 41% | 78% | pass |
-| v2_c轴重排 | 100.0 | 67% | 80% | pass |
+| round1_candidate1 | 100.0 | 67% | 80% | pass |
 
 ## Final Summary
 
-best: v2_c轴重排
-final_latency: 100.0 us
+best: merged-best
 总提升: 17.0%
 中止原因: plateau
 
@@ -299,17 +299,6 @@ final_latency: 100.0 us
 
 none
 """
-
-PERF_RECORDS_JSONL = (
-    '{"round": 0, "candidate_id": "baseline", "parent_id": null, '
-    '"dispatch_path": "t_kernel::main", "workload": "w1", "duration_us": 120.5, '
-    '"l0_pass": true, "msprof_raw_path": "perf_opt/profiles/baseline/", '
-    '"timestamp": "2026-09-06T00:00:00Z"}\n'
-    '{"round": 1, "candidate_id": "v2", "parent_id": "baseline", '
-    '"dispatch_path": "t_kernel::main", "workload": "w1", "duration_us": 100.0, '
-    '"l0_pass": true, "msprof_raw_path": "perf_opt/profiles/round1/", '
-    '"timestamp": "2026-09-06T00:01:00Z"}\n'
-)
 
 PERF_FEEDBACK_MD = """# 性能反馈（[DESIGN_LIMIT]）
 
@@ -384,6 +373,12 @@ def write_artifacts(d: Path, design=True, review=True, kernel=True):
         (d / "t.py").write_text(KERNEL_PY, encoding="utf-8")
 
 
+def write_empty_workload_inventory(d: Path):
+    (d / "perf_opt" / "workload_inventory.json").write_text(
+        json.dumps({"workloads": []}), encoding="utf-8"
+    )
+
+
 def init_new_op(d: Path, **kw):
     return sc(
         "init",
@@ -418,6 +413,7 @@ def happy_path(d: Path, with_stage4: bool = False):
         (d / "perf_opt").mkdir(exist_ok=True)
         (d / "perf_opt" / "t.py").write_text(KERNEL_PY, encoding="utf-8")
         (d / "perf_opt" / "opt_log.md").write_text(OPT_LOG_MD, encoding="utf-8")
+        write_empty_workload_inventory(d)
         rc, _ = sc("set", "--dir", str(d), "--perf-tuning", "yes")
         assert rc == 0
         rc, _ = sc("start", "4", "--dir", str(d), "--extend")
@@ -972,6 +968,7 @@ def test_gate4_requires_perf_and_optlog(tmp_path):
     (d / "perf_opt").mkdir()
     (d / "perf_opt" / "t.py").write_text(KERNEL_PY, encoding="utf-8")
     (d / "perf_opt" / "opt_log.md").write_text(OPT_LOG_MD, encoding="utf-8")
+    write_empty_workload_inventory(d)
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 0, out["failures"]
 
@@ -1134,6 +1131,7 @@ def test_extend_stage4_after_done(tmp_path):
     (d / "perf_opt").mkdir()
     (d / "perf_opt" / "t.py").write_text(KERNEL_PY, encoding="utf-8")
     (d / "perf_opt" / "opt_log.md").write_text(OPT_LOG_MD, encoding="utf-8")
+    write_empty_workload_inventory(d)
     rc, out = sc("complete", "4", "--dir", str(d))
     assert rc == 0
     state = load_state(d)
@@ -1346,6 +1344,7 @@ def test_optimize_scenario_gate4_via_complete(tmp_path):
     (d / "perf_opt").mkdir()
     (d / "perf_opt" / "t.py").write_text(KERNEL_PY, encoding="utf-8")
     (d / "perf_opt" / "opt_log.md").write_text(OPT_LOG_MD, encoding="utf-8")
+    write_empty_workload_inventory(d)
     rc, _ = sc(
         "init",
         "--dir",
@@ -1461,53 +1460,83 @@ def stage4_artifacts(d: Path, opt_log: str = OPT_LOG_RECORDS_MD):
     (d / "perf_opt" / "opt_log.md").write_text(opt_log, encoding="utf-8")
 
 
-def write_perf_records(d: Path, text: str = PERF_RECORDS_JSONL):
+def write_perf_records(d: Path, text: str):
     (d / "perf_opt").mkdir(exist_ok=True)
     (d / "perf_opt" / "perf_records.jsonl").write_text(text, encoding="utf-8")
+
+
+def _single_workload_artifacts(d: Path):
+    stage4_artifacts(
+        d,
+        OPT_LOG_RECORDS_MD + """
+## Final Performance Test Data
+
+| kernel_id | workload_id | baseline_us | final_us | final_candidate_id |
+|---|---|---:|---:|---|
+| t.py::main | w1 | 120.5 | 100.0 | merged-best |
+""",
+    )
+    inventory = {"workloads": [
+        {"benchmark_source": "explicit_target", "kernel_id": "t.py::main",
+         "workload_id": "w1", "label": "w1", "marks": [], "shape": [1024],
+         "dtype": "float16", "params": {}, "kind": "tune", "reason": "",
+         "tuning_status": "winner_merged"},
+    ]}
+    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    artifact_hash = hashlib.sha256((d / "perf_opt" / "t.py").read_bytes()).hexdigest()
+    rows = [
+        {"round": 0 if phase == "baseline" else 1,
+         "candidate_id": candidate_id, "parent_id": None if phase == "baseline" else "baseline",
+         "kernel_id": "t.py::main", "workload_id": "w1", "phase": phase,
+         "artifact_path": "t.py", "artifact_sha256": artifact_hash,
+         "duration_us": duration, "l0_pass": True,
+         "msprof_raw_path": f"profiles/{phase}/w1", "timestamp": "2026-09-06T00:00:00Z"}
+        for phase, candidate_id, duration in (
+            ("baseline", "baseline", 120.5), ("final", "merged-best", 100.0)
+        )
+    ]
+    write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows))
+    return rows
 
 
 def test_gate4_perf_records_valid_passes(tmp_path):
     repo = make_repo(tmp_path)
     d = op_dir(repo)
     assert init_new_op(d)[0] == 0
-    stage4_artifacts(d)
-    write_perf_records(d)
+    rows = _single_workload_artifacts(d)
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 0, out["failures"]
-    # final_latency 在 1% 容差内匹配记录（100.0 vs 100.5）
-    write_perf_records(
-        d, PERF_RECORDS_JSONL.replace('"duration_us": 100.0', '"duration_us": 100.9')
-    )
+    # Final 表与记录的 0.9% 差异在 1% 对账容差内。
+    rows[-1]["duration_us"] = 100.9
+    write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows))
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 0, out["failures"]
 
 
-def test_gate4_perf_records_missing_warns_only(tmp_path):
+def test_gate4_perf_records_missing_fails(tmp_path):
     repo = make_repo(tmp_path)
     d = op_dir(repo)
     assert init_new_op(d)[0] == 0
-    stage4_artifacts(d, OPT_LOG_MD)  # 旧式日志（无对比表/final_latency）
+    _single_workload_artifacts(d)
+    (d / "perf_opt" / "perf_records.jsonl").unlink()
     rc, out = sc("gate", "4", "--dir", str(d))
-    assert rc == 0, out["failures"]
-    assert "S4-PERF-RECORDS" in {w["rule_id"] for w in out["warnings"]}
+    assert rc == 1
+    assert "S4-PERF-RECORDS-COVERAGE" in {f["rule_id"] for f in out["failures"]}
 
 
 def test_gate4_perf_records_recon_mismatch(tmp_path):
     repo = make_repo(tmp_path)
     d = op_dir(repo)
     assert init_new_op(d)[0] == 0
-    stage4_artifacts(d)
-    write_perf_records(d)
-    # Final Summary 声称 50.0us，与记录（100.0 / 120.5）偏差超 1% → 不可对账
-    stage4_artifacts(
-        d,
-        OPT_LOG_RECORDS_MD.replace("final_latency: 100.0 us", "final_latency: 50.0 us"),
-    )
+    _single_workload_artifacts(d)
+    log_path = d / "perf_opt" / "opt_log.md"
+    log = log_path.read_text(encoding="utf-8")
+    log_path.write_text(log.replace("| w1 | 120.5 | 100.0 |", "| w1 | 120.5 | 50.0 |"), encoding="utf-8")
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     assert "S4-PERF-RECORDS-RECON" in {f["rule_id"] for f in out["failures"]}
-    # records 存在但 Final Summary 无 final_latency 行 → 同样不可对账
-    stage4_artifacts(d, OPT_LOG_RECORDS_MD.replace("final_latency: 100.0 us\n", ""))
+    # 缺逐 workload 最终表也不可对账。
+    log_path.write_text(log.replace("## Final Performance Test Data", "## Results"), encoding="utf-8")
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     assert "S4-PERF-RECORDS-RECON" in {f["rule_id"] for f in out["failures"]}
@@ -1517,30 +1546,26 @@ def test_gate4_perf_records_schema_and_comptable(tmp_path):
     repo = make_repo(tmp_path)
     d = op_dir(repo)
     assert init_new_op(d)[0] == 0
-    stage4_artifacts(d)
+    rows = _single_workload_artifacts(d)
     # 非法 JSON 行 + 缺必需字段行
-    write_perf_records(d, "not-json\n" + '{"round": 1, "candidate_id": "v2"}\n')
+    write_perf_records(d, "not-json\n" + '{"round": 1, "candidate_id": "candidate1"}\n')
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     rules = {f["rule_id"] for f in out["failures"]}
     assert "S4-PERF-RECORDS-SCHEMA" in rules
     # duration_us 非数字
-    write_perf_records(
-        d, PERF_RECORDS_JSONL.replace('"duration_us": 100.0', '"duration_us": "fast"')
-    )
+    rows[-1]["duration_us"] = "fast"
+    write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows))
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     assert "S4-PERF-RECORDS-SCHEMA" in {f["rule_id"] for f in out["failures"]}
     # records 存在但 opt_log 缺「候选 vs current best」对比表（B2）
-    write_perf_records(d)
-    stage4_artifacts(
-        d,
-        OPT_LOG_RECORDS_MD.replace(
-            "| current best (baseline) | 120.5 | 41% | 78% | pass |",
-            "| 基线 | 120.5 | 41% | 78% | pass |",
-        ).replace(
-            "| 候选 | Task Duration(us) | AICore 利用率 | Memory 指标 | L0 |", ""
-        ),
+    rows[-1]["duration_us"] = 100.0
+    write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows))
+    log_path = d / "perf_opt" / "opt_log.md"
+    log_path.write_text(
+        log_path.read_text(encoding="utf-8").replace("current best", "baseline only"),
+        encoding="utf-8",
     )
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
@@ -1549,7 +1574,147 @@ def test_gate4_perf_records_schema_and_comptable(tmp_path):
     write_perf_records(d, "\n")
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
-    assert "S4-PERF-RECORDS" in {f["rule_id"] for f in out["failures"]}
+    assert "S4-PERF-RECORDS-COVERAGE" in {f["rule_id"] for f in out["failures"]}
+
+
+def _stage4_workload_artifacts(d: Path):
+    """Two tuned benchmark cases, one smoke and one skipped case."""
+    stage4_artifacts(
+        d,
+        OPT_LOG_RECORDS_MD + """
+## Final Performance Test Data
+
+| kernel_id | workload_id | baseline_us | final_us | final_candidate_id |
+|---|---|---:|---:|---|
+| kernels/mish.py::main | yolo-p3-f16 | 120.0 | 90.0 | merged-best |
+| kernels/mish.py::main | yolo-p4-f16 | 60.0 | 48.0 | merged-best |
+""",
+    )
+    inventory = {
+        "workloads": [
+            {"benchmark_source": "bench_mish.py", "kernel_id": "kernels/mish.py::main", "workload_id": wid,
+             "label": wid, "marks": marks, "shape": shape, "dtype": "float16", "params": {},
+             "kind": kind, "reason": reason,
+             **({"tuning_status": "winner_merged"} if kind == "tune" else {}), **extra}
+            for wid, marks, shape, kind, reason, extra in (
+                ("yolo-p3-f16", [], [16, 256, 80, 80], "tune", "", {}),
+                ("yolo-p4-f16", [], [16, 512, 40, 40], "tune", "", {}),
+                ("smoke-1m-f16", ["full"], [1048576], "smoke", "smoke label overrides full mark", {"precision_pass": True}),
+                ("warmup-f16", ["smoke"], [128], "smoke", "pytest smoke mark", {"precision_pass": True}),
+                ("unsupported-f16", ["skip"], [1], "skipped", "benchmark skip", {}),
+            )
+        ],
+    }
+    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    rows = []
+    for wid, baseline, final in (("yolo-p3-f16", 120.0, 90.0), ("yolo-p4-f16", 60.0, 48.0)):
+        for phase, cid, duration in (("baseline", "baseline", baseline), ("final", "merged-best", final)):
+            rows.append({
+                "round": 0 if phase == "baseline" else 2,
+                "candidate_id": cid, "parent_id": None if phase == "baseline" else "baseline",
+                "kernel_id": "kernels/mish.py::main", "workload_id": wid, "phase": phase,
+                "artifact_path": "t.py", "artifact_sha256": hashlib.sha256((d / "perf_opt" / "t.py").read_bytes()).hexdigest(),
+                "duration_us": duration, "l0_pass": True,
+                "msprof_raw_path": f"profiles/{phase}/{wid}", "timestamp": "2026-09-20T00:00:00Z",
+            })
+    write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows))
+    return inventory, rows
+
+
+def test_gate4_full_workload_coverage_passes(tmp_path):
+    repo = make_repo(tmp_path)
+    d = op_dir(repo)
+    assert init_new_op(d)[0] == 0
+    _stage4_workload_artifacts(d)
+    rc, out = sc("gate", "4", "--dir", str(d))
+    assert rc == 0, out["failures"]
+
+
+def test_gate4_workload_records_require_inventory(tmp_path):
+    repo = make_repo(tmp_path)
+    d = op_dir(repo)
+    assert init_new_op(d)[0] == 0
+    _stage4_workload_artifacts(d)
+    (d / "perf_opt" / "workload_inventory.json").unlink()
+    rc, out = sc("gate", "4", "--dir", str(d))
+    assert rc == 1
+    assert "S4-WORKLOAD-INVENTORY" in {f["rule_id"] for f in out["failures"]}
+
+
+def test_gate4_rejects_missing_case_and_mixed_final_candidate(tmp_path):
+    repo = make_repo(tmp_path)
+    d = op_dir(repo)
+    assert init_new_op(d)[0] == 0
+    _, rows = _stage4_workload_artifacts(d)
+    write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows if not (row["workload_id"] == "yolo-p4-f16" and row["phase"] == "final")))
+    rc, out = sc("gate", "4", "--dir", str(d))
+    assert rc == 1
+    assert "S4-PERF-RECORDS-COVERAGE" in {f["rule_id"] for f in out["failures"]}
+    rows[-1]["candidate_id"] = "other-version"
+    write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows))
+    rc, out = sc("gate", "4", "--dir", str(d))
+    assert rc == 1
+    assert "S4-PERF-RECORDS-RECON" in {f["rule_id"] for f in out["failures"]}
+
+
+def test_gate4_smoke_excluded_and_precision_checked(tmp_path):
+    repo = make_repo(tmp_path)
+    d = op_dir(repo)
+    assert init_new_op(d)[0] == 0
+    inventory, rows = _stage4_workload_artifacts(d)
+    inventory["workloads"][2]["precision_pass"] = False
+    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    rc, out = sc("gate", "4", "--dir", str(d))
+    assert rc == 1
+    assert "S4-WORKLOAD-INVENTORY" in {f["rule_id"] for f in out["failures"]}
+    inventory["workloads"][2]["precision_pass"] = True
+    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    rows.append({**rows[0], "workload_id": "smoke-1m-f16"})
+    write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows))
+    rc, out = sc("gate", "4", "--dir", str(d))
+    assert rc == 1
+    assert "S4-PERF-RECORDS-COVERAGE" in {f["rule_id"] for f in out["failures"]}
+
+
+def test_gate4_rejects_smoke_as_tune_and_stale_final_file(tmp_path):
+    repo = make_repo(tmp_path)
+    d = op_dir(repo)
+    assert init_new_op(d)[0] == 0
+    inventory, _ = _stage4_workload_artifacts(d)
+    inventory["workloads"][2]["kind"] = "tune"
+    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    rc, out = sc("gate", "4", "--dir", str(d))
+    assert rc == 1
+    assert "S4-WORKLOAD-INVENTORY" in {f["rule_id"] for f in out["failures"]}
+    inventory["workloads"][2]["kind"] = "smoke"
+    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    (d / "perf_opt" / "t.py").write_text(KERNEL_PY + "\n# changed after profiling\n", encoding="utf-8")
+    rc, out = sc("gate", "4", "--dir", str(d))
+    assert rc == 1
+    assert "S4-PERF-RECORDS-RECON" in {f["rule_id"] for f in out["failures"]}
+
+
+def test_gate4_rejects_unfinished_and_smoke_in_final_table(tmp_path):
+    repo = make_repo(tmp_path)
+    d = op_dir(repo)
+    assert init_new_op(d)[0] == 0
+    inventory, _ = _stage4_workload_artifacts(d)
+    del inventory["workloads"][0]["tuning_status"]
+    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    rc, out = sc("gate", "4", "--dir", str(d))
+    assert rc == 1
+    assert "S4-WORKLOAD-INVENTORY" in {f["rule_id"] for f in out["failures"]}
+
+    inventory["workloads"][0]["tuning_status"] = "winner_merged"
+    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    log_path = d / "perf_opt" / "opt_log.md"
+    log_path.write_text(
+        log_path.read_text(encoding="utf-8") + "| kernels/mish.py::main | smoke-1m-f16 | 1.0 | 1.0 | merged-best |\n",
+        encoding="utf-8",
+    )
+    rc, out = sc("gate", "4", "--dir", str(d))
+    assert rc == 1
+    assert "S4-PERF-RECORDS-RECON" in {f["rule_id"] for f in out["failures"]}
 
 
 # ---------------------------------------------------------------------------
@@ -1569,10 +1734,11 @@ def test_gate4_perf_feedback_valid_passes(tmp_path):
     (d / "perf_opt").mkdir()
     (d / "perf_opt" / "t.py").write_text(KERNEL_PY, encoding="utf-8")
     (d / "perf_opt" / "opt_log.md").write_text(OPT_LOG_MD, encoding="utf-8")
+    write_empty_workload_inventory(d)
     write_perf_feedback(d)
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 0, out["failures"]
-    # 无 perf_feedback.md 的旧流程不受影响（lint-if-exists）
+    # perf_feedback.md 是可选产物，缺失时门禁仍可通过。
     (d / "perf_opt" / "perf_feedback.md").unlink()
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 0, out["failures"]
@@ -1585,6 +1751,7 @@ def test_gate4_perf_feedback_schema_failures(tmp_path):
     (d / "perf_opt").mkdir()
     (d / "perf_opt" / "t.py").write_text(KERNEL_PY, encoding="utf-8")
     (d / "perf_opt" / "opt_log.md").write_text(OPT_LOG_MD, encoding="utf-8")
+    write_empty_workload_inventory(d)
 
     def rules():
         rc, out = sc("gate", "4", "--dir", str(d))
@@ -1663,6 +1830,7 @@ def test_complete4_blocks_on_invalid_perf_feedback(tmp_path):
     (d / "perf_opt").mkdir()
     (d / "perf_opt" / "t.py").write_text(KERNEL_PY, encoding="utf-8")
     (d / "perf_opt" / "opt_log.md").write_text(OPT_LOG_MD, encoding="utf-8")
+    write_empty_workload_inventory(d)
     write_perf_feedback(d, PERF_FEEDBACK_MD.replace("## 反馈结论", "## 结论"))
     before = (d / ".stage_state.json").read_text(encoding="utf-8")
     rc, out = sc("complete", "4", "--dir", str(d))
@@ -1709,6 +1877,7 @@ def test_design_limit_revision_flow(tmp_path):
     (d / "perf_opt").mkdir()
     (d / "perf_opt" / "t.py").write_text(KERNEL_PY, encoding="utf-8")
     (d / "perf_opt" / "opt_log.md").write_text(OPT_LOG_MD, encoding="utf-8")
+    write_empty_workload_inventory(d)
     write_perf_feedback(d)
     # 附录补记（默认）路径：合法 perf_feedback 过 gate，complete 4 → DONE
     rc, out = sc("gate", "4", "--dir", str(d))
@@ -1742,6 +1911,7 @@ def test_design_limit_revision_from_stage4(tmp_path):
     (d / "perf_opt").mkdir()
     (d / "perf_opt" / "t.py").write_text(KERNEL_PY, encoding="utf-8")
     (d / "perf_opt" / "opt_log.md").write_text(OPT_LOG_MD, encoding="utf-8")
+    write_empty_workload_inventory(d)
     write_perf_feedback(d)
     # 路由记录 + 设计修订（fail 4 --reason design_revision）
     assert sc("set", "--dir", str(d), "--perf-feedback-action", "revise")[0] == 0

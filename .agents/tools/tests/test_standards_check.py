@@ -75,7 +75,7 @@ SIGNAL_REGISTRY = """# signal registry
 developer mode 枚举：`first_impl` / `retry_impl` / `precision_fix`。
 optimizer mode 枚举：`full`（默认，完整调优流程） / `precision_fix`（仅精度回归修复）。
 perf_records.jsonl 字段契约：
-{round, candidate_id, parent_id, dispatch_path, workload, duration_us, l0_pass, msprof_raw_path, timestamp}
+{round, candidate_id, parent_id, kernel_id, workload_id, phase, artifact_path, artifact_sha256, duration_us, l0_pass, msprof_raw_path, timestamp}
 """
 
 CONDUCTOR_MAIN = """# conductor main

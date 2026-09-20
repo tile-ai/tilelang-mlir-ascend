@@ -60,16 +60,16 @@ INIT --> SCAFFOLD --> (DEV_LOOP: 每函数 DESIGN --> REVIEW --> DEVELOP) --> IN
 
 ## 6. Stage 4 跳过
 
-harness 迁移**不询问调优、不进入 Stage 4**（bench 由 Stage 5 仅报告）；最终报告附 bench 数值与"可另起 optimize 场景"提示。
+harness 迁移**不询问调优、不进入 Stage 4**（bench 由 Stage 5 仅报告）；最终报告附本次单算子 report 路径、bench 状态与有效数值（无有效数值时写明原因），以及"可另起 optimize 场景"提示。
 
 ## 7. Stage 5 — 迁移集成 Agent（`@tilelang-op-integrator`，仅 harness）
 
 - **触发条件**：全部提取函数 Stage 3 通过且二次校验完成（`.migration_state.json` 的 `functions` 全部 `done`）
 - **输入**：`meta_path`、`op_name`、`op_slug`、`family`、`attempt_index`、`max_attempts`（默认 5）
-- **输出/交付件**：`tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/`（集成 kernel 文件 + 每函数 `{func}_DESIGN.md` 设计文档快照（源自 `examples/{op_slug}/{func}/DESIGN.md`）+ 聚合 `__init__.py` + `integration_log.md`），wrapper import 已改写为 baseline/perf_opt 双 import 切换块（baseline 默认激活，perf_opt 注释占位）
-- **完成信号**：三态之一：`INTEGRATE_COMPLETED`（TileOPs pytest smoke+全量通过，bench 已报告）/ `[INTEGRATE_FAIL]` / `[DESIGN_ERROR]`
+- **输出/交付件**：`tileops/kernels/{family}/{op_slug}/{op_slug}_kernel/`（集成 kernel 文件 + 每函数 `{func}_DESIGN.md` 设计文档快照（源自 `examples/{op_slug}/{func}/DESIGN.md`）+ 聚合 `__init__.py` + `integration_log.md` + `integration_report.json`），wrapper import 已改写为 baseline/perf_opt 双 import 切换块（baseline 默认激活，perf_opt 注释占位）；另有本次单算子 TileOPs `run.json`、`report.md`、`report.html`
+- **完成信号**：三态之一：`INTEGRATE_COMPLETED`（从 `examples/TileOPs/` 运行 `python -m tileops.reporting.cli run --op {op_name} --prof-mode msprof`；本次 report 全量正确性通过、benchmark 已运行并报告；report 为 `partial` 时明确披露 benchmark 失败/无效但不阻断集成）/ `[INTEGRATE_FAIL]` / `[DESIGN_ERROR]`
 - **编排层动作**：
-  - `INTEGRATE_COMPLETED` → `complete_stage(5)` → `phase=DONE`（harness 迁移不询问调优；最终报告附 bench 数值与"可另起 optimize 场景"提示）
+  - `INTEGRATE_COMPLETED` → `complete_stage(5)` → `phase=DONE`（harness 迁移不询问调优；最终报告附本次 report 路径、bench 状态与有效数值，以及"可另起 optimize 场景"提示）
   - `[INTEGRATE_FAIL]` → `fail_stage(5)` → 重新调度 integrator 传入 `last_failure_summary`（`stage_retry_count[5]` 上限 2；integrator 内部已有 5 次调试闭环，两级预算独立）；超限 → `phase=FAILED`、`failure_reason=BLOCKED_INTEGRATION`
   - `[DESIGN_ERROR]` → 设计修订循环路径 B：对**失败根因指向的函数**备份其 `DESIGN.md` → `retry_count += 1` → 该函数重跑 Stage 1→2→3 → 通过后**重新执行 Stage 5**（全量重集成，集成脚本幂等）
 
@@ -99,9 +99,11 @@ examples/TileOPs/                              # 集成侧
 │       ├── __init__.py                         #   聚合 re-export（integrate_kernel.py 生成）
 │       ├── perf_opt/                           #   Stage 4 调优产物（optimize 场景：{func}.py + opt_log.md；wrapper 切换块的 perf_opt import 指向此处）
 │       ├── integration_log.md                  #   集成验证与调试日志
+│       ├── integration_report.json             #   本次 TileOPs run.json 的仓库相对路径
 │       └── history_version/                    #   Stage 5 调试备份
 ├── tests/ops/test_{test_slug}.py               # Stage 0 产物（S5，仅含本算子用例）
-└── benchmarks/ops/bench_{bench_slug}.py        # Stage 0 产物（S6）
+├── benchmarks/ops/bench_{bench_slug}.py        # Stage 0 产物（S6）
+└── reports/tileops/{run_id}/                   # Stage 5 单算子报告（run.json / report.md / report.html / pytest / profiler）
 ```
 
 ### harness 专属工件衔接（Owner / Consumer）
@@ -109,9 +111,9 @@ examples/TileOPs/                              # 集成侧
 | 工件 | Owner | 主要消费者 | 消费者需要的信息 |
 |------|-------|------------|-----------------|
 | TileOPs 7 文件脚手架 | Stage 0 | Stage 1（规格来源）、Stage 5（集成目标） | manifest workloads、wrapper/Kernel class、test/bench 路径 |
-| `.migration_meta.json` | Stage 0 | conductor（函数循环）、Stage 5（集成参数） | op_slug / family / extracted_functions / wrapper_path / test_slug / bench_slug |
+| `.migration_meta.json` | Stage 0 | conductor（函数循环）、Stage 5（集成参数与单算子 report 核对） | manifest `op_name`、op_slug / family / extracted_functions / wrapper_path / test_path / bench_path |
 | `.migration_state.json` | conductor | conductor | 多函数聚合状态（见 §4） |
-| `{op_slug}_kernel/`（集成包） | Stage 5 | 用户、TileOPs 框架 | 集成 kernel 文件 + `{func}_DESIGN.md` 设计文档快照 + 聚合 `__init__.py` + `integration_log.md` |
+| `{op_slug}_kernel/`（集成包） | Stage 5 | 用户、TileOPs 框架 | 集成 kernel 文件 + `{func}_DESIGN.md` 设计文档快照 + 聚合 `__init__.py` + `integration_log.md` + `integration_report.json` |
 
 ## 10. 带记忆重试与 session 教训传递（harness 专属）
 

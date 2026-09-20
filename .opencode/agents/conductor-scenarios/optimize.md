@@ -30,14 +30,14 @@ INIT --> TUNING --> 精度回归 --> DONE / FAILED
 
 ## 4. 回归入口与精度回归 gate
 
-- **回归入口**：standalone → `python {kernel_dir}/{op}.py --level all`（L0/L1 失败阻塞，L2/Boundary 告警不阻塞）；TileOPs 集成 → 优先直接跑 `python {kernel_dir}/perf_opt/{func}.py --level all`（内嵌分层测试），采纳（wrapper 切换到 perf_opt）后可再用 TileOPs pytest（`pytest tests/ops/test_{test_slug}.py`）作端到端回归。
+- **回归入口**：standalone → `python {kernel_dir}/{op}.py --level all`（L0/L1 失败阻塞，L2/Boundary 告警不阻塞）；TileOPs 集成 → 优先直接跑 `python {kernel_dir}/perf_opt/{func}.py --level all`（内嵌分层测试）。采纳（wrapper 切换到 perf_opt）后，从 `examples/TileOPs/` 运行 `python -m tileops.reporting.cli run --op {op_name} --prof-mode msprof` 作单算子端到端验收；`{op_name}` 取 manifest 的 PascalCase 键，不使用目录 `op_slug`。记录本次 `run.json` 与 `report.md` 路径；正确性失败则翻回 baseline，benchmark `partial` 只如实报告，不代替 Stage 4 的逐 workload 实测结论。
 - **精度回归 gate**：`TUNING_COMPLETED` 后你亲自对 `perf_opt/{op}.py` 执行回归入口；失败 → 重新调度 optimizer（`mode=precision_fix`，计入 `stage_retry_count[4]`——该模式只跑 L0/L1 回归修复，不重走 Phase 1 采数与已完成轮次，从当前最优版本继续，见 `_shared/standards/signal-registry.md` §2）；超限 → 交付已验证的最优版本并如实报告。
 - 精度回归失败**只在 Stage 4 内 `precision_fix` 重调度，不回退 Stage 3**。
 
 ## 5. 产物写入边界与 wrapper 切换
 
 - **产物只写 `perf_opt/`**：基准 `{op}.py` **永不修改**。
-- wrapper 预置 baseline/perf_opt 双 import 切换块（integrate_kernel.py 生成，两路 import 语句并存、一路激活、注释切换）：回归通过后由你机械翻转切换块注释，使 wrapper（进而 `pytest tests/ops/` 与 `pytest benchmarks/ops/`）默认接入 perf_opt 版本；回退 = 翻回 baseline import。翻转切换块注释是唯一允许的 wrapper 修改（若两版 kernel 的 tuned 默认参数不同，连同切换块内成对的默认参数赋值一起翻转），不得改动其他内容。
+- wrapper 预置 baseline/perf_opt 双 import 切换块（integrate_kernel.py 生成，两路 import 语句并存、一路激活、注释切换）：内嵌回归通过后由你机械翻转切换块注释，使 wrapper（进而单算子 report 的 test 与 benchmark）默认接入 perf_opt 版本；report 正确性失败时回退 = 翻回 baseline import。翻转切换块注释是唯一允许的 wrapper 修改（若两版 kernel 的 tuned 默认参数不同，连同切换块内成对的默认参数赋值一起翻转），不得改动其他内容。
 
 ## 6. `[DESIGN_LIMIT]` 特例
 

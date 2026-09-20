@@ -9,16 +9,17 @@
 - review: examples/{project}/{op}/REVIEW.md（无则标 N/A）
 - kernel: examples/{project}/{op}/{op}.py（含 kernel + golden + 分层测试套件 L0/L1/L2/Boundary）
 - final_artifact: {final_artifact 路径，若有调优则指向 perf_opt/{op}.py；harness 迁移指向集成包}
-- migration: <仅 harness：函数列表与各自状态、meta 路径、集成结果、bench 报告摘要>
+- migration: <仅 harness：函数列表与各自状态、meta 路径、集成结果、本次单算子 report 状态与 run.json/report.md 路径>
 
 ## 精度结果
 - status: PASS / FAIL / UNKNOWN    accuracy_fix_count: {stage3 precision_fix 次数}
-- harness 集成验证: <smoke / full 用例数与结果，仅 migration-harness 填>
+- harness 集成验证: <本次 TileOPs report 的全量正确性用例数与结果；benchmark passed/partial 及有效数值或失败原因，仅 migration-harness 填>
 
 ## 性能结果（若进入 Stage 4）
 - iterations: {perf_iteration.count}    last_improvement: {perf_iteration.last_improvement}
 - final_artifact: {kernel_opt_py_path}
 - 回归: <仅 optimize：perf_opt 回归 L0/L1 结果>
+- TileOPs 集成产物回归: <仅已接入 wrapper 的 optimize：采纳后单算子 report 的正确性、benchmark 状态与 run.json/report.md 路径>
 
 ## 时间线（可观测性，statectl 机械生成）
 - timeline_summary: <粘贴 `statectl timeline-summary --dir examples/{project}/{op}` 的 JSON 输出（dispatches / 各 Stage attempts 与耗时 / 失败事件链）；migration-harness 逐函数算子目录 + op 级聚合目录各跑一次；`.task_timeline.jsonl` 缺失时标 N/A>

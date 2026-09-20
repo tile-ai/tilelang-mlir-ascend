@@ -14,7 +14,7 @@ Lint groups (dispatched by stage):
                + perf_records_lint (perf_records.jsonl, if present — A2/B2:
                  per-branch record schema + comparison-table existence +
                  Final Summary winner reconciliation)
-  - Stage 5: integration_lint (integration package structure + wrapper switch block)
+  - Stage 5: integration_lint (integration package + wrapper + TileOPs report)
   - always:  state_schema_lint (.stage_state.json schema)
 
 Every failure is a dict {rule_id, file, message}; warnings are separate and
@@ -1185,7 +1185,7 @@ WRAPPER_PERF_IMPORT_RE = re.compile(r"^\s*#\s*(?:from|import)\s+.*perf_opt", re.
 
 
 def integration_lint(migration_state: dict, repo_root: str):
-    """Stage 5 gate: integration package + wrapper switch block.
+    """Stage 5 gate: integration package, wrapper, and single-op report.
 
     ``migration_state`` is the parsed .migration_state.json (needs meta_path,
     family, op_slug, functions).
@@ -1206,7 +1206,7 @@ def integration_lint(migration_state: dict, repo_root: str):
     if not os.path.isdir(pkg_dir):
         failures.append(_fail("S5-PKG", pkg_dir, "集成包目录不存在"))
         return failures, warnings
-    for required in ("__init__.py", "integration_log.md"):
+    for required in ("__init__.py", "integration_log.md", "integration_report.json"):
         if not os.path.exists(os.path.join(pkg_dir, required)):
             failures.append(
                 _fail(
@@ -1243,6 +1243,109 @@ def integration_lint(migration_state: dict, repo_root: str):
                     "wrapper 含 perf_opt 引用但未检测到注释态的 perf_opt import（切换块形态请复核）",
                 )
             )
+    report_ref_path = os.path.join(pkg_dir, "integration_report.json")
+    report_ref_text = _read_text(report_ref_path)
+    if report_ref_text is None:
+        return failures, warnings
+    try:
+        report_ref = json.loads(report_ref_text)
+    except json.JSONDecodeError as exc:
+        failures.append(_fail("S5-REPORT-REF", report_ref_path, f"报告引用不是合法 JSON：{exc}"))
+        return failures, warnings
+    run_rel = report_ref.get("run_json") if isinstance(report_ref, dict) else None
+    if not isinstance(run_rel, str) or not run_rel.endswith("/run.json"):
+        failures.append(
+            _fail("S5-REPORT-REF", report_ref_path, "run_json 必须是仓库相对的报告 run.json 路径")
+        )
+        return failures, warnings
+    report_root = os.path.realpath(
+        os.path.join(repo_root, "examples", "TileOPs", "reports", "tileops")
+    )
+    run_path = os.path.realpath(os.path.join(repo_root, run_rel))
+    if not run_rel.startswith("examples/TileOPs/reports/tileops/") or os.path.commonpath(
+        (report_root, run_path)
+    ) != report_root:
+        failures.append(_fail("S5-REPORT-REF", report_ref_path, "run_json 路径不在 TileOPs 报告目录内"))
+        return failures, warnings
+    run_text = _read_text(run_path)
+    if run_text is None:
+        failures.append(_fail("S5-REPORT", run_path, "报告 run.json 不存在或不可读"))
+        return failures, warnings
+    try:
+        run = json.loads(run_text)
+    except json.JSONDecodeError as exc:
+        failures.append(_fail("S5-REPORT", run_path, f"报告 run.json 不是合法 JSON：{exc}"))
+        return failures, warnings
+    if not isinstance(run, dict):
+        failures.append(_fail("S5-REPORT", run_path, "报告 run.json 顶层必须为对象"))
+        return failures, warnings
+
+    meta_file = (
+        meta_path
+        if os.path.isabs(str(meta_path))
+        else os.path.join(repo_root, str(meta_path))
+    )
+    try:
+        meta = json.loads(_read_text(meta_file) or "")
+    except (json.JSONDecodeError, TypeError):
+        meta = None
+    if not isinstance(meta, dict) or not meta.get("op_name"):
+        failures.append(_fail("S5-REPORT-META", meta_file, "迁移元数据缺少 manifest 算子名 op_name"))
+        return failures, warnings
+    if run.get("operator") != meta["op_name"]:
+        failures.append(_fail("S5-REPORT-OP", run_path, "报告算子与迁移元数据 op_name 不一致"))
+    metadata = run.get("metadata")
+    summary = run.get("summary")
+    if not isinstance(metadata, dict) or not isinstance(summary, dict):
+        failures.append(_fail("S5-REPORT", run_path, "报告缺少 metadata/summary 对象"))
+        return failures, warnings
+    expected_test = meta.get("test_path") or f"tests/ops/test_{meta.get('test_slug')}.py"
+    expected_bench = (
+        meta.get("bench_path") or f"benchmarks/ops/bench_{meta.get('bench_slug')}.py"
+    )
+    if (
+        metadata.get("test_file") != expected_test
+        or metadata.get("benchmark_file") != expected_bench
+    ):
+        failures.append(
+            _fail("S5-REPORT-TARGET", run_path, "报告 test/benchmark 目标与迁移元数据不一致")
+        )
+    if metadata.get("prof_mode_requested") != "msprof":
+        failures.append(_fail("S5-REPORT-PROF", run_path, "报告未请求 msprof 模式"))
+    correctness_passed = summary.get("correctness_passed") is True
+    benchmark_requested = summary.get("benchmark_requested") is True
+    benchmark_passed = summary.get("benchmark_passed") is True
+    status = run.get("status")
+    correctness_tests = summary.get("correctness_tests")
+    if (
+        not correctness_passed
+        or not isinstance(correctness_tests, int)
+        or isinstance(correctness_tests, bool)
+        or correctness_tests < 1
+    ):
+        failures.append(_fail("S5-REPORT-TEST", run_path, "报告缺少通过的全量正确性用例"))
+    if not benchmark_requested:
+        failures.append(_fail("S5-REPORT-BENCH", run_path, "报告未实际运行 benchmark"))
+    if status not in ("passed", "partial") or (status == "passed") != benchmark_passed:
+        failures.append(_fail("S5-REPORT-STATUS", run_path, "报告状态与 benchmark 结论不一致"))
+    if status == "partial" and correctness_passed and benchmark_requested:
+        warnings.append(
+            _warn("S5-REPORT-BENCH", run_path, "正确性通过，但 benchmark 未得到有效结果；仅记录，不阻断集成")
+        )
+    for name in ("report.md", "report.html"):
+        path = os.path.join(os.path.dirname(run_path), name)
+        if not os.path.isfile(path):
+            failures.append(_fail("S5-REPORT-FILE", path, f"缺少 {name}"))
+    sources = [wrapper, os.path.join(pkg_dir, "__init__.py")]
+    sources.extend(
+        os.path.join(pkg_dir, f"{func}.py") for func in migration_state.get("functions") or {}
+    )
+    if all(os.path.isfile(path) for path in sources) and os.path.getmtime(run_path) < max(
+        os.path.getmtime(path) for path in sources
+    ):
+        failures.append(
+            _fail("S5-REPORT-STALE", run_path, "报告早于当前 wrapper/kernel 集成文件，需重新运行")
+        )
     return failures, warnings
 
 

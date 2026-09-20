@@ -516,22 +516,21 @@ prompts are emitted in the Output Prompt step.
 
 #### Tier 2 — Runtime verification (after NPU kernel component rewrites kernels for NPUIR)
 
-Once the kernel functions are reimplemented for `target="npuir"` by the
-NPU kernel component, run:
+Once the kernel functions are reimplemented for `target="npuir"` and
+integrated into the TileOPs wrapper, run from the TileOPs project root
+(`examples/TileOPs/` in this repository):
 
 ```bash
-# 1. Correctness tests (smoke only first)
-python -m pytest tests/ops/test_{op_slug}.py -v -m smoke --tb=short
-
-# 2. Full test suite
-python -m pytest tests/ops/test_{op_slug}.py -v --tb=short
-
-# 3. Benchmarks
-python -m pytest benchmarks/ops/bench_{op_slug}.py -v --tb=short
+python -m tileops.reporting.cli run --op {op_name} --prof-mode msprof
 ```
 
-All tests must pass. Common runtime failure causes (for the NPU kernel
-component to address):
+Use the PascalCase manifest key `{op_name}`, not `{op_slug}`. The report
+runs the full correctness suite, then the operator benchmark if correctness
+passes. Read this run's `run.json` and `report.md`; a `partial` report
+means correctness passed but benchmark data failed or was invalid, and the CLI
+may return nonzero for that reason. Correctness must pass; benchmark issues
+are reported without repairing the kernel for performance alone. Common
+runtime correctness failure causes (for the NPU kernel component to address):
 
 - **fp16/bf16 tolerance**: if the kernel computes in the input dtype and
   the reference upcasts to fp32, precision may differ. Fix by adding fp32

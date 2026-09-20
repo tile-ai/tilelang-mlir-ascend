@@ -64,7 +64,7 @@ STAGE3 = """# stage3 routing
 """
 
 REPORT = """# report
-harness 集成验证: <smoke / full 用例数与结果，仅 migration-harness 填>
+harness 集成验证: <本次 TileOPs report 的全量正确性用例数与结果；benchmark passed/partial 及有效数值或失败原因，仅 migration-harness 填>
 """
 
 PERF_FEEDBACK = """# perf feedback

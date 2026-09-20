@@ -102,7 +102,7 @@ FINGERPRINTS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     ),
     "SC-DUP-REPORT": (
         f"{_STD}/final-report-template.md",
-        "harness 集成验证: <smoke / full 用例数与结果，仅 migration-harness 填>",
+        "harness 集成验证: <本次 TileOPs report 的全量正确性用例数与结果；benchmark passed/partial 及有效数值或失败原因，仅 migration-harness 填>",
         (f"{_STD}/final-report-template.md",),
     ),
     # --- C3.2 知识块指纹（变更半径治理）：状态机图 / Stage 表 / 目录结构 /
@@ -219,7 +219,7 @@ def iter_consumer_files(repo_root: str) -> list[str]:
                 full = os.path.join(dirpath, fn)
                 if os.path.commonpath([full, excluded_prefix]) == excluded_prefix:
                     continue
-                files.append(os.path.relpath(full, repo_root))
+                files.append(os.path.relpath(full, repo_root).replace(os.sep, "/"))
     return files
 
 

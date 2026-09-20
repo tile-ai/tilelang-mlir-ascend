@@ -1145,10 +1145,13 @@ def test_extend_stage4_after_done(tmp_path):
 
 
 META = {
+    "op_name": "MopOp",
     "op_slug": "mop",
     "family": "reduction",
     "extracted_functions": ["funcA", "funcB"],
+    "test_path": "tests/ops/test_mop.py",
     "test_slug": "mop",
+    "bench_path": "benchmarks/ops/bench_mop.py",
     "bench_slug": "mop",
 }
 
@@ -1260,6 +1263,34 @@ def test_gate0_meta_lint(tmp_path):
     assert rc == 0, out["failures"]
 
 
+def _write_stage5_report(repo, pkg, *, status="passed"):
+    report_dir = repo / "examples" / "TileOPs" / "reports" / "tileops" / "run_MopOp"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    run = {
+        "operator": META["op_name"],
+        "status": status,
+        "metadata": {
+            "test_file": META["test_path"],
+            "benchmark_file": META["bench_path"],
+            "prof_mode_requested": "msprof",
+        },
+        "summary": {
+            "correctness_passed": status != "failed",
+            "correctness_tests": 2,
+            "benchmark_requested": status != "failed",
+            "benchmark_passed": status == "passed",
+        },
+    }
+    (report_dir / "run.json").write_text(json.dumps(run), encoding="utf-8")
+    (report_dir / "report.md").write_text("# Report\n", encoding="utf-8")
+    (report_dir / "report.html").write_text("<h1>Report</h1>\n", encoding="utf-8")
+    (pkg / "integration_report.json").write_text(
+        json.dumps({"run_json": "examples/TileOPs/reports/tileops/run_MopOp/run.json"}),
+        encoding="utf-8",
+    )
+    return report_dir
+
+
 def test_gate5_integration_lint(tmp_path):
     repo, slug_dir, meta_path = _make_harness_repo(tmp_path)
     sc(
@@ -1313,7 +1344,80 @@ def test_gate5_integration_lint(tmp_path):
         encoding="utf-8",
     )
     rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
+    assert rc == 1
+    assert "S5-PKG" in {f["rule_id"] for f in out["failures"]}
+    _write_stage5_report(repo, pkg)
+    rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
     assert rc == 0, out["failures"]
+
+
+def _ready_stage5_gate(tmp_path):
+    repo, slug_dir, meta_path = _make_harness_repo(tmp_path)
+    rc, out = sc(
+        "migration", "init", "--dir", str(slug_dir), "--op-slug", "mop",
+        "--family", "reduction", "--meta-path", str(meta_path),
+        "--functions", "funcA", "funcB",
+    )
+    assert rc == 0, out
+    pkg = (
+        repo / "examples" / "TileOPs" / "tileops" / "kernels"
+        / "reduction" / "mop" / "mop_kernel"
+    )
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "integration_log.md").write_text("ok\n", encoding="utf-8")
+    for func in ("funcA", "funcB"):
+        (pkg / f"{func}.py").write_text(KERNEL_PY, encoding="utf-8")
+        (pkg / f"{func}_DESIGN.md").write_text(DESIGN_MD, encoding="utf-8")
+    wrapper = pkg.parent / "mop.py"
+    wrapper.write_text(
+        "from .mop_kernel import funcA  # baseline\n"
+        "# from .mop_kernel.perf_opt import funcA  # perf_opt\n",
+        encoding="utf-8",
+    )
+    return repo, slug_dir, pkg, wrapper
+
+
+def test_gate5_partial_benchmark_is_warning(tmp_path):
+    repo, slug_dir, pkg, _wrapper = _ready_stage5_gate(tmp_path)
+    _write_stage5_report(repo, pkg, status="partial")
+    rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
+    assert rc == 0, out["failures"]
+    assert "S5-REPORT-BENCH" in {w["rule_id"] for w in out["warnings"]}
+
+
+def test_gate5_rejects_failed_and_stale_report(tmp_path):
+    repo, slug_dir, pkg, wrapper = _ready_stage5_gate(tmp_path)
+    _write_stage5_report(repo, pkg, status="failed")
+    rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
+    assert rc == 1
+    assert "S5-REPORT-TEST" in {f["rule_id"] for f in out["failures"]}
+    report_dir = _write_stage5_report(repo, pkg)
+    os.utime(wrapper, (os.path.getatime(wrapper), os.path.getmtime(report_dir / "run.json") + 5))
+    rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
+    assert rc == 1
+    assert "S5-REPORT-STALE" in {f["rule_id"] for f in out["failures"]}
+
+
+def test_gate5_rejects_wrong_operator_or_unrun_benchmark(tmp_path):
+    repo, slug_dir, pkg, _wrapper = _ready_stage5_gate(tmp_path)
+    report_dir = _write_stage5_report(repo, pkg)
+    run_path = report_dir / "run.json"
+    run = json.loads(run_path.read_text(encoding="utf-8"))
+    run["operator"] = "OtherOp"
+    run_path.write_text(json.dumps(run), encoding="utf-8")
+    rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
+    assert rc == 1
+    assert "S5-REPORT-OP" in {f["rule_id"] for f in out["failures"]}
+
+    run["operator"] = META["op_name"]
+    run["status"] = "partial"
+    run["summary"]["benchmark_requested"] = False
+    run["summary"]["benchmark_passed"] = False
+    run_path.write_text(json.dumps(run), encoding="utf-8")
+    rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
+    assert rc == 1
+    assert "S5-REPORT-BENCH" in {f["rule_id"] for f in out["failures"]}
 
 
 # ---------------------------------------------------------------------------

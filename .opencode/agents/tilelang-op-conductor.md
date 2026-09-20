@@ -22,7 +22,7 @@ model: gateway/deepseek-v4-pro
 | 2 设计检视 | `REVIEW` | `@tilelang-design-reviewer` | `REVIEW.md` | `REVIEW_COMPLETED` | new_op / migration |
 | 3 算子开发 | `DEVELOP` | `@tilelang-op-developer` | `{op}.py` | `DEVELOP_COMPLETED` | new_op / migration |
 | 4 算子调优 | `TUNING` | `@tilelang-op-optimizer` | `perf_opt/{op}.py` | `TUNING_COMPLETED` | new_op（可选）/ migration-plain（可选）/ optimize（核心） |
-| 5 迁移集成 | `INTEGRATE` | `@tilelang-op-integrator` | 集成包 + `integration_log.md` | `INTEGRATE_COMPLETED` | migration-harness |
+| 5 迁移集成 | `INTEGRATE` | `@tilelang-op-integrator` | 集成包 + `integration_log.md` + 本次 TileOPs 单算子 report | `INTEGRATE_COMPLETED` | migration-harness |
 
 > Stage 0 / Stage 5 的交互规范、多函数组织与 TileOPs 目录结构在 `conductor-scenarios/harness.md`；各场景 stage_plan 与场景文件加载见「场景文件加载」；非 Stage 的 `@tilelang-skill-evolver` 与 `RETROSPECTIVE.md` 见「自进化机制」。
 

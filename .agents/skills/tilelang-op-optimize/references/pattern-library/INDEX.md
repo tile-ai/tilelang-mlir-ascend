@@ -35,6 +35,8 @@
 | PL-1.3-host-permute | host permute 路线通常净亏（106–147µs） | verified |
 | PL-1.4-tiling-heuristic | BH=1 + 最宽 CH 最优；UB 192KB 约束收缩 CH；工厂层回退分发 | verified |
 | PL-1.5-quickref | 乘常数倒数 / H-collapse / fp32 求和序匹配 / launch 开销判定 / host 编译期常量折叠 | verified |
+| PL-1.15-broadcast-perf-tax | vsub/vmul 未文档化列广播可编译可算对但 +12~16% 性能税——合法化≠可用，列因子仍走 vbrc 展开 | verified |
+| PL-1.17-subfp32-fp32-transit | sub-fp32 逐元素 fp32 中转模式（bf16 v-prefix 缺失 + fp16 golden 对齐双触发；lerp+ssd 两证） | verified |
 
 ### elementwise.md — 多输入搬运效率
 
@@ -42,6 +44,7 @@
 |----|--------|------|
 | PL-1.6-copy-floor | copy-floor 标定法 + MTE2 带宽退化曲线 + 混合流量地板 + grid-stride 反直觉 + 标量削减判定式（数字见条目） | verified |
 | PL-1.10-loads-first-decoupling | 单 staging 复用链致 MTE2/VEC 零重叠 → per-input staging + 三输入前置装载（收益数字见条目） | verified |
+| PL-1.14-mte3-strided-ws | 跨引擎 ws 中继写侧必须块连续（band 化 MTE3 3× 回退；读侧逐块入 L1 band 列偏移区两全） | verified |
 
 ### attention.md — Expert persistent / attention 族
 
@@ -54,6 +57,9 @@
 | PL-1.9-twophase | 两相位重构达标 + morph 阶梯方法 + causal 域画像与宽块解锁反转（第五轮） | verified |
 | PL-1.11-causal-mask-scalartrap | 第五轮 causal 域 14.2x：vcmp int16 全形态标量化陷阱 + 算术惩罚掩码 + zbuf l1_b 零初始化（NaN 边界）+ UB ×1.10–1.12 开销 | verified |
 | PL-1.12-task-pipeline-depth2 | 第六轮：TASKDONE 屏障冗余审计（全域 −7~−21%）+ Cube 深度 2 任务流水（flag slot 双槽，2×nk≤15）+ f32 S 载体；Vec 侧同构 blocked（MTE2/MTE3 同 buffer WAR）；r9：bn 钳位域×bm80 UB 耦合→守卫 `bn_min≤tuned_bn`（UB∝half） | verified |
+| PL-1.13-aiv-dup-subid-split | Mix kernel 双 AIV 默认重复执行 Vector 程序；subid 边界表达式分片（蛇形均衡）实测 −28~−36%（判据：两 AIV 子块指标相同） | verified |
+| PL-1.18-ssd-steady-structure-floor | 稳态画像以最长任务串 workload 为准（短串低估引擎占比）；mte2 段数墙五方向否决：band 增量=数学不可行（行绑定 lt）/ 深度 3=L2 劣化每条 mte2 / x 预取=稳态无间隙 / L1 双缓冲=端口互拖倒贴 / AIV 减负=非关键+alias 税 | verified |
+| PL-1.16-expert-dualscope-bypass | Developer 阻塞（标量化 / 条件构造崩溃 / persistent+gemm 崩溃）的结构级绕法：Expert 双 Scope + pass_configs 硬边界（attention+ssd 两证） | verified |
 
 ### traps-compiler.md — 编译器/解析器陷阱
 
@@ -67,6 +73,7 @@
 | TRAP-vbrc-scalar-shared | vbrc 标量→shared 不可用；serial 变量条件 segfault | verified |
 | TRAP-threads-kwarg-noop | T.Kernel(threads=) 在 npuir 无效果 | verified |
 | TRAP-tvm-parser-rules | TVM script 解析器四条硬规则（if/三元式/条件 alloc/T.rs 作用域） | verified |
+| TRAP-UB-dynsubview-dominance | task 级 UB 行 + 嵌套循环动态偏移 subview → auto-multi-buffer 非支配 IR（Q≥128） | verified |
 | TRAP-expert-v-operands | Expert v 算子操作数规则（vcmp 拒绝 tir.Cast 等） | verified |
 | TRAP-transpose-epilogue-poison | 活跃源 transpose epilogue 毒化整 kernel（2.6x；绕法 = 增维视图） | verified |
 
@@ -81,6 +88,9 @@
 | TRAP-T-copy-region-semantics | T.copy 区域语义三规则（前向补 1 / 越界写坏相邻 GM / [N,1] 越界读） | verified |
 | TRAP-zero-input-crash | 零输入 kernel 必崩 MTE DDR（同款崩溃形态易误诊） | verified |
 | TRAP-vrsqrt-plain-precision | vrsqrt 近似指令 ~2.9e-3（绕法 vsqrt+vdiv 1.07e-7；dtype 指纹见条目） | verified |
+| TRAP-L1-band-dst-tail-overrun | L1 band 组装 dst 列区间须尾块裁剪（越界写依 L1 布局触发——bf16 必现 fp16 靠运气；分支门禁须含 bf16×非整除 shape） | verified |
+| TRAP-DEVMODE-PERSIST-GEMM | Developer+persistent+gemm 混排运行时崩溃（unaligned UUB）；Expert 同结构正常（双模式对照 repro） | verified |
+| TRAP-BENCH-CONFIG-CALIBRATION | 采数 harness 默认配置 ≠ kernel TUNED 交付配置 → 续跑场景 +19~21% 假回退（先做双配置探针再谈设备漂移；harness 默认须从 TUNED 常量解析） | verified |
 
 ### constants.md — 硬件常数表（D-2，设计期 roofline 口径）
 
@@ -116,6 +126,7 @@
 | CASE-norm-adalayern-stage4 | norm/row-reduction 调优档案（bm 第一杠杆 + loads-first + 2.14x 几何平均） | verified |
 | CASE-attention-twophase-causal-regen | 两相位 causal 域重生成 + 第五轮（标量化判别链 14.2x）+ 第六轮（屏障审计/深度 2/Ratio 口径/r9 守卫）调优档案 | verified |
 | CASE-attention-mha-config-unvalidated | 反例：设计默认 config 路径未编译验证即出厂（bench 期 UB 溢出） | verified |
+| CASE-ssd-chunkscan-migration | mamba/SSD 族 MixCV Expert 迁移完整档案（模式切换实证 + 六轮 2.91× + 首过集成；Stage 4 知识 durable 载体集群） | verified |
 
 ### repro/ — 最小可复现代码（ED-B）
 

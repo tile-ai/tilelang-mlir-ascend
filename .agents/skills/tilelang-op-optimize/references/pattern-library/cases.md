@@ -267,6 +267,24 @@ repro: none
 反例档案：设计默认 config（E6 替换路径 bn_eff=256）在 dim=128 causal 域的首次编译发生在 Stage 5 bench 且直接 UB 硬溢出（8/10 失败）——根因三层：Stage 3 L1 门禁变体集不含 wrapper-default 派发路径（VP-2026-0065）+ DESIGN §4.5 手工预算低估实际分配 ~26KB（VP-2026-0059 / CG-2026-0008）+ pytest 域全 non-causal 掩盖（causal dim=128 traced 变体从未被 pytest 编译）。修复 = wrapper default_config num_stages 1→2 路由到门禁验证过的逐字路径（VP-2026-0074 config-契约范式），1 attempt 闭环、bench 10/10 复核。适用触发条件：带 config 替换语义 kernel 的集成期 bench 编译失败排查；「pytest 全绿 ≠ manifest 域全绿」的域覆盖核对；宽 config UB 预算校准。
 
 ---
+id: CASE-ssd-chunkscan-migration
+kind: case
+family: [mamba, ssd, mixcv]
+mode: [expert]
+dtype: [fp16, bf16]
+status: verified
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C（npu-smi 26.0.rc1）/ 2026-09-17
+repro: none
+---
+
+### `examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/` + `examples/TileOPs/tileops/kernels/mamba/ssd_chunk_scan/`（任务工作区 + 集成包）
+
+**durable 载体**：Stage 4 调优知识自包含于 attention.md PL-1.12 update（消费侧前导 set）/ PL-1.13 + repro/PL-1.13-aiv-dup-subid-split.py（双 AIV 分片）/ elementwise.md PL-1.14（ws 块连续）/ layout.md PL-1.15（列广播性能税）/ traps-compiler.md TRAP-UB-dynsubview-dominance / traps-runtime.md TRAP-L1-band-dst-tail-overrun / TRAP-DEVMODE-PERSIST-GEMM + repro（Developer+persistent 崩溃）/ constants.md CONST-mte2 指令维度口径；PL-1.16（Expert 双 Scope 绕法第二证）/ PL-1.17（fp32 中转第二证）/ elementwise 均以本任务为第二证合入。
+
+mamba/SSD 族首个 MixCV Expert 迁移完整档案（设计修订 1 轮——列因子广播错向 / FLOPs 2× 高估 / PL-1.11 误判 stale 三阻塞；Stage 3 Developer→Expert 模式切换〔模式级不兼容实证〕+ L0–Boundary 全过；Stage 4 六轮 2.91× 几何平均〔608.15→217.65µs@w2：深度 2 任务流水 −39.6% → Cube band 组装 → block_n=128 → AIV subid 蛇形分片 −34.4%；stop_reason=blocked——UB 容量/编译器 dominance/API/性能税清单〕；Stage 5 首次集成即全过 smoke 2/2 + full 4/4 + bench 11/11）。TileOPs bench_mamba 11 dispatch 基线（wrapper 默认 config 口径）：Perf 稳定 32–34 TOps/s 平台、Ratio 7.5–14.2%、小 dispatch（<40µs）启动开销主导——**口径注记**：bench 经 wrapper `default_config` 显式传参（block_n=64/num_stages=3），优先于 kernel 内嵌 TUNED_DEFAULT_CONFIG(block_n=128/num_stages=2)，与 Stage 4 自建 workload 数值不可同口径对比（VP-2026-0093）。适用触发条件：mamba/SSD/chunk-scan 族迁移设计；MixCV persistent 因子链（Vector 产因子 → ws 中继 → Cube 消费）结构参考；AIV 分片与任务级流水参照；band 分域掩码（band-free 惩罚 / band-carrying vselect）落地参照。
+
+---
 id: CASE-CG-INDEX
 kind: case
 family: [general]
@@ -292,5 +310,9 @@ capability-gaps 登记簿（`.agents/evolution/capability-gaps.md`）open 条目
 | CG-2026-0006 | TileLangIR pass / codegen（向量算子融合与 f16 打包发射） | 向量算子融合缺口（f16≈f32 发射速率的机制根源，见 attention.md PL-1.9-hardlimits） |
 | CG-2026-0007 | runtime / codegen（跨引擎同步原语粒度） | 跨引擎同步原语粒度缺口 |
 | CG-2026-0008 | BishengIR（UB 基础分配可见性） | UB 手工预算 vs 实际分配差（宽 config 不可编译形态） |
+| CG-2026-0009 | runtime / codegen（MTE2/MTE3 引擎边界同 buffer WAR） | MTE2/MTE3 同 buffer WAR 无顺序原语（Vec 深度 2 blocked） |
+| CG-2026-0010 | codegen（Developer mode persistent+gemm） | Developer 模式 persistent 分核 + gemm 混排运行时崩溃 |
+| CG-2026-0011 | Frontend API（gemm dst L0C region 写 / acc 相加原语） | gemm dst 不支持 L0C region 写、两 L0C acc 无相加原语 |
+| CG-2026-0012 | BishengIR（auto-multi-buffer 动态 subview 支配性） | 动态偏移 UB subview 进嵌套循环产出非支配 IR |
 
 > BLOCKED 终态任务的反例根因链条目同入本节（由 evolver 追加，标注「反例」）。

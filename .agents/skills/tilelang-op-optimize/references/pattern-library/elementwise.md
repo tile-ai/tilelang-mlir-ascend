@@ -47,3 +47,44 @@ repro: repro/PL-1.10-loads-first-decoupling.py
 **注意**：bm 选择与该结构正交但交互——bm 上限受 multi-buffer 平台 footprint 约束（见上）；且最优 bm 非单调（ada dit 1024×1152：bm 曲线 {5:9.75, 6:9.66, 7:8.76, 8:9.55}µs，bm=7 局部最优；同 N 下 4096×1152 则 bm=8 胜——**按 shape 实测扫描，勿从单点泛化 UB 松弛律**）。
 
 - 溯源：ada_layer_norm Stage 4（2026-09-10），`examples/TileOPs/tileops/kernels/norm/ada_layer_norm/ada_layer_norm_kernel/perf_opt/opt_log.md`（Iteration 2 机制确认 + A/B 裁决记录）。
+
+---
+id: PL-1.14-mte3-strided-ws
+kind: pattern
+family: [elementwise, mixcv, mte]
+apis: [T.copy]
+dtype: [fp16, bf16]
+device: 910B2C
+status: verified
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4；2026-09-17 蒸馏 D2 溯源归位——原回写误标 20260917T0855Z，实际 task_id 以 .stage_state.json 为准）
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+repro: repro/PL-1.13-aiv-dup-subid-split.py
+---
+
+### 跨引擎 ws 中继的 MTE3 布局铁律：块连续 ≫ band 化
+
+- **形态**：Vector→Cube 因子中继（GM ws）的写侧布局两个候选——①块连续（每 [64,64] 块占连续 8KB，ws 形如 [..., s_blk, bl, bs]）；②band 化（每 l-tile 的因果带 [bl, l0+bs] 连续，行 stride = Q×2B=512B，换取 Cube 侧单条 band 读）。
+- **实测（ssd_chunk_scan w2，msprof op）**：band 化使 **AIV MTE3 时间 3×**（106→220µs，ratio 0.17→0.35）——512B 行距的跨步写吞掉 Cube 侧全部搬运合并收益（w2 净 +2.3% 回退）。**写侧块连续 + 读侧逐块连续读入 L1 band 列偏移区**（`l1[0:bl, s0:s0+ts]`，**ts 必须尾块裁剪**——见 traps-runtime.md TRAP-L1-band-dst-tail-overrun）是两全形态：Vector 写快、Cube 仍可单 gemm（v5_xband，w2 −1.8%/w4 −4.3%）。
+- 机制：MTE3 跨步写每行 128B 段 + 512B 行距 → 段级延迟不摊销（CONST-mte2-degradation 的指令/段维度）；块连续 8KB 单段流。
+- 溯源：`examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/perf_opt/`（opt_log R1 v2_band 行 + R2 v5_xband 行；profiles/round1|round2 对比）。
+
+---
+id: PL-1.17-subfp32-fp32-transit
+kind: pattern
+family: [elementwise, vector, norm, mamba]
+apis: [T.vcast, T.vadd, T.vsub, T.vmul, T.vexp, T.copy]
+dtype: [fp16, bf16]
+device: 910B2C
+status: verified
+origin_task: lerp_tensor-_make_lerp_tensor_kernel-20260907T010433Z（首证，VP-2026-0002）/ ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（第二证：bf16 触发编译实证 + 因子链形态）
+toolchain: 首证 tilelang-mlir-dev dev root build（2026-09-07）/ 第二证 tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C（2026-09-17）
+repro: repro-missing
+---
+
+### sub-fp32 逐元素算子 fp32 中转模式（bf16 支持缺失 + fp16 golden 对齐双触发）✅ 两任务实证
+
+- **双触发条件**：① 契约 dtype 含 bf16——v-prefix 算术（vadd/vsub/vmul/vexp）dtype 矩阵不含 bf16（docs/Tilelang.language/数学操作/ 各 §2.2.1），vcast 升 fp32 是唯一计算路径（ssd 第二证：c_scaled 链 fp16 化变体 v7 在 bf16 workload **编译失败** rollback——`T.vmul` bf16 × 的运行时实证）；② fp16 需对齐 torch CPU golden——golden 经 fp32 opmath + 单次舍回，原生域逐步舍入差 2–3 ulp（TRAP-fp16-opmath-golden）。
+- **链结构**：GM→UB(同 dtype) → `vcast(round_mode="rint")`→fp32 → fp32 域 v-prefix 原地链 → `vcast(rint)`→原 dtype → UB→GM（f16/bf16→f32 仅 rint，T.vcast.md §2.2.1）。ssd 因子链形态：cb/C/dt(dtype)→f32 因子域运算、末端回写（Stage 3 L0–Boundary 全过实证）。
+- **UB 预算**：中转路径按 Σ(elem_bytes × buffer_count) 复算（bf16 中转 24B/elem、fp16 中转 20B/elem——VP-2026-0009 混合字节口径）。
+- **实测**（lerp 首证）：max_diff ≤1 ulp fp16（抽样 binade 4.883e-04～1.953e-03）、全量 0 violations；NaN/Inf 角点 IEEE 传播与舍入路径无关（中转后 inf-corner 逐位不变）。
+- repro：repro-missing（知识域最小 repro 待同族任务回填；两证任务内复现命令见 queue VP-2026-0002 证据链——provenance 允许失效）。

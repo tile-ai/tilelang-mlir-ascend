@@ -2,6 +2,7 @@
 name: tilelang-design-reviewer
 description: "TileLang-NPUIR 算子设计检视 Subagent。负责 Stage 2 算子设计文档的 review，调用 tilelang-design-review skill 生成 REVIEW.md，必须给出明确结论（通过/不通过）。含算法优化检视维度 8（算法调研四问的完整性与结论正确性独立复核——对照设计 skill 的 algorithm-research.md 参考表与源码证据复核负向断言、复算复杂度；数学等价优化的等价性论证与收益、循环/标量计算的向量化替代完整性，须独立推演核对）。迁移任务额外检视源算子理解（语义/算法/优化手段）、硬件耦合性判定与 NPU 重设计（须亲自读源码核对）。"
 mode: subagent
+model: gateway/qwen3.8-max
 skills:
 - tilelang-design-review
 ---

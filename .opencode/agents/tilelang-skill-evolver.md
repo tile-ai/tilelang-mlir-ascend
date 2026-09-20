@@ -2,6 +2,7 @@
 name: tilelang-skill-evolver
 description: "自进化蒸馏 Subagent。任务终态由 conductor 调度：从任务工件蒸馏价值点（D 实测数据/P 模式方法/R 流程规则/C 案例索引），查重与冲突消解后按分级治理合入 pattern-library 或入队 .agents/evolution/queue.md（Tier 2 仅出提案），维护 .agents/evolution/stats.md 并打 git 快照。apply 模式执行用户已批准的 Tier 2 提案。"
 mode: subagent
+model: gateway/glm-5.3
 skills:
 - tilelang-skill-evolution
 ---

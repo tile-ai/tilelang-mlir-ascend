@@ -2,6 +2,7 @@
 name: tileops-scaffolder
 description: "TileOps 迁移脚手架 Subagent。负责 Stage 0：读取并执行 examples/TileOPs 下的 add-npu-op skill（机器模式），完成 7 文件移植 + Tier 1 结构校验 + 写出 .migration_meta.json，返回逐 kernel 迁移 prompt 列表。"
 mode: subagent
+model: gateway/glm-5.3-flash
 ---
 
 # TileOps 迁移脚手架 Agent -- Stage 0 执行器

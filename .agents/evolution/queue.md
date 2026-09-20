@@ -35,31 +35,6 @@ decided_by: evolver / human / -   # 裁决者
 
 ### Tier 1（P 类，2 次独立证据后合入）
 
-## VP-2026-0002
-
-- type: P
-- title: sub-fp32 逐元素算子 fp32 中转模式：vcast(rint) 升 fp32 → fp32 域 v-prefix 链 → vcast(rint) 单次舍回（bf16 dtype 支持 + fp16 golden 对齐双触发）
-- evidence:
-  - examples/lerp_tensor/_make_lerp_tensor_kernel/RETROSPECTIVE.md（Stage 1 bf16 触发 + Stage 3 fp16 修复模式提案）
-  - examples/lerp_tensor/_make_lerp_tensor_kernel/_make_lerp_tensor_kernel.py（模块「Implementation Notes (attempt-2 precision fix)」等价性论证 + attempt-2 全量 62 PASS）
-  - docs/Tilelang.language/数学操作/T.vadd.md §2.2.1（v-prefix 算术 dtype 矩阵不含 bf16）
-  - docs/Tilelang.language/数据类型转换操作/T.vcast.md §2.2.1（f16→f32 仅 rint；f32→f16/bf16 含 rint；bf16↔f32 仅 rint）
-- repro: repro-missing（知识域最小 repro 待同族任务回填；原任务内复现命令见 evidence 末行 provenance 项）
-  - 〔provenance，允许失效〕任务内复现命令：python examples/lerp_tensor/_make_lerp_tensor_kernel/_make_lerp_tensor_kernel.py --level all
-- toolchain_stamp: tilelang-mlir-dev dev root build（2026-09-07）；本机 Ascend aicore=24；golden torch 2.9.0+cpu
-- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library.md
-- delta: |
-    add §1 新小节「sub-fp32 逐元素 fp32 中转模式」：
-    双触发条件：① 契约 dtype 含 bf16——v-prefix 算术（vadd/vsub/vmul）dtype 矩阵不含 bf16，vcast 升 fp32 是唯一计算路径；② fp16 需对齐 torch CPU golden——golden 经 fp32 opmath + 单次舍回，原生域逐步舍入差 2–3 ulp（见 pattern-library §2 opmath 行）。
-    链结构：GM→UB(同 dtype) → vcast(rint)→fp32 → fp32 域 v-prefix 原地链 → vcast(rint)→原 dtype → UB→GM。
-    实测：max_diff ≤1 ulp fp16（抽样 binade 4.883e-04～1.953e-03）、全量 0 violations（fp16 的 1e-3 rtol 恒覆盖 1 ulp）；NaN/Inf 角点 IEEE 传播与舍入路径无关（中转后 inf-corner 逐位不变）。
-    UB 预算：中转路径按 Σ(elem_bytes×buffer_count) 复算——bf16 24B/elem（上界 196608/24=8192）、fp16 20B/elem（上界 9830，保守 guard 8192）。
-- status: pending
-- confirmations: 1/2
-- created_by: task lerp_tensor-_make_lerp_tensor_kernel-20260907T010433Z 2026-09-07
-- decided_by: -
-- decided_note: -
-
 ## VP-2026-0003
 
 - type: P
@@ -165,30 +140,6 @@ decided_by: evolver / human / -   # 裁决者
 - decided_by: -
 - decided_note: 三件套齐备；因 target_doc 为 op-design references（Tier 1 写域）而入队——设计期（GPU→NPU 迁移）是该事实的主要消费场景，事实本体已 Tier 0 合入 pattern-library §2。
 
-## VP-2026-0013
-- type: P
-- title: attention 族 Developer 性能阻塞（aiv_scalar>50% / CG-2026-0001 崩溃类）时先评估 Expert 双 Scope 形态再定编程模式——结构级绕法含硬边界清单
-- evidence:
-  - examples/multi_head_attention/_gqa_prefill_fwd_kernel/DESIGN.md#§0（动因：developer 基线 ~3.5 TOps/s = msprof 算力上限 359 TOps/s 的 ~1%，落后 torch-SDPA 10–25×）+ #§0.6 E2/E3
-  - examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/perf_opt/opt_log.md#§0/§4/Round-7（developer 谱系阻塞项来源——**谱系注明**：tilelang 67db6f3 + CANN 26.0.rc1，2026-09-07 晨 developer 轮 Stage 4 产物，非本 expert 任务产物）
-  - examples/deepseek_v4/example_sparse_attn_kernel_highperf.py（Expert 结构全同构先例）
-  - pattern-library §1.7（expert vs developer 同门 bench：长 KV 1.57–1.63× / 短 KV ~1.31× 回退——Expert 形态的收益分界数据）
-- repro: 触发条件——任一 attention 族 Developer kernel 出现 aiv_scalar >50%（谓词 mask 预填标量化）或 CG-2026-0001 崩溃类触发时，对照 highperf 结构评估 Expert 重写（结构形态见 delta）
-- toolchain_stamp: expert 侧 tilelang dev build 21586b5（2026-09-07）+ CANN 8.5.0 + Ascend910B2C；developer 阻塞证据侧 tilelang 67db6f3 + CANN 26.0.rc1（跨代对照已注明）
-- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library.md
-- delta: |
-    add §1 新小节「Expert 双 Scope 流水形态（Developer 阻塞的结构级绕法）」：
-    判据：attention 族 Developer kernel 出现 aiv_scalar >50% 或 CG-2026-0001 崩溃类（Pipelined 体内条件构造 / 跨块计算重叠 / 标量谓词写）时，先评估 Expert 形态再定模式，而非在 Developer 内回退。
-    结构形态：双 Scope（Cube：T.alloc_L1/L0C + load_nd2nz/T.copy + T.gemm + T.store_fixpipe；Vector：T.alloc_ub + v 前缀链）；跨引擎数据经 GM workspace 多槽 + per-slot flag（T.sync_block_set/wait）；staggered stream；运行时 if 在 Expert T.serial 流内合法（Developer CG-2026-0001 崩溃面不适用——Developer 的禁忌不带入 Expert 设计）。
-    Expert 硬边界：kernel 内无 fragment 抽象（T.alloc_fragment/T.Pipelined/T.Parallel 不可用）；pass_configs 关闭 TL_ENABLE_PLAN_AND_UPDATE_BUFFER_ALLOCATION 与 NPUIR_ENABLE_AUTO_MULTI_BUFFER（highperf 先例）；wrapper 契约兼容（工厂内层闭包 + workspace 显式参数，highperf sparse_attn() 形态——workspace 需求不构成改 wrapper 的理由）。
-    实测收益/代价：见 §1.7（长 KV 1.57–1.63×、短 KV ~1.31× 回退——短 workload 为主的算子慎选）；vcmp 标量形态先例与低效警告见 §2 v 算子操作数行。
-    未文档化假设：T.sync_block_set/wait 的 id 预算无文档（仅 T.set_flag.md §2.1 标 event_id 0–15）——flag 族 id 数量只能以先例推断（本轮 7 族在安全域）。
-- status: pending
-- confirmations: 1/2
-- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260907T115424Z 2026-09-07
-- decided_by: -
-- decided_note: -
-
 ## VP-2026-0015
 - type: P
 - title: Expert 跨引擎 workspace 的跨任务槽位复用握手：per-task 槽位重启 + FLAG_TASKDONE 边界（避免 causal 变长 NK 的全局块前缀索引）
@@ -281,6 +232,7 @@ decided_by: evolver / human / -   # 裁决者
   - examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/perf_opt/opt_log.md#Iteration-1（busy 核分解：aic_scalar 41%/aiv_scalar 33% = flag 等待自旋，aic_cube 仅 9% 近峰值——ns=1→2 在 bn=64 上零变化）+ #Iteration-3（bn=512 单槽 -15~-16% vs G2@bn=256；bn=512 双槽 L1 溢出 invalid_compile）+ #Final-Summary（跨轮 busy 核画像主线：flag 等待 25–47% 恒存，块宽摊减是唯一有效方向）
   - pattern-library §1.9（数据侧：块宽摊减律 + cbuf=512KB 上限公式 + wide 单槽模式 + H=1 平衡公式；origin_task: multi_head_attention-_gqa_prefill_fwd_kernel-20260908T005751Z）
   - examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/perf_opt/opt_log.md#Round-10（2026-09-09 同谱系第二轮续调补充〔task 20260909T033622Z，按 VP-2026-0035 同 op 谱系先例不计独立确认〕：v10_dp bn=256 深流水全 case 回退 +11~12%——向量发射开销定律〔每 op ~0.5µs 固定成本〕给出块宽摊减律的机制解释；另实测第三硬上限 L0C=128KB）
+  - 〔2026-09-17 适用边界数据点（不同结构类，不计确认），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z〕mamba 族 MixCV baseline 的串行形态为 **task 级 ping-pong 零重叠**（Vector(T) 产完 → Cube(T) 消费，非块内 flag 自旋）——该位形下**深度 2 任务流水是第一杠杆**（v1_pipe −39.6%，attention.md PL-1.12 update 消费侧前导 set 形态），块宽摊减居次（v6_bn128 −10.5%）：BP_cross_engine_serial_chain 的「块宽优先」结论适用于块内 flag 自旋类；task 级零重叠类先解除流水串行
 - repro: 同结构 kernel（Expert dual-Scope persistent + per-slot flag）扫 bn 64→256→512 × ns∈{1,2}，fa2048/fa4096 non-causal fp16 对照 msprof op Task Duration
 - toolchain_stamp: tilelang 0.1.2+3a214cde / CANN 8.5.0 / Ascend910B2C / 2026-09-08
 - target_doc: .agents/skills/tilelang-op-optimize/references/bottleneck-patterns.md
@@ -492,6 +444,109 @@ decided_by: evolver / human / -   # 裁决者
 - status: pending
 - confirmations: 1/2
 - created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z 2026-09-16
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0083
+- type: D
+- title: SSD/衰减类因子的 cast 侧选择——因子乘在「值随因子缩小的操作数」一侧再 cast 噪声随真值缩小；移到对侧（K 侧因子移动）fp16 绝对噪声放大 38–135×
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/verify_equiv.py（OPT-3 否决行 + 回归 case——K 侧因子化 cast(x·exp·dt) + cb 直读 gemm 的 max 2.9e-3 > atol 1e-3，噪声放大 38–135×；cb 侧因子化 cast(cb·exp·exp) 噪声随 exp 缩小）+ DESIGN.md §1.6.1 否决表
+- repro: repro-missing（知识域最小 repro 待同族任务回填；任务内复现命令见 evidence provenance 项）
+  - 〔provenance，允许失效〕任务内复现命令：python3 examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/verify_equiv.py（含否决项回归 case）
+- toolchain_stamp: torch CPU（2.x，脚本自带）；设计工具链 tilelang 0.1.2+1990aa9fe4 / Ascend910B2C / 2026-09-17
+- target_doc: .agents/skills/tilelang-op-design/references/algorithm-candidates.md（SSD/mamba 族新增条目）
+- delta: |
+    add SSD/mamba 族条目注意事项：衰减/门控类因子（exp(−Δ)、softmax 权重）做 dtype cast 时，因子乘在**值随因子缩小的操作数**上再 cast，绝对量化噪声随真值同步缩小；把因子移到对侧（值不缩小的操作数）会放大绝对噪声并可能超出绝对 atol 门禁——纸面「乘法交换律恒等」≠「容差内等价」，须机器验证（verify_equiv 首轮否决即此形态，返工集中在叙述层）。
+- status: pending
+- confirmations: 1/2
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0084
+- type: P
+- title: L-side anchor 因子化（exp_l·exp_as）存在 fp32 溢出边界——对角块内 s ≥ l0 ⟹ exp_as ≥ 1，块内衰减 > ~88 溢出污染下三角；直接差分 + 掩码前置是无条件安全 fallback
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：DESIGN.md §1.6.1 否决行 #5 / §1.6.3 候选 #9；源码 ssd_chunk_scan.py L350–371 微块 M32 锚点选择注释（anchor 机制正是为此）
+- repro: repro-missing（分析型——边界可由 verify_equiv.py deep_decay 案例扩展复现）
+- toolchain_stamp: 分析基于 fp32 exp 上限 ~e^88.7（无工具链依赖）；核对环境 tilelang 0.1.2+1990aa9fe4 / 2026-09-17
+- target_doc: .agents/skills/tilelang-op-design/references/algorithm-candidates.md（SSD 族注意事项，与 VP-2026-0083 同条目或紧邻）
+- delta: |
+    add SSD 族数值安全注意：L-side anchor 因子化的安全性依赖「两个因子指数均 ≤ 0」的单调论证；对角块（因子定义域重叠，s ≥ l0 ⟹ exp_as ≥ 1）内该论证失效——块内衰减 > ~88（fp32 exp 上限 e^88.7）溢出污染下三角（真实分布 24σ 罕见但非零）。直接差分形式下三角指数恒 ≤ 0、上三角被掩码，无条件安全；源实现的微块 M32 锚点选择即该边界的工程规避。
+- status: pending
+- confirmations: 1/2
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0085
+- type: D
+- title: 累加 gemm 的 A 操作数必须覆盖完整 K 维（N 维）——n-loop 复用单块 [bl,bn] 在 N > bn 时静默算错（max_diff 0.40 符号翻转），小 N 用例全绿是假象
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：Stage 3 修复链——history 路径 c_scaled = C·exp(dA_l) 按 [bl,bn] 单块 + n-loop 复用，N=128/bn=64 时 n-block 1 读到第 0 块（静默算错，仅 L1-256 暴露）；修复 = c_scaled 全维 [bl,N] + Cube n-loop 逐块 T.copy（修复前 L1-256-full max_diff 3.9e-1 → 修复后 1.4e-4）
+- repro: repro-missing（NPU kernel 级；任务内复现 = python3 _ssd_chunk_scan_fwd_kernel.py --level all 观察 L1-256-full FAIL→PASS——provenance 允许失效）
+- toolchain_stamp: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library/traps-runtime.md
+- delta: |
+    add 语义陷阱条目（置于 TRAP-L1-band-dst-tail-overrun 之后）：**累加 gemm 的 A 操作数 K 维覆盖**——history/state 类 Σ_n A[:,n]·B[:,n] 的 n-loop 每块读的是**不同的 A 列段**，只算一块 [bl,bn] 复用会静默算错（N > bn 时才暴露；N_tiles=1 的 L0 用例全绿是假象——验证用例须含 N 维 > block_n 的 case）。修复形态：A 侧因子按 [bl,N] 全维物化，Cube n-loop 逐块 copy 消费。
+- status: pending
+- confirmations: 1/2
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0086
+- type: D
+- title: Expert 模式 T.copy 通用路径不支持跨 dtype（编译报错 "does not support element type casting"）——与 TRAP-C12 的 Developer 静默 VCast 互补；三条落地口径
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：Stage 3 三处跨 dtype copy 报错修复链（prev_states(fp32)→state_t(dtype)、cb/C/dt(dtype)→f32 因子）——显式 dtype 中转 buffer + T.vcast(..., round_mode="rint")（f16/bf16→f32 仅 rint）+ gemm B 的 fp32→dtype cast 放 host wrapped() 内 .to(dtype)（对齐源码 T.cast 语义，golden 仍 fp32）
+  - docs/Tilelang.language/内存操作/T.copy.md §2.3 条 2（通用路径 dtype 一致要求）
+  - 被补充条目：traps-compiler.md TRAP-C12-copy-dtype-cast（Developer GM→UB 隐藏 VCastOp 静默转换——同一 API 两模式行为相反）
+- repro: repro-missing（NPU 编译探针；任务内复现 = grep -n "vcast\|\.to(torch_dtype)" 于任务 kernel——provenance 允许失效）
+- toolchain_stamp: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library/traps-compiler.md
+- delta: |
+    update 条目 TRAP-C12-copy-dtype-cast（追加 Expert 模式互补段）：Developer GM→UB copy 静默插 VCastOp（原文保留）；**Expert 通用路径要求 src/dst dtype 一致**——跨 dtype copy 直接编译报错（"T.copy does not support element type casting"），须显式中转：① 同 dtype copy + T.vcast(..., round_mode="rint")（f16/bf16→f32 仅 rint）；② gemm B 操作数的 fp32→dtype cast 可在 host .to(dtype) 完成；③ 5D 输入 Vector scope GM→UB 动态 extent copy 触发 codegen "cannot find variable" 时关 TL_ENABLE_PLAN_AND_UPDATE_BUFFER_ALLOCATION（PL-1.16 硬边界）。
+- status: pending
+- confirmations: 1/2
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0087
+- type: D
+- title: 向量二元 op 广播形态速查——vmul/vsub/vadd 文档化仅四形（无 [M,N]*[1,N]）、M==N 时方向写反静默算错、vmin 族内原生支持一般列广播（规则不族内统一）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：Stage 2 REVIEW.md 问题 1（v0 列因子 [bs,1] 错向——bl==bs=64 时编译不报错静默算错，本任务设计修订 3 阻塞之首）+ re_review Value Point Proposals（T.vmin.md §2.2.2 明示 src1 (1,N,K)/src2 (M,N,K)→(M,N,K) 一般列广播合法，vs T.vmul/T.vsub/T.vadd §2.2.2 仅四形：[M,N]*[M,N] / [M,N]*[M,1] 行因子 / [1,N]*[1,1] 退化 / [M,N]*scalar——无 [M,N]*[1,N]）
+  - docs/Tilelang.language/数学操作/T.vmul.md#§2.2.2、T.vsub.md、T.vadd.md；比较操作/T.vmin.md#§2.2.2；shape操作/T.vbrc.md#§2.2.2（列因子合法路径：vbrc (1,N,K)→(M,N,K) 展开后全形运算）
+  - 数值演示（torch）：cb*f[64:128].unsqueeze(-1) vs unsqueeze(0) 两形不等、差值 O(数据)（repro 命令可复现）
+  - 反例先例：GQA _gqa_prefill_fwd_kernel.py L401/L405/L645（真行因子 [half,1]）与 L430（j 轴依赖改 T.arange 全形物化）；全仓 9 处 T.vmul 无列因子广播用例
+  - 关联已合入：layout.md PL-1.15-broadcast-perf-tax（性能税半边——本条补形态合法性半边，两半互补成完整速查）
+- repro: repro-missing（文档口径核对 + torch 数值演示；知识域最小脚本待同族任务回填）
+- toolchain_stamp: tilelang 0.1.2+1990aa9fe4 / Ascend910B2C / npu-smi 26.0.rc1（文档口径，未上机）；数值演示 torch 2.7.1+cpu / 2026-09-17
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library/layout.md
+- delta: |
+    add「向量二元 op 广播形态速查」条目（与 PL-1.15 互补，合入时互链）：**行因子 [n,1] 沿尾轴广播（随 i 变化）；随列 j 变化的因子必须 [1,n]——而 [M,N]*[1,N] 不在 vmul/vsub/vadd 文档化 Shape 清单内**（仅四形），列因子须 T.vbrc 展开为 [M,N] 全形再运算（vbrc.md §2.2.2 合法形 src (1,N,K)→dst (M,N,K)）；**M==N（如 bl==bs）时方向写反不报 shape 错、静默算错**。族内不统一：T.vmin §2.2.2 原生支持 (1,N,K)→(M,N,K) 一般列广播——逐 op 读 §2.2.2 是唯一可靠做法，禁止按族类推。配套已核实（供 SSD/causal 族直接引用）：T.vmin/T.vadd 均导出（tilelang/language/__init__.py L73/L79）、fp32 √ / bf16 ×、标量形有生产先例（engram_fwd.py L76）。
+- status: pending
+- confirmations: 1/2
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0088
+- type: P
+- title: BP_aiv_duplication_check——MixCV（Mix Block Dim = 2× Block Dim）画像两 AIV 子块指标相同 ⟹ Vector 程序重复执行 ⟹ subid 分片为第一候选（本轮 −34% 单点）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：opt_log §9 流程观察 1（发现花了 4 轮——前 3 轮把 vector0/vector1 相同指标读作"分摊或镜像"，R4 才用「若分摊则 ratio 应减半」反证确认）+ R4/R5（v8_aivsplit w2 −34.4%；数据侧已回写 attention.md PL-1.13）
+- repro: repro/PL-1.13-aiv-dup-subid-split.py（知识域，2026-09-17 转正——分片骨架 + 机制归因 + 判据）
+- toolchain_stamp: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+- target_doc: .agents/skills/tilelang-op-optimize/references/bottleneck-patterns.md
+- delta: |
+    add 新 BP 条目 BP_aiv_duplication_check（目录行置于 BP_compute_granularity 之后）：触发信号：MixCV kernel（Mix Block Dim = 2× Block Dim）的 msprof PipeUtilization 中两 AIV 子块 vec/mte ratio **完全相同**而非各半（相同时每 AIV 承担 100% 向量工作——AIV 产能 2× 浪费）。反证：ratio 各半 ⟹ 已分摊（GQA v11 类先例已分片）。动作：subid 边界表达式分片（蛇形均衡式见 PL-1.13；禁 if 守卫——TRAP-tvm-parser-rules）为第一候选；分片维度须与 ws 写区域正交。验证：per-AIV vec/mte2/mte3 时间减半 + Task Duration 下降（ssd 实测 −28~−36%）。机制与完整形态：attention.md PL-1.13（互链，不复制）。
+- status: pending
+- confirmations: 1/2
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
 - decided_by: -
 - decided_note: -
 
@@ -814,6 +869,7 @@ decided_by: evolver / human / -   # 裁决者
   - examples/multi_head_attention/_gqa_prefill_fwd_kernel/REVIEW.md（第 3 轮：v1→v2 diff 仅 8 处与修订记录声明一致；「复用 R2」标注 + K_A 全链重推策略；问题 4 三态判定「核心诉求成立 + 残留建议级」实践）
   - examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md#Stage-2-r2/r3（复用白名单/重推黑名单行、diff 全量比对法、不变量对账清单、API 亲验行、原建议文本即 requirements 行）
   - examples/multi_head_attention/_gqa_prefill_fwd_kernel/history_version/design_v1.md（diff 比对基准）
+  - 〔2026-09-17 第二证（不同任务），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z〕RETROSPECTIVE.md re_review 章节——section-diff 复用形态独立复现：v0↔v1 按章节字节 diff 得 10 节 SAME / 9 节 CHG，SAME 节沿用首轮结论（同时证明修订无附带损伤）、CHG 节全量复核；**「修订残留只能靠全文 grep 抓、changelog 不可信作覆盖面依据」再证实**：v1 changelog 自称清理 6 处残留，复检仍独立发现 7 处未同步（§5.3/§9.1/§9.2 旧 UB 数字与 v1 直接矛盾等）——补充机械步骤见 VP-2026-0092（grep 关键词扫描 + 验证脚本 md5 比对）
 - repro: 复现条件——Stage 2 第 N 轮（N≥2）修订版重审（本任务 R2/R3 两轮实证）
 - toolchain_stamp: 证据环境 tilelang 0.1.2 + 910B2C（2026-09-07）
 - target_doc: .agents/skills/tilelang-design-review/SKILL.md
@@ -1240,6 +1296,7 @@ decided_by: evolver / human / -   # 裁决者
   - examples/ada_layer_norm/_ada_layer_norm_kernel/RETROSPECTIVE.md（Stage 2 Skill Flow Issues 首行：ub_budget=skip、core_split=skip 的机械复核 JSON + REVIEW.md 人工逐行复算补位记录）
   - .agents/tools/design_calc_check.py#L100-103（check_ub_budget 行过滤 `^[a-zA-Z_]|缓冲` 把 N 值数字行当 header 跳过）+ #L156-158（skip detail "no per-level buffer tables parsed"）+ #L231-233（core_split skip "insufficient parsed dims"）
   - 交叉引用：queue VP-2026-0009（UB 预算混合字节口径——本条是其机械拦截位的形态扩展）
+  - 〔2026-09-17 第二证（不同任务），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z〕design_calc_check 对该 DESIGN.md **两轮（v0/v1）均 skip 3/4**（ub_budget / l0c_budget / core_split），且 v1 §4.5 已含逐行 Bytes 列与「稳态峰值合计」行、§5.2 有 bl/bs/bp/bn 代码块、§5.5 有 w1–w4 逻辑核数列表仍全部无法解析——与 ada_layer_norm（N 分行驻留表形态）构成**两类表格形态的独立第二证**；REVIEW 只能人工复算（UB 115.25KB 逐项加和、L0C 16KB、逻辑核数 8/768/2560/16384）。机械拦截位（VP-2026-0009 类）连续两任务不生效，建议审批时把本条的 §5.5 workload 分核表解析与 ssd 的 w1–w4 列表形态并入 new 文本 2 的识别范围
 - repro: 复现条件——DESIGN.md 采用「按 N 分行的驻留预算表」（§4.5）或「workload 表格式分核表」（§5.5）形态时跑 design_calc_check 两个检查项（当前均 skip）
   - 〔provenance，允许失效〕任务内复现命令：python3 .agents/tools/design_calc_check.py check --design examples/ada_layer_norm/_ada_layer_norm_kernel/DESIGN.md
 - toolchain_stamp: design_calc_check.py 现行版本；失效环境 tilelang 0.1.2+a83118285a / 2026-09-10
@@ -1373,6 +1430,7 @@ decided_by: evolver / human / -   # 裁决者
 - evidence:
   - examples/TileOPs/tileops/kernels/norm/ada_layer_norm/ada_layer_norm_kernel/perf_opt/opt_log.md#Skill-Retrospective（BP proposal：参数扫描分支〔同 kernel 不同 bm〕的精度门禁 = bench `--check` 精确 (M,N,dtype,bm) golden 比对；结构分支 = 全量 `--level all`——该分层未显式定义，「每个实验分支跑 L0」对参数分支语义模糊，内嵌 L0 表不覆盖被扫的 bm）
   - 同文件 Iteration 1/2/3（参数分支 18+16+8 行记录全走 --check、结构分支走 --level all 的实际执行形态）
+  - 〔2026-09-17 证据扩展（不同任务），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z〕**结构分支 L0 回归须含 bf16 × 非整除 shape 组合**：v5_xband 引入的 L1 band 尾块越界（`s0:s0+bs` 未按 `ts=min(bs,Q−s0)` 裁剪）在 fp16 Q=96 靠 L1 布局运气通过 L0、潜伏 4 轮，仅 Boundary 层 bf16×Q=96 拦截（traps-runtime.md TRAP-L1-band-dst-tail-overrun；opt_log §6.1/§9.2）——「结构分支必须全量 --level all」若不含 bf16×非整除组合仍是假门禁
 - repro: 复现条件——任一含参数扫描分支（同 kernel 不同 bm/config）的调优轮（本任务 round 1/3 实证形态）
 - toolchain_stamp: tilelang 0.1.2+a83118285a + Ascend910B2C + CANN 8.5.0 / 2026-09-10
 - target_doc: .agents/skills/tilelang-op-optimize/SKILL.md
@@ -1398,6 +1456,7 @@ decided_by: evolver / human / -   # 裁决者
   - .agents/tools/ab_test.py#L50-51（os.makedirs 两处，无 chmod）
   - 交叉引用：queue VP-2026-0037（msprof 父目录权限规则——profile-collection.md 规则侧，本条为工具侧互补修复）
 - repro: 复现条件——默认 umask 002 的共享 checkout 下以默认权限建 msprof 输出目录后执行采集（本任务实证形态；VP-2026-0037 的 8/8 首采失败为同机制父目录侧实证）
+  - 〔2026-09-17 第三现（不同任务），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z〕opt_log §9.4——ab_test.py 的 msprof 输出目录 group-writable 拒采再现（R5 蛇形裁决 pair 采集），本任务以预创建 pair 目录规避；两提案（0037 规则侧 / 0054 工具侧）均 pending 未 apply 期间的第三次发生
 - toolchain_stamp: CANN 8.5.0 msprof / Ascend910B2C / 2026-09-10
 - target_doc: .agents/tools/ab_test.py
 - delta: |
@@ -1674,6 +1733,7 @@ decided_by: evolver / human / -   # 裁决者
 - evidence:
   - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/_gqa_prefill_fwd_kernel/RETROSPECTIVE.md Stage 2（2026-09-15）Skill Flow Issues 首行（T.sync_block_set.md §1 仅「同一 block 中的其他执行单元」一句、无多生产者语义条款；reviewer 只能以双生产先例〔E1-E7 29/29 + v11nt fa-tuned〕背书；设计侧列为 R-1 风险项 + 拆双 id 回退）
   - docs/Tilelang.language/同步管道操作/T.sync_block_set.md §1（现行文本无该条款）
+  - 〔2026-09-17 生产先例追加（不同任务不同族），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z〕mamba 族 MixCV persistent（AIV subid 蛇形分片后**双 AIV 仍执行相同 set/wait 序列**、同 flag id）全量门禁 + Stage 4 六轮 + TileOPs 集成 11/11 bench 通过——「one-set-multi-wait」形态第二个跨族生产实证（GQA dual-producer 之外）
 - repro: 只读核对（无运行时依赖）——docs/Tilelang.language/同步管道操作/T.sync_block_set.md §1 无聚合语义条款
 - toolchain_stamp: 仓库 docs 现状 2026-09-15；与 tilelang 版本无关（文档条款缺失）
 - target_doc: docs/Tilelang.language/同步管道操作/T.sync_block_set.md
@@ -1991,7 +2051,190 @@ decided_by: evolver / human / -   # 裁决者
 - decided_by: -
 - decided_note: -
 
+## VP-2026-0089
+- type: R
+- title: pattern-library 条目时效性判定口径——以条目自身 `status:` + front-matter 重验行为准，kb_stale_check 全局 stale_count 可因工具链戳批量失配虚高（stale_count=83 误伤 verified 条目致掩码主备倒置）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：函数级 RETROSPECTIVE.md Stage 2 Skill Flow Issues 第 3 行 + Value Point Proposals——设计把 PL-1.11（front-matter `status: verified` + L117 载 2026-09-16 a13585dc 重验维持行）记作「stale 线索」并据此把实测已根治的病态形态（int16 vcmp 标量化占壁钟 45%）选为主选，Stage 2 独立复核才发现；根因 = kb_stale_check 全局 stale_count=83（工具链 0.1.2+1990aa9fe4 与条目戳批量失配）被当作单条目判定依据
+  - Stage 1 first_design 同源问题：全局 stale 使设计期 roofline 只能按"估算口径"引用关键常数（CONST-capacity / CONST-vector-launch-overhead / CONST-mte2），削弱 D-2 定量性
+  - pattern-library/attention.md#L110-L131（PL-1.11 status: verified + 重验行）vs DESIGN.md §1.6.3 候选 #3「stale 线索」定性
+- repro: python3 .agents/tools/kb_stale_check.py（观察全局 stale_count 与单条 status 的口径差）；grep -n -A3 "^id: PL-1.11" .agents/skills/tilelang-op-optimize/references/pattern-library/attention.md（读 status 与重验行）
+- toolchain_stamp: kb_stale_check.py 现行版本；发生环境 tilelang 0.1.2+1990aa9fe4 / 2026-09-17
+- target_doc: .agents/skills/tilelang-design-review/SKILL.md
+- delta: |
+    动作: update（维度 8 第 5 条「弃选论证查证」末尾追加一句）
+    定位锚: "代价类论断未引用 pattern-library 已有实测数据的，要求补证（该量已有实测则不再是"未实证假设"）。"
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+      代价类论断未引用 pattern-library 已有实测数据的，要求补证（该量已有实测则不再是"未实证假设"）。**条目时效性判定口径**：pattern-library 条目是否 stale 以**条目自身 front-matter `status:` 字段 + 重验行**为准；`kb_stale_check` 的全局 stale_count 可能因工具链版本戳批量失配而虚高（2026-09-17 ssd 实证：stale_count=83 误导设计把 `status: verified` 且已跨工具链重验维持的 PL-1.11 降级为「stale 线索」，致掩码主备倒置、实测已根治形态被重选为主选）——不得据全局计数把 verified 条目降级，工具链戳失配只触发「待重验」标注而非结论失效。
+    动机: 同一口径建议同步写入 tilelang-op-design 的弃选论证证据规则（Phase 2/Phase 3 引用 pattern-library 处）——本提案主锚 design-review，op-design 侧同步属同语义扩散，审批时可一并裁决。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0090
+- type: R
+- title: 机器验证脚本的「模型形态」须与设计规格 API 级操作数同形核对——EQUIV_PASS 只覆盖数学、不覆盖 API 形态偏差（[1,bs] 脚本正确 + [bs,1] 规格错误仍全绿放行）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：函数级 RETROSPECTIVE.md Stage 2 Skill Flow Issues 首行 + Value Point Proposals——verify_equiv.py 重跑全 EQUIV_PASS 且与 §1.6.1 内嵌表逐项相符（skill Phase 1 第 7 步判定条件全满足），但脚本用 unsqueeze(0)（[1,bs] 列因子）建模、DESIGN.md §3.2/§3.3 却写 [bs,1]——数学被验证正确、API 形态错误，「假安心」直到 Stage 2 形态对读才发现
+- repro: 复现条件——verify_equiv 类脚本与 DESIGN §3.2/§3.3 的形态对读（任务内对读命令见 evidence provenance 项）
+  - 〔provenance，允许失效〕任务内对读命令：grep -n "unsqueeze" examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/verify_equiv.py 与 grep -n "0:1\]" examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/DESIGN.md 对读
+- toolchain_stamp: 检视层规则（无运行时依赖）；证据环境 tilelang 0.1.2+1990aa9fe4 / 2026-09-17
+- target_doc: .agents/skills/tilelang-design-review/SKILL.md
+- delta: |
+    动作: update（Phase 1 第 7 步「重跑等价性验证」bullet 扩展）
+    定位锚: "   - **重跑等价性验证**（`DESIGN.md` §1.6.1 含采纳优化项时）：`python examples/{project}/{op}/verify_equiv.py`——执行结果须与 §1.6.1 内嵌结果表一致且全部 `EQUIV_PASS`；脚本缺失、执行失败或与内嵌表不一致 → 维度 8 fail（等价性机器验证失效）；"
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+       - **重跑等价性验证**（`DESIGN.md` §1.6.1 含采纳优化项时）：`python examples/{project}/{op}/verify_equiv.py`——执行结果须与 §1.6.1 内嵌结果表一致且全部 `EQUIV_PASS`；脚本缺失、执行失败或与内嵌表不一致 → 维度 8 fail（等价性机器验证失效）。**模型形态同形核对**：抽查验证脚本中各因子/操作数的 shape 形态（unsqueeze 方向、[n,1] vs [1,n]）与 §3.2/§3.3 的 API 级操作数是否同形——形态不一致时机器验证不覆盖该偏差（2026-09-17 ssd 实证：脚本 [1,bs] 正确 + 规格写 [bs,1]，EQUIV_PASS 全绿仍放行至 Stage 2），须在维度 8 单列；
+    动机: 配套（同语义扩散，审批时可一并裁决）：tilelang-op-design SKILL.md Phase 2 机器验证产出规范补一句「verify_equiv 脚本注释须标注每个因子的 shape 形态（如 `# [1,bs]`），供检视侧与 §3.2/§3.3 交叉核对」——形态标注是同形核对的可机械化前提。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0091
+- type: R
+- title: 编程模式选型硬约束——persistent 分核（核内 T.serial 多任务 + gemm）⟹ Expert 模式；design-review 维度 4 增「模式与分核策略一致性」必查行
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：函数级 RETROSPECTIVE.md Stage 3 Skill Flow Issues 首行——DESIGN §2.1/§0.7 声明 Developer 模式（user_requirement 亦指定）与自身 §0.6 R1 persistent 24 核分核策略不兼容，Stage 2 检视未拦截；Developer 首实现运行时崩溃（"unaligned UUB addresses"），Expert 同结构正常（repro/TRAP-DEVMODE-PERSIST-GEMM.py 双模式对照 + CG-2026-0010）
+  - 判定依据：全仓 24 处 is_npu=True 中 Developer 仅用于非 persistent 网格（flash_attn_npuir_dev.py、fp8_lighting_indexer.py），persistent 混合算子（GQA、sparse_mla_fwd_exp.py）全部 Expert
+- repro: python3 .agents/skills/tilelang-op-optimize/references/pattern-library/repro/TRAP-DEVMODE-PERSIST-GEMM.py（Expert 数值断言 + Developer 崩溃双模式对照）
+- toolchain_stamp: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+- target_doc: .agents/skills/tilelang-op-design/SKILL.md
+- delta: |
+    动作: update（Phase 4 章节列表第 2 项扩展）
+    定位锚: "2. 编程模式选型"
+    old 文本: |
+      2. 编程模式选型
+    new 文本: |
+      2. 编程模式选型（**persistent 硬约束**：分核策略含核内 `T.serial` 多任务 + `T.gemm`（persistent 混合算子）⟹ **Expert 模式**（显式 `T.Scope("Cube")`/`("Vector")` + alloc_L1/L0C/alloc_ub + sync_block_set/wait）——Developer 模式对该结构类运行时崩溃（"unaligned UUB addresses"，pattern-library TRAP-DEVMODE-PERSIST-GEMM / CG-2026-0010，2026-09-17 ssd 实证）；Developer 仅适用于非 persistent 简单网格；user_requirement 指定 Developer 而结构落入该类时，在设计文档记录实测仲裁依据后切换并披露）
+    动机: 模式选型错误不在 Stage 2 拦截（检视只看文档不编译），以 Stage 3 运行时崩溃形式暴露成本最高（本任务白耗一次 attempt + 模式重写）。配套（同语义扩散）：tilelang-design-review SKILL.md 维度 4 表追加一行 `| 模式-分核一致性 | §2.1 编程模式与 §0.6/§5 分核策略一致（persistent + gemm ⟹ Expert，TRAP-DEVMODE-PERSIST-GEMM） |`（锚：维度 4 表末行 "| L0C 溢出 | 已在内存层级维度处理 |" 之后）。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0092
+- type: R
+- title: 修订复检两机械步骤——v0 错误值/表述提炼成 grep 关键词全文扫描（区分历史说明 vs 未同步残留）+ 验证脚本 md5 比对（防「改脚本过关」）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：函数级 RETROSPECTIVE.md re_review 章节——v1 changelog 自称清理 6 处残留，复检独立发现 **7 处未同步**（§5.3/§9.1/§9.2 旧 UB 数字 115/129/196KB 与 v1 的 99/111/168KB 直接矛盾、§6.4/§3.5.1 的 `tk ≥ 32` 旧钳位、3 处 verified 条目仍标 stale）；grep 关键词组：`115KB\|129KB\|196KB\|贴限`、`tk ≥ 32\|K ≥ 32`、`stale 线索\|stale 条目`；另复检额外做了 verify_equiv.py md5 比对（dd0f0a8f… 与首轮一致）+ 形态同形核对确认分叉已闭合——均为 skill 未要求的自发动作
+  - 交叉引用：queue VP-2026-0028（修订版重审工作流——diff 锁定深查范围；本条补其未覆盖的两个机械步骤）、VP-2026-0090（形态同形核对）
+- repro: 复现条件——任一 Stage 2 不通过后修订版的复检（本任务 7 处残留实证）
+- toolchain_stamp: 检视层规则（无运行时依赖）；证据环境 tilelang 0.1.2+1990aa9fe4 / 2026-09-17
+- target_doc: .agents/skills/tilelang-design-review/SKILL.md
+- delta: |
+    动作: update（Phase 1 第 7 步「重跑等价性验证」bullet 后追加同层 bullet）
+    定位锚: "   - **算术复算**：`python3 .agents/tools/design_calc_check.py --design <path>`——逐项消费其 JSON 输出："
+    old 文本: （即上述定位锚原文所在 bullet 起始行）
+    new 文本: |
+       - **算术复算**：`python3 .agents/tools/design_calc_check.py --design <path>`——逐项消费其 JSON 输出：
+       - **修订复检（revision re-review）两机械步骤**（2026-09-17 ssd 实证：changelog 自称清理 6 处、复检 grep 仍抓出 7 处未同步，其中 2 处与修订版主体直接矛盾）：① 对每个已修复的阻塞/建议项，把 v0 的错误值与错误表述提炼成 grep 关键词在修订版全文扫描，命中处逐一判定「历史说明（changelog/风险条目/源码描述节，合法）」vs「未同步残留（现行规格节 §3–§6/§9 结论句，记建议级）」——不得以 changelog 修复清单作覆盖面依据；② 复检时记录并比对机器验证脚本（verify_equiv.py 等）与首轮的 md5——脚本未变而结论仍 PASS 才是有效证据，脚本有变更须判定变更性质（新增 case 合法、放宽阈值或改变建模形态需重新独立推演）。
+    动机: 修订残留与「改脚本过关」是复检的两个结构性盲区——摘要/风险/循环章节最易漏改（本任务 7 处分布实证），md5 是零成本防篡改核。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0093
+- type: R
+- title: Stage 5 集成两防线——① wrapper `default_config` 与 kernel 内嵌 tuned 默认的口径衔接（翻转切换块激活 perf_opt 时同步核对，二者取一或标注口径差异）② 集成前工厂签名 diff 核对（零成本防线）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：op 级 RETROSPECTIVE.md Stage 5——wrapper 脚手架 `default_config`（baseline 启发式硬编码 block_n=64/num_stages=3）在 perf_opt 激活后仍显式传参，覆盖调优版 kernel 内嵌 `TUNED_DEFAULT_CONFIG(block_n=128/num_stages=2)`（custom_op 显式传参优先级更高），Stage 4 tuned config 集成态不生效；integration_log.md「Bench 观察项 #2」（bench 输出 config 与 opt_log §final 不一致）+ 工厂签名核对段（`diff <(sed -n '/^def .../,/^):/p' ...)` 输出 SIGNATURE_IDENTICAL——签名逐参一致使 wrapper 胶水零改动完成切换）
+- repro: 复现条件——任一 perf_opt 激活态集成（wrapper default_config 显式传参 vs kernel TUNED_DEFAULT_CONFIG 内嵌默认的优先级差）
+- toolchain_stamp: tilelang npuir dev build（1990aa9fe4 谱系）+ CANN 8.5.0 / 2026-09-17
+- target_doc: .opencode/agents/tilelang-op-integrator.md
+- delta: |
+    动作: update（第一步 bullet 列表末尾追加两条）
+    定位锚: "- 若脚本报 `[warn] no DESIGN.md ...`（某函数产物目录无 DESIGN.md）：harness 流程不应出现（Stage 1 门禁保证存在）；出现时记录到 `integration_log.md` 的 issues 并继续，不手工补拷贝。"
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+   - 若脚本报 `[warn] no DESIGN.md ...`（某函数产物目录无 DESIGN.md）：harness 流程不应出现（Stage 1 门禁保证存在）；出现时记录到 `integration_log.md` 的 issues 并继续，不手工补拷贝。
+   - **工厂签名 diff 核对（集成前零成本防线）**：对 baseline 与 perf_opt 的同函数工厂签名段做 sed+diff 比对（`diff <(sed -n '/^def {func}/,/^):/p' <baseline> <perf_opt>)`）——签名逐参一致时 wrapper 胶水零改动即可切换，不一致时先对齐签名再翻转（2026-09-17 ssd 实证：SIGNATURE_IDENTICAL）。
+   - **config 口径衔接（翻转切换块激活 perf_opt 时）**：核对 wrapper `default_config` 与调优版 kernel 内嵌 tuned 默认（TUNED_DEFAULT_CONFIG 类模块级常量）——custom_op 显式传参优先级高于内嵌默认，wrapper 旧 config 会静默覆盖 tuned config 使 Stage 4 调优集成态不生效；二者取一（改 wrapper 引用 tuned 常量，或保持 wrapper 默认并在 integration_log 标注口径差异与不可同口径对比的 bench 边界，2026-09-17 ssd 形态）。
+    动机: Stage 4 调优结论与 Stage 5 bench 数值的可比性依赖 config 口径一致；本任务 bench 11 dispatch 全部跑在 wrapper 默认 config 上（与 tuned 不同口径），不核对则调优收益在集成态静默丢失且无告警。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0094
+- type: R
+- title: 关键决策引用须抄录一手来源限定条款原文（形态/数字/状态三类均适用）+ §3/§4/§6 三方对读细化为可 grep 的机械对读点
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z：函数级 RETROSPECTIVE.md Stage 1 revision 章节——v0 三个阻塞错误共同根因 = 引用证据未打开一手来源核对：① 列因子形态凭直觉写 [bs,1]（未对照 T.vmul.md §2.2.2 四形清单）；② intra FLOPs 手算 6.46G 未与 manifest 权威公式 9.7G→6.44G 交叉核对（2× 高估直送审）；③ PL-1.11 只看 kb_stale_check 全局计数即降级（未读条目自身 status + 重验行）——形态/数字/状态三类各踩一个；另 v0 §3.3 伪代码与 §6.1 循环表、§4.5 预算表与 §3.3 buffer 使用两处自相矛盾（成文未做三方对读终检，质量清单 #21 执行流于形式）
+- repro: 复现条件——任一引用 docs/pattern-library/manifest 三类信息做关键决策的设计期（本任务 3 阻塞 + 2 内部矛盾实证）
+- toolchain_stamp: 设计层规则（无运行时依赖）；证据环境 tilelang 0.1.2+1990aa9fe4 / 2026-09-17
+- target_doc: .agents/skills/tilelang-op-design/SKILL.md
+- delta: |
+    动作: update（Phase 3 步骤 0.5 段落之后追加一条机械规则）
+    定位锚: "> 迁移任务的额外信息源：Phase M0/R/M1 的源算子解读、算法调研结论与迁移决策（优先级介于 `examples/` 同类实现与外部参考实现之间——迁移决策界定"算法该怎么设计"，`examples/` 界定"API 怎么用"）。"
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+      > 迁移任务的额外信息源：Phase M0/R/M1 的源算子解读、算法调研结论与迁移决策（优先级介于 `examples/` 同类实现与外部参考实现之间——迁移决策界定"算法该怎么设计"，`examples/` 界定"API 怎么用"）。
+
+      > **引用抄录规则**：关键决策引用的每个 docs / pattern-library / manifest 来源，引用时须抄录其限定条款原文——三类信息都是被引用对象：**形态类**（shape 支持清单，如 T.vmul.md §2.2.2 四形）、**数字类**（实测倍数/复杂度，须与 manifest 权威公式双源交叉）、**状态类**（条目 front-matter status + 重验戳）。「负向断言须引用条款」已有，正向选型引用同样适用（2026-09-17 ssd 实证：v0 三个阻塞错误恰好各踩一类——形态凭直觉、数字单源手算 2× 高估、状态只看全局计数）。
+    动机: 配套（同语义扩散，审批时可一并裁决）：Phase 2 产出规范「§1.6.3 布局决策与 §3.3/§4/§6 三方一致」细化为三个可 grep 的机械对读点——buffer 名集合（§3.3 vs §4.5 vs §6.1）、循环 API 形态（§3.3 vs §6.1）、因子 shape 形态（§3.2/§3.3 vs §1.6.3）——对读点可机械化后才不流于形式（本任务 v0 两处自相矛盾均属三方对读缺失）。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17
+- decided_by: -
+- decided_note: -
+
 ## Decided（merged / rejected / expired / conflict 归档）
+
+## VP-2026-0002
+- type: P
+- title: sub-fp32 逐元素算子 fp32 中转模式：vcast(rint) 升 fp32 → fp32 域 v-prefix 链 → vcast(rint) 单次舍回（bf16 dtype 支持 + fp16 golden 对齐双触发）
+- evidence:
+  - examples/lerp_tensor/_make_lerp_tensor_kernel/RETROSPECTIVE.md（Stage 1 bf16 触发 + Stage 3 fp16 修复模式提案）
+  - examples/lerp_tensor/_make_lerp_tensor_kernel/_make_lerp_tensor_kernel.py（模块「Implementation Notes (attempt-2 precision fix)」等价性论证 + attempt-2 全量 62 PASS）
+  - docs/Tilelang.language/数学操作/T.vadd.md §2.2.1（v-prefix 算术 dtype 矩阵不含 bf16）
+  - docs/Tilelang.language/数据类型转换操作/T.vcast.md §2.2.1（f16→f32 仅 rint；f32→f16/bf16 含 rint；bf16↔f32 仅 rint）
+  - 第二证（不同任务，2026-09-17）：task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z——opt_log Round 3 v7_cf16（c_scaled 链 fp16 化变体在 **bf16 workload 编译失败** rollback：`T.vmul` bf16 × 的运行时实证，触发条件①独立复现）+ Stage 3 因子链形态（cb/C/dt(dtype)→f32 因子域 + `T.vcast(..., round_mode="rint")` 末端回写，L0–Boundary 全过——链结构同构第二证）
+- repro: repro-missing（合入条目标注 repro-missing，ED-B 显式形态；两证任务内复现命令见 evidence——provenance 允许失效）
+- toolchain_stamp: 首证 tilelang-mlir-dev dev root build（2026-09-07）；第二证 tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C（2026-09-17）
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library.md（历史路径——按 queue 头部映射规则解析为 pattern-library/elementwise.md）
+- delta: |
+    add 新小节「sub-fp32 逐元素 fp32 中转模式」（原 delta 全文，含双触发条件 / 链结构 / 实测 / UB 预算四段）。
+- status: merged
+- confirmations: 2/2
+- created_by: task lerp_tensor-_make_lerp_tensor_kernel-20260907T010433Z 2026-09-07
+- confirmed_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17（bf16 触发编译实证 + 因子链形态第二证）
+- decided_by: evolver
+- decided_note: 两次独立证据来自不同任务不同族（lerp elementwise 2026-09-07 / ssd mamba MixCV 2026-09-17），达 Tier 1 阈值 2/2。第二证确证触发条件①（bf16 编译失败）与链结构；触发条件②（fp16 golden 对齐）未单独复现、由首证保留。本蒸馏周期合入 elementwise.md PL-1.17-subfp32-fp32-transit（front-matter 双任务溯源，repro-missing 显式标注）。
+
+---
+
+## VP-2026-0013
+- type: P
+- title: attention 族 Developer 性能阻塞（aiv_scalar>50% / CG-2026-0001 崩溃类）时先评估 Expert 双 Scope 形态再定编程模式——结构级绕法含硬边界清单
+- evidence:
+  - examples/multi_head_attention/_gqa_prefill_fwd_kernel/DESIGN.md#§0（动因：developer 基线 ~3.5 TOps/s，落后 torch-SDPA 10–25×）+ #§0.6 E2/E3
+  - examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/perf_opt/opt_log.md#§0/§4/Round-7（developer 谱系阻塞项来源——谱系注明：tilelang 67db6f3 + CANN 26.0.rc1）
+  - examples/deepseek_v4/example_sparse_attn_kernel_highperf.py（Expert 结构全同构先例）
+  - pattern-library §1.7（expert vs developer 同门 bench：长 KV 1.57–1.63× / 短 KV ~1.31× 回退）
+  - 第二证（不同任务不同族，2026-09-17）：task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z Stage 3——**persistent 分核 + gemm + v-prefix 混排在 Developer 模式运行时崩溃**（"unaligned UUB addresses"，repro/DEVMODE_PERSIST_CRASH.py 双模式对照）→ 切换 Expert（显式双 Scope + pass_configs 关闭 TL_ENABLE_PLAN_AND_UPDATE_BUFFER_ALLOCATION）后 L0–Boundary 全过 + Stage 4 调优 2.91×；触发类从「性能阻塞/条件构造崩溃」扩展到「persistent+gemm 模式级不兼容」，Expert 硬边界（pass_configs）获独立第二实证
+- repro: pattern-library/repro/TRAP-DEVMODE-PERSIST-GEMM.py（知识域，2026-09-17 转正——Expert 数值断言 + Developer 崩溃双模式对照）
+- toolchain_stamp: 首证 tilelang dev build 21586b5（2026-09-07）；第二证 tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C（2026-09-17）
+- target_doc: .agents/skills/tilelang-op-optimize/references/pattern-library.md（历史路径——按 queue 头部映射规则解析为 pattern-library/attention.md）
+- delta: |
+    add §1 新小节「Expert 双 Scope 流水形态（Developer 阻塞的结构级绕法）」（原 delta 全文：判据 / 结构形态 / Expert 硬边界 / 实测收益代价 / 未文档化假设）。
+- status: merged
+- confirmations: 2/2
+- created_by: task multi_head_attention-_gqa_prefill_fwd_kernel-20260907T115424Z 2026-09-07
+- confirmed_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z 2026-09-17（persistent+gemm 模式级不兼容触发类扩展 + pass_configs 硬边界第二证）
+- decided_by: evolver
+- decided_note: 两次独立证据来自不同任务不同族（attention 2026-09-07 / ssd mamba 2026-09-17），达 Tier 1 阈值 2/2。第二证为「方向确认 + 触发条件扩展」关系：核心主张（Developer 阻塞 → Expert 双 Scope 结构级绕法）被独立确认，触发类扩展为三类（新增 persistent+gemm 崩溃，traps-runtime.md TRAP-DEVMODE-PERSIST-GEMM / CG-2026-0010）；user_requirement 指定 Developer 时以实测为仲裁依据切换。本蒸馏周期合入 attention.md PL-1.16-expert-dualscope-bypass。
+
+---
 
 ## VP-2026-0014
 - type: P

@@ -1,0 +1,69 @@
+# mamba.yaml -- manifest entries for the 'mamba' (Mamba-2 / SSD) family (NPU benchmark).
+#
+# Standalone spec; no dependency on the TileOPs repository.
+# Ported from the GPU TileOPs manifest (tileops/manifest/mamba.yaml,
+# SSDChunkScanFwdOp entry only; the other mamba entries -- DaCumsum,
+# CBProducer, SSDChunkState, SSDStatePassing, SSDDecode, Mamba2Fwd -- are not
+# migrated yet).  signature / shape_rules / workloads are copied verbatim from
+# the GPU entry (extended with a leading smoke case per the NPU manifest
+# workload contract); roofline is the GPU
+# ``tileops.perf.formulas.ssd_chunk_scan_fwd_roofline`` inlined as
+# vars/flops/bytes (the NPU project has no tileops.perf module).
+#
+# See docs/gpu_to_npu_adaptation.md for the GPU-to-NPU adaptation notes.
+
+SSDChunkScanFwdOp:
+  ref_api: "none"
+  family: mamba
+  status: spec-only
+
+  signature:
+    inputs:
+      x: {dtype: "float16 | bfloat16", shape: "[B, S, H, P]"}
+      cb: {dtype: "same_as(x)", shape: "[B, NC, G, Q, Q]"}
+      dA_cumsum: {dtype: "float32", shape: "[B, H, NC, Q]"}
+      C: {dtype: "same_as(x)", shape: "[B, S, G, N]"}
+      prev_states: {dtype: "float32", shape: "[B, NC, H, P, N]"}
+      dt: {dtype: "same_as(x)", shape: "[B, H, NC, Q]"}
+    outputs:
+      y: {dtype: "float32", shape: "[B, S, H, P]"}
+    params: {}
+    shape_rules:
+    - "S == NC * Q"
+    - "H % G == 0"
+
+  workloads:
+    # Smoke: smallest robust shape (NPU manifest workload contract).
+  - {x_shape: [1, 128, 4, 64], cb_shape: [1, 2, 1, 64, 64], dA_cumsum_shape: [1, 4, 2, 64], C_shape: [1, 128, 1, 32], prev_states_shape: [1, 2, 4, 64, 32], dt_shape: [1, 4, 2, 64], dtypes: [float16, bfloat16], label: "ssd-chunk-scan-smoke"}
+    # Full: GPU manifest workloads.
+  - {x_shape: [1, 4096, 48, 64], cb_shape: [1, 16, 1, 256, 256], dA_cumsum_shape: [1, 48, 16, 256], C_shape: [1, 4096, 1, 128], prev_states_shape: [1, 16, 48, 64, 128], dt_shape: [1, 48, 16, 256], dtypes: [float16, bfloat16], label: "mamba2-780m-b1-s4k"}
+  - {x_shape: [4, 2048, 80, 64], cb_shape: [4, 8, 1, 256, 256], dA_cumsum_shape: [4, 80, 8, 256], C_shape: [4, 2048, 1, 128], prev_states_shape: [4, 8, 80, 64, 128], dt_shape: [4, 80, 8, 256], dtypes: [bfloat16], label: "mamba2-2p7b-b4-s2k"}
+  - {x_shape: [2, 32768, 64, 64], cb_shape: [2, 128, 1, 256, 256], dA_cumsum_shape: [2, 64, 128, 256], C_shape: [2, 32768, 1, 128], prev_states_shape: [2, 128, 64, 64, 128], dt_shape: [2, 64, 128, 256], dtypes: [float16], label: "mamba2-1p3b-b2-s32k"}
+
+  # Inlined from the GPU ``tileops.perf.formulas.ssd_chunk_scan_fwd_roofline``:
+  #   history path 2 * tokens * d_state * d_head +
+  #   intra-chunk causal path batch * num_chunks * n_heads * chunk_len**2 * d_head.
+  roofline:
+    vars:
+      batch: "x_shape[0]"
+      seq_len: "x_shape[1]"
+      n_heads: "x_shape[2]"
+      d_head: "x_shape[3]"
+      num_chunks: "cb_shape[1]"
+      n_groups: "cb_shape[2]"
+      chunk_len: "cb_shape[3]"
+      d_state: "C_shape[3]"
+      tokens: "batch * seq_len * n_heads"
+      history_flops: "2 * tokens * d_state * d_head"
+      intra_flops: "batch * num_chunks * n_heads * chunk_len * chunk_len * d_head"
+    flops: "history_flops + intra_flops"
+    bytes: "(tokens * d_head * elem_bytes) + (batch * num_chunks * n_groups * chunk_len * chunk_len * elem_bytes) + (tokens * 4) + (batch * seq_len * n_groups * d_state * elem_bytes) + (batch * num_chunks * n_heads * d_head * d_state * 4) + (tokens * elem_bytes) + (tokens * d_head * 4)"
+
+  source:
+    kernel: tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan.py
+    kernel_map:
+      ssd_chunk_scan_fwd: SSDChunkScanFwdKernel
+    op: tileops/ops/mamba/ssd_chunk_scan.py
+    test: tests/ops/test_mamba.py
+    bench: benchmarks/ops/bench_mamba.py
+    bench_manifest_driven: false

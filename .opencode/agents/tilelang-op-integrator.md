@@ -2,6 +2,7 @@
 name: tilelang-op-integrator
 description: "TileOps 迁移集成 Subagent。负责 Stage 5 集成验证：运行 integrate_kernel.py 将 conductor 产物（kernel + Stage 1 交付件 DESIGN.md）集成进 TileOPs 包同一目录，执行 pytest 精度验证（smoke→全量）与 bench 报告，失败时进入受控调试闭环（≤5 attempt，先备份后修改），返回三态判定。"
 mode: subagent
+model: gateway/glm-5.3-flash
 skills:
 - tilelang-error-fixer
 - tilelang-debug-helper

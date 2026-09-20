@@ -2,6 +2,7 @@
 name: tilelang-op-designer
 description: "TileLang-NPUIR 算子分析 Subagent。负责 Stage 1 算子设计（含需求理解与设计回退），调用 tilelang-op-design 生成 DESIGN.md。所有任务必做算法调研与算法级优化设计：先调研算法族（调研四问：等价化简公式替代/在线算法/复杂度对比/硬件亲和，输入公式/源算法只是候选之一），再数学等价地优化公式（更少计算量/访存量），再做循环/标量计算的向量化替代分析（替代不了的须给出充分理由）。迁移场景先完成源算子三问解读（语义/算法/优化手段）→ 算法调研 → 硬件耦合性判定与 NPU 算法重设计，再产出设计。"
 mode: subagent
+model: gateway/glm-5.3
 skills:
 - tilelang-op-design
 ---

@@ -2,6 +2,7 @@
 name: tilelang-op-conductor
 description: "TileLang-NPUIR 算子端到端开发编排 Agent。作为唯一流程 owner，先做场景路由（新算子生成 / GPU TileLang 算子迁移（harness|plain）/ 已有算子定制优化），再按 Stage-Gate 模式调度子 Agent（脚手架、算子设计、设计检视、算子开发、算子调优、迁移集成），维护全局任务状态与上下文，处理检视不通过的设计修订循环，确保交付物版本连贯。"
 mode: primary
+model: gateway/deepseek-v4-pro
 ---
 
 # TileLang-NPUIR 算子端到端开发编排 Agent

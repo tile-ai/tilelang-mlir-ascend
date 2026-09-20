@@ -103,7 +103,7 @@ repro: repro/PATT-twophase-restructure.py
 - 终值 **12.94/18.11/30.88/98.05µs**（四硬目标 14/19/33/100 全达成，fa1024/2048/4096 优于参考 18.20/32.41/99.09）；每核 L1 r+w 18.70→11.17MB（-40%）、cube 管道 busy 171→66µs；busy/wall 0.66x 与参考（0.68x）等价——加速来自流量削减而非重叠度。
 - **morph 阶梯**（参考实现上逐级叠加本方契约增量的 14 点二分）是本轮定位上下文级差异（transpose 毒化）的决定性方法。bm 上探死点：(128,256) 105.16 / (112,256) 101.84 > (96,256) 98.38（双波装载失衡 + L0C 满配）。
 - **causal 多头域画像与宽块解锁反转（2026-09-15 v3 重生成 + 第五轮调优，VP-2026-0063 两证合入）**：causal 多头域此前从未结构化优化（Sep-07 单遍基线 full 路径 3764/13265µs ≈ 2.25/5.17 TFLOPS vs fa 域两相位 87.6 TFLOPS——headroom >10×）；两相位 v3 窄 config（bn_eff∈{64,144}）vs 单遍 expert 同门对照（msprof kernel-only）：短 KV 1.30–1.32× 提速、长 KV 0.78× 回退——ws 物化流量（S+P+O ≈1.65–2.78GB fabric）只在宽块摊销；第五轮 UB diet（−40.9KB 手工预算，N/D staging 合并 + rowmat 删除）解锁 (64,256) 后反转——长 KV 11.1× 领先（8b-long 1191.63µs）、全域几何 8.53×（完整档案见 PL-1.11），bf16/fp16 平价维持（≤1.7%）。
-- 溯源：`examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/perf_opt/`（opt_log rounds 1–11 + perf_records.jsonl：round 8–10 第二轮 / round 11 第三轮 + perf_feedback.md [DESIGN_LIMIT] 五段档案）；三轮同 commit 3a214cde（2026-09-08～09）；origin_task 三轮分属 20260908T005751Z（第一轮 Stage 4）/ 20260909T033622Z（第二轮续调，产出 hardlimits 小节）/ 20260909T071018Z（第三轮两相位重构，产出本小节 + traps-compiler.md 毒化行）；复现：结构关键更改与机制归因见 `repro/PATT-twophase-restructure.py`（知识域 delta 形态）；端到端（provenance 允许失效）：`msprof op --kernel-name=_gqa_prefill_fwd_main_mix_aic --launch-count=20 --warm-up=5`（median of 20）跑 bench `--use-default-config`（TUNED_DEFAULT_CONFIGS 生效），raw 对账 `profiles/round8|9|10|11|final2|final3/`。
+- 溯源：`examples/TileOPs/tileops/kernels/attention/multi_head_attention/multi_head_attention_kernel/perf_opt/`（opt_log rounds 1–11 + perf_records.jsonl round 8–11 + perf_feedback.md [DESIGN_LIMIT] 五段档案）；三轮同 commit 3a214cde（2026-09-08～09），origin_task 分属 20260908T005751Z / 20260909T033622Z（hardlimits 小节）/ 20260909T071018Z（本小节 + traps-compiler.md 毒化行）；结构关键更改与机制归因见 `repro/PATT-twophase-restructure.py`；端到端复现命令与 raw profile 目录对账见 opt_log 各轮（provenance 允许失效）。
 
 ---
 id: PL-1.11-causal-mask-scalartrap
@@ -125,6 +125,7 @@ repro: repro-missing
 - **NaN 免疫边界**：加法掩码无法清除 NaN（NaN+x=NaN；vmax/vmin 钳位只治 ±Inf，P8 探针）——band-carrying trace（ragged/fractal-min，`S_kv % bn_eff != 0`）必须保留 vselect 选择语义（值替换）；**gemm2 K 维 fractal band 的 0×NaN=NaN 整列污染**（P_band=0 × V_band=未初始化 l1_b NaN 位）用 **zbuf l1_b 每核一次零初始化**根治（[bn_eff,dim] 零张量内部参数，成本 +0.06%）——「stale V rows contribute exactly 0」类假设对 NaN 位不成立（baseline 潜伏同缺陷；上下文依赖触发：完整门禁上下文 3/3 复现、孤立重跑 0/12——前置 case 的 L1 残留决定触发）。
 - **−1e38 哨兵与 softcap 顺序（VP-2026-0014 两证合入补遗，首轮 expert 设计实证 + 第五轮复用）**：masked 哨兵用有限 −1e38 替 −inf——e^{−1e38−m} 对有限 m 下溢为精确 0 与 e^{−inf} 同效，从根上规避 −inf−(−inf) 的 NaN 路径；mask 应用放 softcap 之后——mask→softcap 顺序下 softcap(−1e38)≈−softcap 非精确 0，破坏 P(OOB)=0 不变式（softcap 先行、掩码后置可同时吃掉 NaN/Inf 垃圾分数）。
 - **trace 分派形态**：宽度切换缓冲（`fast_w/legacy_w = bn_eff if cond else 16`）+ 纯名常量 if 预组合（parser 折叠边界详见 traps-compiler.md TRAP-tvm-parser-rules：else 分支破坏折叠、表达式条件生成 runtime if）；softcap trace 的 vtanh 内部 UB 工作区 ∝ bn（>192 溢出，帽 192）。
+- **符号约定变体（2026-09-17 ssd_chunk_scan 第二族实证补充）**：`pen = vmin(i−j, 0)·PEN`（符号约定与 clamp(diff−K_blk,0,1)·(−1e38) 相反、同为有限大数哨兵）——j>i 位 `exp(x + (−1e30))` 下溢为**精确 +0.0**、j≤i 位惩罚恒 0 指数不变（torch 逐位验证 `torch.equal=True`）；PEN 取**有限**大数（1e30/1e38）而非 −inf 是规避 `−inf−(−inf)=NaN` 的关键（与上条哨兵 bullet 同源）。`T.vmin(idx,0,pen)`→`T.vmul(pen,PEN,pen)`→`T.vadd(diff,pen,diff)` 三式均为文档化形（vmin/vadd 标量形有生产先例：engram_fwd.py L76）；分派落地 = 工厂 trace-time `Q % bs` 判定 + 常量 buffer 按域分配不混占 UB。
 - **终值**（msprof op Task Duration，median of 20，(64,256)）：smoke 49.6 / 8b-short 395 / 8b-long 1191.6 / 70b-short 399.8 / 70b-long 1207 µs（fp16）——**vs 两相位 baseline 4.4–14.2x（几何 8.53x）**，长 KV 从上一代单遍 0.78x 回退反转为 11.1x 领先。config 空间封闭性：flag 预算（bn ≥ ceil16(ceildiv(S_kv,15))）使 band-free 宽度只剩 256；UB（×1.10–1.12 开销）封 bm≥88；bm=80 长域 −4.9% 但 smoke +16.7% 回退被域检查拒。
 - 溯源：`examples/multi_head_attention/_gqa_prefill_fwd_kernel/perf_opt/`（opt_log Phase 1 判别链 + Rounds 1–4 + perf_records.jsonl + profiles/phase1|round2|round3|final/）；探针 probe_vcmp_forms/forms/nan_clamp/rt_slice2.py；复现：`python perf_opt/bench.py perf_opt/_gqa_prefill_fwd_kernel.py --case 8b-long --use-default-config --msprof-loop 25` 外部 msprof op 同 opt_log 命令模板。
 
@@ -149,4 +150,73 @@ repro: repro/PL-1.12-bn-clamp-bm-guard.py
 - **f32 S 载体迁移（同型 dtype 对照法）**：bf16（f32 ws_s）比 fp16（f16 ws_s）short 快 6.7% → fp16 域 ws_s 改 f32（省 vcast up、S 无损传输），short −2.3~−5.0%；长域 +1.3% 真实回退（fix/GM 流量 ×2，A/B 交错复测 977→989 两轮方向一致）——**短域赚长域亏，per-shape 决策按噪声阈值与域检查基准判定**。
 - **终值**（msprof Task Duration / Ratio=Perf/359.33 TOps/s，(64,256) + per-shape bm80（S≥256∧D=128））：8b-long 989.26µs/23.63% / 70b-long 1003.19/23.14% / 8b-short 292.25/14.66% / 70b-short 288.99/14.66% / smoke 44.07/2.68%（fp16）——vs 第五轮终值全域 −11~−28%。**Ratio 指标结构**：Perf = counted FLOPs/duration（Computility 按 48 核计而实机 24），奖励利用率不奖励 padding 缩减——bm=80 短域「时长+2.6% + counted flops+17% → Ratio+1.6pt」在该口径下合法但须如实披露。
 - 溯源：`examples/multi_head_attention/_gqa_prefill_fwd_kernel/perf_opt/`（opt_log 第六轮 + perf_records round 5–9 + profiles/r6_phase1|r6_round6|r6_final/）；ratio_extract.py（bin roofline 提取）。
+
+- **update（2026-09-17 ssd_chunk_scan Stage 4，同族轻量形态）**：**消费侧前导 set** 变体——ws 加槽维 ×2 + 4 flag（ready/cons × slot），Cube 循环前 prologue `set(cons0); set(cons1)`（表达"初始空闲"），Vector 侧 T=0/1 的 slot-free wait 立即通过、**免除运行时分支**；每 flag 的 set/wait 严格交替（prologue-set → V-wait(T) → C-set(T) → V-wait(T+2)…），无死锁。与 PL-1.12 的指令流重排形态互补（本变体不动循环结构，只改握手拓扑）。实测 w2 −39.6%（608→367µs，ping-pong 解除）。**配套铁律**：跨引擎 ws 必须**块连续布局**——band 化（行 stride 512B）使 Vector MTE3 时间 3×（106→220µs），吞掉全部 Cube 收益（PL-1.14）。
 - **update（2026-09-16 r9 precision_fix，同任务第七会话）——bn 钳位域 × bm=80 的 UB 耦合与分派守卫**：E6 flag 预算守卫在 S_kv>3840 时把 bn_eff 钳到 >256（如 S_kv=4096→288，nk=15，band_carry 使 legacy 掩码链全宽 [half,288]），叠加 r7e 的 bm=80（half=40）使 BishengIR UB 需求 210080B > 196608B/AIV（"ub overflow"，`--enable-auto-multi-buffer=false` 下实测；该域 {Sq≥256, D=128, S_kv≥3841} 此前无测试/manifest 覆盖）。**修复 = 分派守卫收紧**：bm=80 域追加 `bn_min ≤ TUNED_DEFAULT_BN`（bn 钳位域回退 bm=64）——全部 UB buffer 首维 = half，需求随 half 线性缩放（210080×0.8≈168KB，裕量 ~28KB），性能域（S_kv≤2048）分派输入不变零影响（实测 8b-long fp16 +0.08% / 8b-short fp16 +0.09%，run 噪声）。**两个可迁移判据**：① per-shape bm 放宽必须与 bn 钳位/E6 类守卫做**联合 UB 核算**（两守卫各自安全、组合超限——单点证明纪律同样适用于 dispatch 规则组合）；② 本结构手工核算 214080B vs 实际 210080B（ratio 0.981，actual **低于**手工）——×1.10–1.12 通胀系数（PL-1.11/CG-2026-0008）在 auto-multi-buffer=false 的显式 alloc 结构不必然成立，核算时留 12% 余量即可、不必按 1.7x 悲观。守卫 delta 骨架 + 镜像核算公式（含 pre-fix 失败复现断言）：`repro/PL-1.12-bn-clamp-bm-guard.py`；编译失败全档案 `perf_opt/logs/r9_precision_fix/repro_full_fwd_bf16_r8h.log`（provenance，允许失效）。
+
+---
+id: PL-1.13-aiv-dup-subid-split
+kind: pattern
+family: [expert, mixcv, persistent]
+apis: [T.Kernel, T.Scope, sync_block_set, sync_block_wait, T.serial]
+dtype: [fp16, bf16]
+device: 910B2C
+status: verified
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4；2026-09-17 蒸馏 D2 溯源归位——原回写误标 20260917T0855Z，实际 task_id 以 .stage_state.json 为准）
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+repro: repro/PL-1.13-aiv-dup-subid-split.py
+---
+
+### Mix kernel 双 AIV 重复执行与 subid 分片（−28~−36%）
+
+- **现象与判据**：`T.Kernel(n, is_npu=True)` + `T.Scope("Vector")` 的程序默认在每 block 的**两个 AIV 上重复执行**（Mix Block Dim = 2×Block Dim）。profile 判据：PipeUtilization 中 vector0/vector1 子块的 vec/mte ratio **完全相同**而非各半（ssd_chunk_scan w2: 两 AIV vec_ratio 均 0.66）。未分片时每 AIV 承担 100% 向量工作（GQA "dual-producer" 同 flag 语义的成因）。
+- **分片形态（GQA v11 边界表达式推广）**：`for i in T.serial(lt_count): lt = i + subid + (i%2)*(L_tiles − 2i − 2*subid)` + 双向 clamp——蛇形均衡（L=4 → {0,3}/{1,2}，s-block 权重 5/5）；退化 L 折叠为重复 lt=0（bit-identical 良性）。分片维度须与 ws 写区域正交（按 lt 分片 × ws 按 lt 索引）；双 AIV 仍执行相同 set/wait 序列（one-set-multi-wait 已证）。**禁用 if 守卫**（TRAP-tvm-parser-rules 运行时分支风险）。
+- **实测**（msprof op Task Duration，median of 20）：w2 323.01→211.85µs（−34.4%）、w3 −35.9%、w4 −27.9%；蛇形 vs 交错：w2 ab_test **tie**（run-state 双态），w3/w4 −1.8~−2.4%——按「打平→负载均衡优先」采纳蛇形。配套深度 2 任务流水 + ws 块连续布局（见 PL-1.12 update / PL-1.14），baseline→final 全域 −64~−68%（2.79–3.10×）。
+- 溯源：`examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/perf_opt/`（opt_log R4/R5 + perf_records round 4/5）；结构骨架与机制归因见 `repro/PL-1.13-aiv-dup-subid-split.py`。
+
+---
+id: PL-1.16-expert-dualscope-bypass
+kind: pattern
+family: [attention, expert, mixcv, persistent]
+apis: [T.Scope, T.alloc_L1, T.alloc_L0C, T.alloc_ub, T.sync_block_set, T.sync_block_wait, T.gemm]
+dtype: [fp16, bf16]
+device: 910B2C
+status: verified
+origin_task: multi_head_attention-_gqa_prefill_fwd_kernel-20260907T115424Z（首证，VP-2026-0013）/ ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（第二证：persistent+gemm 模式级不兼容触发类扩展，mamba 族）
+toolchain: 首证 tilelang dev root build 21586b5（2026-09-07）；第二证 tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C（2026-09-17）
+repro: repro/TRAP-DEVMODE-PERSIST-GEMM.py
+---
+
+### Expert 双 Scope 流水形态（Developer 阻塞的结构级绕法）✅ 两任务实证
+
+- **判据**：Developer kernel 出现 ① aiv_scalar >50%（谓词 mask 预填标量化）② CG-2026-0001 崩溃类（Pipelined 体内条件构造 / 跨块计算重叠 / 标量谓词写）③ **persistent 分核 + gemm 混排运行时崩溃**（traps-runtime.md TRAP-DEVMODE-PERSIST-GEMM——ssd 第二证扩展的触发类；user_requirement 指定 Developer 时以该实测为仲裁依据切换）之一时，评估 Expert 双 Scope 形态再定编程模式，而非在 Developer 内回退。
+- **结构形态**：双 Scope（Cube：T.alloc_L1/L0C + load_nd2nz/T.copy + T.gemm + T.store_fixpipe；Vector：T.alloc_ub + v 前缀链）；跨引擎数据经 GM workspace 多槽 + per-slot flag（T.sync_block_set/wait 握手）；staggered stream；运行时 if 在 Expert T.serial 流内合法（Developer 的 CG-2026-0001 禁忌不带入 Expert）。
+- **Expert 硬边界**：kernel 内无 fragment 抽象（T.alloc_fragment/T.Pipelined/T.Parallel 不可用）；`pass_configs` 关闭 `TL_ENABLE_PLAN_AND_UPDATE_BUFFER_ALLOCATION` 与 `NPUIR_ENABLE_AUTO_MULTI_BUFFER`（highperf/GQA 先例；ssd 第二证：Expert 手动 CV split + 多 UB buffer 时不关闭该 pass 会重排/重作用域 buffer → codegen "cannot find variable" 崩溃）；wrapper 契约兼容（工厂内层闭包 + workspace 显式参数——workspace 需求不构成改 wrapper 的理由）。
+- **实测收益/代价**：attention 族长 KV 1.57–1.63×、短 KV ~1.31× 回退（PL-1.7 同门对照——短 workload 为主的算子慎选）；ssd（mamba 族 MixCV persistent）：Developer 崩溃 → Expert 切换后全量门禁绿 + Stage 4 调优几何 2.91×。
+- **未文档化假设**：T.sync_block_set/wait 的 id 预算无文档（仅 T.set_flag.md §2.1 标 event_id 0–15）——flag 族 id 数量以先例推断（constants.md CONST-flag-id-budget ≤15/核）。
+
+---
+id: PL-1.18-ssd-steady-structure-floor
+kind: pattern
+family: [expert, mixcv, persistent, mamba]
+apis: [T.gemm, T.copy, T.alloc_L1, T.sync_block_set, T.sync_block_wait, T.Kernel]
+dtype: [fp16, bf16]
+device: 910B2C
+status: verified
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4 第二轮 R7/R8，w4/w3 取景框）
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+repro: repro-missing
+---
+
+### SSD chunk scan 稳态结构地板：Cube mte2 段数墙的五方向否决（R7/R8）
+
+- **稳态画像（w4：B2·C128·Q256·H64，16384 任务 / 24 核 = 683 任务/核串行）**：Cube mte2 **83.5% 忙比**（3217µs，12978 条 nd2nz，~256ns/条 = 64 段 × ~4ns/128B，段传输主导）+ cube_wait 0.919 / mte1_wait 0.908（数据供应饥饿）；AIV vec 62% **非关键路径**。**短任务串 workload（w2：32 任务/核）的 mte2 72% 是流水爬坡瞬态、低估引擎占比——persistent 任务流水 kernel 的瓶颈诊断须以最长任务串 workload 画像为取景框**。
+- **段数墙构成**（每任务 Cube mte2）：ws_lcb band 重组 640 段（Σ(lt+1)=10 块）+ x 256 + ws_c 128 + prev 128 ≈ 1216 段 × ~4ns —— 这是「Vector 产因子 → GM ws 中继 → Cube 消费」Expert 结构的物理流量（GQA 读放大 H/G 由 L2 吸收，cube read_hit 91% / AIV 99%，非带宽墙）。
+- **五个候选方向的实测否决**（全部 msprof op 同 session 同口径）：
+  1. **band 增量组装**（嵌套包含 → L1 跨 lt 累积，640→256 段）：**数学不可行**——band 块 (lt,s_blk) 内容 = lcb[l0+i, s0+j]，**行内容随 lt 变化**（dA_l 依赖 l），band(lt) 与 band(lt−1) 列前缀无公共可复用内容；L0 实测 L_tiles=1 全过、L_tiles≥2 全挂（max_diff 5.9e-3/7.9e-3）。
+  2. **深度 3 任务流水**（ws 三槽 + 6 flag ≤15）：w2 +0.1% / w3 −2.7% / w4 +1.4% 平区——**3 任务 in-flight 的 ws 工作集 9.2→13.8MB 劣化 L2 局部性，mte2 每条 256→346ns（busy 85%→93% 但更慢）**；任务流水深度存在 L2 甜点（本结构=2）。
+  3. **AIV 减负**（vbrc hoist 等）：无墙钟收益（AIV 非关键）且 hoist 的 vsub alias 形态 +17~20% 税（layout.md PL-1.15 形态二）。
+  4. **x 预取**（x copy 提到 factors-ready wait 前）：稳态 wait ≈ 0（AIV 快于 Cube），ab_test 交错协议 tie（+0.48%, p=0.25）——无间隙可填。
+  5. **L1 双缓冲软件流水**（_a/_b 槽 + lt 编译期展开 + prefetch 先行）：w2 +11.9% / w3 +17.9% / w4 +18.8%——mte2 纯传输 3217→3056µs（idle 确被填）但 **mte2_wait 0.864→0.976：prefetch 的 MTE2 写（L1 _b 槽）与 gemm 操作数装载的 MTE1 读（L1 _a 槽）在 L1 端口层互拖，+700µs 代价 > ~160µs 收益**——910B2C 此 BiSheng 调度下 L1 双缓冲 family blocked（与 PL-1.9-hardlimits 的 L1 端口常数互证）。
+- **方法论**：稳态画像暴露的「新瓶颈」不必然存在「可打空间」——段数是中继结构的物理流量；结构候选受数学事实（band 行绑定）/ L2 局部性（工作集）/ L1 端口（读写竞争）三重约束夹击，逐一实测是唯一裁决方式。单 buffer 消 idle 的正路是减少段数本身（数学/结构层），而非更深流水/更早预取。
+- 溯源：`examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/perf_opt/`（opt_log R7/R8 + §5 清单第二轮五行；perf_records round 7/8；分支文件 _opt_v10/v11/v12/v13/v14_*.py）。

@@ -130,3 +130,63 @@ npuir 上 `T.vrsqrt` lower 为 plain 近似 Vector 指令：输入几何扫描 [
 **绕法**（ada_layer_norm 交付形态）：`T.vsqrt` + `T.vdiv` 组合（sqrt(v)/v ≡ 1/sqrt(v) 实数恒等，两 op 全精度）实测 max rel err 1.07e-7；修正形式 Newton×2 迭代亦可达 6.3e-8（代价 12 个微型 op）。含 rsqrt 且容差 <1e-2 的算子（layernorm/rmsnorm/softmax 归一化族）在本工具链上以组合形态达标。定位手法：中间量分层导出（`out_idx` 多输出落 GM + fp64 精确值对照）单次运行把误差定位到具体指令（ada 案例：mean/d 精确 1.1e-7 而 rstd 偏 1.57e-3 ⇒ 误差独占于 vrsqrt 段）。配套事实：文档文件名与 API 导出名存在偏差是常态（T.rsqrt.md → `T.vrsqrt`；T.vLn.md → `T.vln`），`examples/` 实调代码是 API 名核对入口。
 
 复现：`python repro/TRAP-vrsqrt-plain-precision.py`（断言量级：raw > 1e-3 现象存在 + bypass < 1e-6 绕法通过；工具链修复后首断言翻转即条目推翻信号，届时刷新版本戳）。溯源（provenance，允许失效）：`examples/ada_layer_norm/_ada_layer_norm_kernel/`（Stage 3 分层探针 + Implementation Notes attempt-1 precision fix 段；repro 原件 `examples/ada_layer_norm/_ada_layer_norm_kernel/repro/TRAP-vrsqrt-plain-precision.py`）。
+
+---
+id: TRAP-L1-band-dst-tail-overrun
+kind: trap
+family: [runtime, l1, mixcv]
+apis: [T.copy, T.alloc_L1]
+dtype: [fp16, bf16]
+device: 910B2C
+status: verified
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4；2026-09-17 蒸馏 D2 溯源归位——原回写误标 20260917T0855Z，实际 task_id 以 .stage_state.json 为准）
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+repro: repro/PL-1.13-aiv-dup-subid-split.py
+---
+
+### L1 band 组装 dst 列区间未按尾块裁剪 → 越界写污染相邻 L1（布局敏感潜伏缺陷）
+
+- **形态**：向 `[bl, Q]` L1 band buffer 逐块搬运时写 `l1[0:bl, s0:s0+bs]`——末 s-block 的 `s0+bs > Q`（Q%bs≠0）越出缓冲，越界写破坏相邻 L1 分配。**触发依 L1 布局而变**：fp16 同 shape 靠布局运气通过（L0 PASS 假象），bf16 布局命中关键 operand（max_diff 7.8e-3）——单 dtype 门禁放行双 dtype 契约的潜伏缺陷。
+- **绕法**：src/dst 列宽同步裁剪 `ts = T.min(bs, Q−s0)`（`ws[..., 0:bl, 0:ts] → l1[0:bl, s0:s0+ts]`）；行维可保留 [0:bl]（gemm size 的 tmc 排除 stale 行，输出裁剪丢弃）。
+- **教训**：分支精度回归须含 **bf16 × 非整除 shape** 组合（本缺陷潜伏 4 轮，仅 Boundary 用例拦截）；另注：tilelang 磁盘缓存会在源变更后命中旧二进制（同 max_diff 复现"修复无效"假象）——kernel 源变更后清 `~/.tilelang/cache`。
+- 溯源：`examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/perf_opt/`（opt_log §6.1；logs/final_level_all.log 修复前后）。
+
+---
+id: TRAP-DEVMODE-PERSIST-GEMM
+kind: trap
+family: [mixcv, expert, persistent]
+apis: [T.Kernel, T.gemm, T.Scope, T.vmul]
+dtype: [fp16, bf16]
+device: 910B2C
+status: verified
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 3）
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C（npu-smi 26.0.rc1）/ 2026-09-17
+repro: repro/TRAP-DEVMODE-PERSIST-GEMM.py
+---
+
+### Developer 模式 + persistent 分核 + gemm 混排运行时崩溃（"unaligned UUB addresses"）
+
+- **现象**：persistent `T.Kernel(24, is_npu=True)` 核内 `T.serial` 多任务 + `T.gemm` + v-prefix 向量 op 混排的 kernel 在 Developer 模式（auto CV-split）**运行时崩溃**——"Illegal instruction, which is usually caused by unaligned UUB addresses"（vector core exception，retCode=0x31）；Expert 模式（显式 `T.Scope("Cube")`/`T.Scope("Vector")` + alloc_L1/alloc_L0C/alloc_ub + sync_block_set/wait）同结构正常。
+- **判定依据（仓库实态扫描）**：全仓 24 处 `is_npu=True` 中 Developer 模式仅用于非 persistent 网格（`examples/flash_attention/flash_attn_npuir_dev.py`、`examples/deepseek_v32/fp8_lighting_indexer.py`），persistent 混合算子（先例：`examples/multi_head_attention/_gqa_prefill_fwd_kernel/`〔任务工作区，溯源〕、`examples/deepseek_v32/sparse_mla_fwd_exp.py`）全部 Expert——「persistent 分核 + gemm」落在 Developer 支持域之外（docs 无 Developer/Expert 适用范围条款；未文档化假设，依据本任务双模式 repro + 全仓用例扫描）。
+- **模式切换实证**：本任务 user_requirement 指定 Developer 模式，Stage 3 首实现即崩；切换 Expert（GQA/sparse_mla 先例 + `pass_configs={TL_ENABLE_PLAN_AND_UPDATE_BUFFER_ALLOCATION: False}`，不关闭时多 UB buffer 被 pass 重排/重作用域 → codegen "cannot find variable"）后 L0/L1/L2/Boundary 全过——Expert 双 Scope 是该结构类的可用形态（结构级绕法模式见 attention.md PL-1.16；能力缺口登记 CG-2026-0010）。
+- 复现：`python repro/TRAP-DEVMODE-PERSIST-GEMM.py`（Expert 路径数值断言通过 + Developer 路径崩溃观察——设备故障 out-of-band 即现象本体，工具链修复后 Developer 路径存活即条目推翻信号，届时刷新版本戳）。溯源（provenance，允许失效）：`examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/repro/DEVMODE_PERSIST_CRASH.py`（双模式对照原始探针）+ 同目录 RETROSPECTIVE.md Stage 3 章节。
+
+---
+id: TRAP-BENCH-CONFIG-CALIBRATION
+kind: trap
+family: [benchmark, harness, stage4]
+apis: []
+dtype: [fp16, bf16]
+device: 910B2C
+status: verified
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4 第二轮 R7——续跑口径断裂）
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+repro: repro-missing
+---
+
+### 采数 harness 默认配置与交付配置断裂（续跑/翻转场景的 +19~21% 假回退）
+
+- **现象**：调优产物的 kernel 内嵌 TUNED_DEFAULT_CONFIG（如 block_n=128），但采数 harness（bench/runner）的 argparse 默认回落到自己的 fallback（如 `min(64,N)`）——第一轮靠**显式传参**保持一致（而 opt_log 采集命令模板漏记该参数）；第二轮续跑者按模板走 runner 默认 → 所有分支数据系统性偏慢 +19~21%（w2 258.86 vs 217.65µs），初判为「设备漂移 ±20%」，实际是配置口径断裂。**双配置同 session A/B 探针（bn=64/128：261.55 vs 226.26µs，+15.6%）先于「设备漂移」假设**。
+- **绕法**：① bench harness 的默认配置从**被测 kernel 模块的 TUNED 常量**解析（`getattr(mod, "TUNED_DEFAULT_CONFIG", {}).get(...)`），baseline 无常量时 fallback 兼容——使「交付配置=测量配置」成为机械保证；② 续跑/翻转轮次第一步 = current best 的同 session 重测校准（同口径基准行）；③ 调优日志的采集命令模板必须与实际执行完全一致（含全部显式参数）。
+- **教训**：跨 session 的 perf_records 对比，「设备状态漂移」与「配置口径断裂」症状相同（系统性偏移）——配置探针成本 ~2 分钟，应优先排除；跨 run 双态（BP_run_state_bimodality ±3~5%）解释不了 ±20% 量级的偏移。
+- 溯源：`examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/perf_opt/`（opt_log R7 口径断裂段；profiles/round7_bn_check/；bench.py R7 修复）。

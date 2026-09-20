@@ -190,3 +190,23 @@ repro: repro-missing
 ### 活跃源 `T.transpose([N,1]→[1,N])` epilogue 毒化整 kernel（2.6x）
 
 epilogue 位置的 transpose 若其源为活跃生产者（被前序 v-op 写过且结果被消费），整个 kernel 管道重叠崩塌（实测 fa4096 98→255µs 级）；单 op 无罪（vlog2/vmul/vadd/死源 transpose 各自 97µs 级）、4 个平凡 vadd 无罪——**组合阈值效应，pass 层根因未定位（未文档化假设，依据 = 14 点 morph 实测矩阵）**。绕法：目标 GM 张量增维视图（如 [B,H,S,1]，与 [B,H,S] 同内存）+ UB→GM 自然 2D 区域拷贝（`ub[0:real_m,0:1] → dst[·,·,bx:bx+real_m,0]`）+ host 侧 reshape 还原契约形状——零 transpose、零拷贝。**全谱系存量税**：v9 级 per-block kernel 同样中招（226.72→181.46µs，-20%，perf-only 探针）。证据：`perf_opt/opt_log.md` round 11 morph 矩阵（14 点二分）+ perf_feedback.md 修正附录 + `profiles/round11/`、`profiles/final3/` raw；复现：morph 阶梯脚本形态与 14 点实测矩阵镜像于 opt_log round 11 Diagnosis（scratch `/tmp/opencode/ref_morph.py`，session-local），终值对账 `msprof op --kernel-name=_gqa_prefill_fwd_main_mix_aic --launch-count=20 --warm-up=5`（median of 20）跑 bench `--use-default-config`。
+
+---
+id: TRAP-UB-dynsubview-dominance
+kind: trap
+family: [compiler, ub]
+apis: [T.copy, T.alloc_ub]
+dtype: [fp16, bf16, fp32]
+device: 910B2C
+status: verified
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4；2026-09-17 蒸馏 D2 溯源归位——原回写误标 20260917T0855Z，实际 task_id 以 .stage_state.json 为准）
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+repro: repro/PL-1.13-aiv-dup-subid-split.py
+---
+
+### task 级 UB 行 buffer + 嵌套循环动态偏移 subview → auto-multi-buffer 非支配 IR
+
+- **形态**：UB buffer（如 [1,Q] 因子行）在 task 级装载、在内层循环中以动态偏移切片消费（`T.copy(ub_row[0:1, s0:s0+ts], blk[0:1, 0:ts])`，s0 为循环变量派生）——Q≥128（切片非全宽）时 BiSheng `--enable-auto-multi-buffer=true` 产出非支配 IR：`error: operand #2 does not dominate this use`（位于 task 级 GM→UB copy 行）；Q=64（单切片=全宽）不触发。
+- **绕法**：①退回 per-block GM 直载（基线形态，多 ~12 次 tiny GM 读/任务）；②切片偏移静态化（trace 分派）；③尝试关 auto-multi-buffer（未在本任务验证——会全局改变 L1/UB 多缓冲行为，风险自担）。
+- 关联：PL-1.9-hardlimits「v-op codegen 拒绝多维 UB 切片操作数」——本条是 copy 路径 + multi-buffer pass 的同族表现。
+- 溯源：`examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/perf_opt/logs/round1/v3_hoist_L0.log`（报错全文）；npuir 现场见 opt_log R1 v3 行分析。

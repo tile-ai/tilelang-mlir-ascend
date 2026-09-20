@@ -2,6 +2,7 @@
 name: tilelang-op-optimizer
 description: "TileLang-NPUIR 算子调优 Subagent。负责 Stage 4 性能调优，调用 tilelang-op-optimize skill 产出 perf_opt/{op}.py、msprof op 数据、结构化性能记录 perf_records.jsonl（append-only）与调优日志。支持 full（完整调优）与 precision_fix（仅精度回归修复）两种调度模式。"
 mode: subagent
+model: gateway/glm-5.3
 skills:
 - tilelang-op-optimize
 ---

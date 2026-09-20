@@ -130,38 +130,7 @@ last_seen: FA 3-impl perf comparison 2026-09-07
 
 ---
 
-### CG-2026-0002
-
-```yaml
-gap_id: CG-2026-0002
-layer: BishengIR (bishengir-compile, --enable-auto-multi-buffer)
-capability: >-
-  Pipelined 循环（NK >= 2，触发 auto-multi-buffer 多缓冲）之前对 L1(shared) buffer 的
-  整 buffer T.vbrc 广播清零被错误 lowering 为 cbuf-to-cbuf 拷贝
-  （'hivm.hir.copy' op Unsupported copy from cbuf to cbuf! → 编译失败）；
-  NK == 1 时同一构造可正常编译。
-blocked_algo: >-
-  尾块防护类构造受限：多块 KV 流水 kernel 无法在循环前对 GEMM 输入 L1 buffer 做
-  一次性清零；被迫把清零守卫收缩到"仅单块且部分块"（seq_len_kv < block_n）场景，
-  多块场景依赖"块 0 必为整块、后续部分块残留有限值"的数值安全论证绕过。
-evidence:
-  - 复现（本任务 Stage 3）：seq_len=520（NK=9，has_kv_tail=True，循环前
-    T.vbrc(0, v_shared)）→ bishengir-compile 报 'hivm.hir.copy' op Unsupported
-    copy from cbuf to cbuf!（npuir 162:30）+ 'hivm.hir.load' root-alloc 连锁报错；
-    同一 kernel 在 seq_len=16（NK=1）下编译运行通过；
-    去掉该 vbrc 后 520 编译运行精度全通过（原 session 探针 /tmp/opencode/probe，provenance session-local 允许失效）。
-  - 未文档化假设：docs/Tilelang.language/广播类文档（vbrc/brc）无多缓冲交互限制条款；
-    估计依据为本任务探针实测。
-workaround: >-
-  清零守卫收缩为仅 seq_len_kv < block_n（单部分块）时执行（该场景 NK=1 不触发
-  多缓冲）；多块尾块场景依据有限残留值安全性免清零（本任务实测通过）。
-occurrences: 1
-tasks: [multi_head_attention/_gqa_prefill_fwd_kernel Stage 3 first_impl]
-toolchain_stamp: tilelang 67db6f3 (2026-09-04) + CANN 26.0.rc1 + 910B2C(IT21HMDB01-B2) + torch_npu 2.7.1
-status: open
-created_by: multi_head_attention/_gqa_prefill_fwd_kernel s3 attempt1 2026-09-04
-last_seen: multi_head_attention/_gqa_prefill_fwd_kernel s3 attempt1 2026-09-04
-```
+### CG-2026-0002 → 已升级 recurring，条目移入下方 Recurring 区（2026-09-20 occurrences 2：Expert T.copy L1→L1 第二形态独立识别）
 
 ### CG-2026-0001
 
@@ -571,6 +540,70 @@ last_seen: multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z 第六�
 ```
 
 > **升级依据**：task 20260915T025507Z（Stage 5 集成期发现，28783f45）+ task 20260915T080600Z（第五轮 Stage 4 编译探针重校，6797758）——两个不同任务跨 commit 独立识别并定量标定，达 ≥2 任务阈值。capability 补齐提案已产出（见条目 proposal 字段：逐 buffer 分配清单输出 / 差值文档化二选一），待向用户显式列出并推动（外部 issue 须用户批准后建）。
+
+---
+
+### CG-2026-0002
+
+```yaml
+gap_id: CG-2026-0002
+layer: BishengIR (bishengir-compile, cbuf→cbuf copy)
+capability: >-
+  L1（cbuf）域内搬运方向整体不支持：'hivm.hir.copy' op Unsupported copy from
+  cbuf to cbuf! → 编译失败。两种触发形态：① 首证（Developer）——Pipelined 循环
+  （NK >= 2，触发 auto-multi-buffer 多缓冲）之前对 L1(shared) buffer 的整 buffer
+  T.vbrc 广播清零被错误 lowering 为 cbuf-to-cbuf 拷贝（NK == 1 时同一构造可正常
+  编译）；② 第二证（Expert，2026-09-20）——显式 T.copy(l1_a, l1_b) 的 L1→L1
+  方向直接硬失败（最小 Expert 探针实证，非 lowering 路径）——缺口本体为
+  cbuf→cbuf 搬运方向整体不支持，不限 vbrc lowering。
+blocked_algo: >-
+  ① 尾块防护类构造受限（首证）：多块 KV 流水 kernel 无法在循环前对 GEMM 输入
+  L1 buffer 做一次性清零；被迫把清零守卫收缩到"仅单块且部分块"（seq_len_kv
+  < block_n）场景，多块场景依赖有限残留值安全性论证绕过。② L1 域内重排/组装
+  类构造受限（第二证）：band 组装「先读入小 buffer 再组装到大 buffer」两跳形态
+  不可实现——被迫单 buffer GM→L1 列偏移直载形态（每 band 块一次 GM 读，无 L1
+  域内中转）或 GM 中转。
+evidence:
+  - 复现（首证任务 Stage 3）：seq_len=520（NK=9，has_kv_tail=True，循环前
+    T.vbrc(0, v_shared)）→ bishengir-compile 报 'hivm.hir.copy' op Unsupported
+    copy from cbuf to cbuf!（npuir 162:30）+ 'hivm.hir.load' root-alloc 连锁报错；
+    同一 kernel 在 seq_len=16（NK=1）下编译运行通过；去掉该 vbrc 后 520 编译运行
+    精度全通过（原 session 探针 /tmp/opencode/probe，provenance session-local 允许失效）。
+  - 未文档化假设（首证）：docs/Tilelang.language/广播类文档（vbrc/brc）无多缓冲
+    交互限制条款；估计依据为本任务探针实测。
+  - 复现（第二证，task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z
+    Stage 2 复检轮）：最小 Expert kernel（T.Kernel(1, is_npu=True) + T.Scope("Cube")
+    + 两个 T.alloc_L1([64,64],"float16") + T.copy(l1_a, l1_b)）→ bishengir-compile
+    err code 1 报同款 'Unsupported copy from cbuf to cbuf!'；三证合一——docs
+    T.copy.md §2.3 搬运方向表无 L1→L1 方向（GM→UB/UB→GM/UB→UB/GM→L1/L0C→GM）、
+    全仓 examples 零先例、探针实证（REVIEW.md 复检轮机械复核段；探针原件
+    /tmp/opencode/probe transient，provenance 允许失效）。
+workaround: >-
+  ① 首证：清零守卫收缩为仅 seq_len_kv < block_n（单部分块）时执行（NK=1 不触发
+  多缓冲）；多块尾块场景依据有限残留值安全性免清零。② 第二证：L1 域内「重排/
+  组装」意图落为单 buffer GM→L1 列偏移 dst 直载（T.copy(ws[...,0:bl,0:ts],
+  l1_band[0:bl,s0:s0+ts])，src/dst 双侧尾块裁剪）+ 单条 band gemm——探针 2 在
+  4515de8 编译通过（与 TRAP-L1-band-dst-tail-overrun 联防）；或经 GM 中转。
+  绕法知识条目化提案见 queue VP-2026-0095（pattern-library traps-compiler.md）。
+occurrences: 2
+tasks: [multi_head_attention/_gqa_prefill_fwd_kernel Stage 3 first_impl 2026-09-04, ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z Stage 2 2026-09-20]
+toolchain_stamp: 首证 tilelang 67db6f3 (2026-09-04) + CANN 26.0.rc1 + 910B2C(IT21HMDB01-B2) + torch_npu 2.7.1；第二证 tilelang 0.1.2+4515de8 + CANN 8.5.0 + Ascend910B2C / 2026-09-20
+status: recurring
+proposal: >-
+  目标层 BishengIR / Frontend API。建议改动（二选一或组合）：① 支持 cbuf→cbuf
+  copy lowering（L1 域内搬运原语，消除「域内重排必经 GM」约束）；② 至少将该
+  方向缺口文档化——T.copy.md §2.3 搬运方向表显式标注 L1→L1 不支持 + 报错信息
+  指向推荐形态（单 buffer GM→L1 列偏移直载）。收益量化（两任务实测）：首证使
+  尾块清零守卫收缩（多块场景裸奔依赖残留值论证）；第二证使 band 组装类结构
+  被 forced 单 buffer 直载形态（每 band 块一次 GM 读）——L1 域内中转可消该类
+  GM 重读。受影响算子：L1 域内重排/组装类（MixCV band 组装、多块流水清零守卫）。
+  issue 草稿（[npuir] 前缀，须用户批准后建）：[npuir] cbuf→cbuf copy 不支持且
+  无文档（L1 域内重排/清零构造不可表达，vbrc lowering 与显式 T.copy 双路径同报错）。
+created_by: multi_head_attention/_gqa_prefill_fwd_kernel s3 attempt1 2026-09-04
+last_seen: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z Stage 2 复检轮（2026-09-20）
+```
+
+> **升级依据**：task multi_head_attention/_gqa_prefill_fwd_kernel Stage 3（2026-09-04，Developer vbrc lowering 路径）+ task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z Stage 2（2026-09-20，Expert 显式 T.copy 路径）——两个不同任务、双触发形态、跨工具链（67db6f3/CANN 26.0.rc1 → 4515de8/CANN 8.5.0）独立识别同一缺口（cbuf→cbuf 搬运不支持），达 ≥2 任务阈值。proposal 字段已产出，待向用户显式列出并推动（外部 issue 须用户批准后建）。
 
 ---
 

@@ -114,7 +114,7 @@ dtype: [fp16, bf16]
 device: 910B2C
 status: verified
 origin_task: multi_head_attention-_gqa_prefill_fwd_kernel-20260915T080600Z（第五轮 Stage 4）
-toolchain: tilelang 0.1.2+6797758（2026-09-15）/ CANN 8.5.0 / Ascend910B2C；2026-09-16 a13585dc stale 重验维持（probe_ub.py 4 点复校：(64,256)/(80,256) 编译通过、(88,256)/(96,256) UB 溢出——config 空间封闭性结论跨工具链存活，opt_log 第六轮 Phase 0）
+toolchain: tilelang 0.1.2+6797758（2026-09-15）/ CANN 8.5.0 / Ascend910B2C；2026-09-16 a13585dc stale 重验维持（probe_ub.py 4 点复校：(64,256)/(80,256) 编译通过、(88,256)/(96,256) UB 溢出——config 空间封闭性结论跨工具链存活，opt_log 第六轮 Phase 0）；2026-09-20 4515de8 重验存活（task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z 重跑：算术惩罚主选 + band 域 vselect 全量门禁绿）
 repro: repro-missing
 ---
 
@@ -138,7 +138,7 @@ dtype: [fp16, bf16]
 device: 910B2C
 status: verified
 origin_task: multi_head_attention-_gqa_prefill_fwd_kernel-20260916T041000Z（第六轮 Stage 4）
-toolchain: tilelang 0.1.2+a13585dc / CANN 8.5.0 / Ascend910B2C
+toolchain: tilelang 0.1.2+a13585dc / CANN 8.5.0 / Ascend910B2C；2026-09-20 4515de8 重验存活（task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z 重跑：深度 2 流水 + 消费侧前导 set + wait 任务头前置结构复刻，首编即过、L0–Boundary 全绿）
 repro: repro/PL-1.12-bn-clamp-bm-guard.py
 ---
 
@@ -163,7 +163,7 @@ dtype: [fp16, bf16]
 device: 910B2C
 status: verified
 origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4；2026-09-17 蒸馏 D2 溯源归位——原回写误标 20260917T0855Z，实际 task_id 以 .stage_state.json 为准）
-toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17；2026-09-20 4515de8 重验存活（task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z 重跑复刻蛇形分片，全量门禁绿）
 repro: repro/PL-1.13-aiv-dup-subid-split.py
 ---
 
@@ -183,7 +183,7 @@ dtype: [fp16, bf16]
 device: 910B2C
 status: verified
 origin_task: multi_head_attention-_gqa_prefill_fwd_kernel-20260907T115424Z（首证，VP-2026-0013）/ ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（第二证：persistent+gemm 模式级不兼容触发类扩展，mamba 族）
-toolchain: 首证 tilelang dev root build 21586b5（2026-09-07）；第二证 tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C（2026-09-17）
+toolchain: 首证 tilelang dev root build 21586b5（2026-09-07）；第二证 tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C（2026-09-17）；2026-09-20 4515de8 重验存活（task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z 重跑：双关闭编译 + L0–Boundary 全量门禁绿——且比旧 perf_opt 终版的单关闭更强，UB 记账更贴手工核算）
 repro: repro/TRAP-DEVMODE-PERSIST-GEMM.py
 ---
 
@@ -211,7 +211,7 @@ repro: repro-missing
 ### SSD chunk scan 稳态结构地板：Cube mte2 段数墙的五方向否决（R7/R8）
 
 - **稳态画像（w4：B2·C128·Q256·H64，16384 任务 / 24 核 = 683 任务/核串行）**：Cube mte2 **83.5% 忙比**（3217µs，12978 条 nd2nz，~256ns/条 = 64 段 × ~4ns/128B，段传输主导）+ cube_wait 0.919 / mte1_wait 0.908（数据供应饥饿）；AIV vec 62% **非关键路径**。**短任务串 workload（w2：32 任务/核）的 mte2 72% 是流水爬坡瞬态、低估引擎占比——persistent 任务流水 kernel 的瓶颈诊断须以最长任务串 workload 画像为取景框**。
-- **段数墙构成**（每任务 Cube mte2）：ws_lcb band 重组 640 段（Σ(lt+1)=10 块）+ x 256 + ws_c 128 + prev 128 ≈ 1216 段 × ~4ns —— 这是「Vector 产因子 → GM ws 中继 → Cube 消费」Expert 结构的物理流量（GQA 读放大 H/G 由 L2 吸收，cube read_hit 91% / AIV 99%，非带宽墙）。
+- **段数墙构成**（每任务 Cube mte2）：ws_lcb band 重组 640 段（Σ(lt+1)=10 块）+ x 256 + ws_c 128 + prev 128 ≈ 1216 段 × ~4ns —— 这是「Vector 产因子 → GM ws 中继 → Cube 消费」Expert 结构的物理流量（GQA 读放大 H/G 由 L2 吸收，cube read_hit 91% / AIV 99%，非带宽墙）。**拆分口径注（2026-09-20 ssd 重跑任务 Stage 2 检视登记）**：与 constants.md CONST-mte2-degradation 指令维度口径的段数拆分互斥（彼处记 ws_lcb 640 + ws_c 256 + x 256 + prev 64）——总和一致（≈1216）而分项矛盾，源出两任务不同估算/标定路径；引用以总段数为准，分项拆分待下次 Stage 4 段数墙 profile 复核厘清。
 - **五个候选方向的实测否决**（全部 msprof op 同 session 同口径）：
   1. **band 增量组装**（嵌套包含 → L1 跨 lt 累积，640→256 段）：**数学不可行**——band 块 (lt,s_blk) 内容 = lcb[l0+i, s0+j]，**行内容随 lt 变化**（dA_l 依赖 l），band(lt) 与 band(lt−1) 列前缀无公共可复用内容；L0 实测 L_tiles=1 全过、L_tiles≥2 全挂（max_diff 5.9e-3/7.9e-3）。
   2. **深度 3 任务流水**（ws 三槽 + 6 flag ≤15）：w2 +0.1% / w3 −2.7% / w4 +1.4% 平区——**3 任务 in-flight 的 ws 工作集 9.2→13.8MB 劣化 L2 局部性，mte2 每条 256→346ns（busy 85%→93% 但更慢）**；任务流水深度存在 L2 甜点（本结构=2）。

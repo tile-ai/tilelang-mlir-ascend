@@ -273,8 +273,8 @@ family: [mamba, ssd, mixcv]
 mode: [expert]
 dtype: [fp16, bf16]
 status: verified
-origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z
-toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C（npu-smi 26.0.rc1）/ 2026-09-17
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z / ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z（4515de8 重跑）
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C（npu-smi 26.0.rc1）/ 2026-09-17；重跑 tilelang 0.1.2+4515de8 / CANN 8.5.0 / Ascend910B2C / 2026-09-20
 repro: none
 ---
 
@@ -283,6 +283,8 @@ repro: none
 **durable 载体**：Stage 4 调优知识自包含于 attention.md PL-1.12 update（消费侧前导 set）/ PL-1.13 + repro/PL-1.13-aiv-dup-subid-split.py（双 AIV 分片）/ elementwise.md PL-1.14（ws 块连续）/ layout.md PL-1.15（列广播性能税）/ traps-compiler.md TRAP-UB-dynsubview-dominance / traps-runtime.md TRAP-L1-band-dst-tail-overrun / TRAP-DEVMODE-PERSIST-GEMM + repro（Developer+persistent 崩溃）/ constants.md CONST-mte2 指令维度口径；PL-1.16（Expert 双 Scope 绕法第二证）/ PL-1.17（fp32 中转第二证）/ elementwise 均以本任务为第二证合入。
 
 mamba/SSD 族首个 MixCV Expert 迁移完整档案（设计修订 1 轮——列因子广播错向 / FLOPs 2× 高估 / PL-1.11 误判 stale 三阻塞；Stage 3 Developer→Expert 模式切换〔模式级不兼容实证〕+ L0–Boundary 全过；Stage 4 六轮 2.91× 几何平均〔608.15→217.65µs@w2：深度 2 任务流水 −39.6% → Cube band 组装 → block_n=128 → AIV subid 蛇形分片 −34.4%；stop_reason=blocked——UB 容量/编译器 dominance/API/性能税清单〕；Stage 5 首次集成即全过 smoke 2/2 + full 4/4 + bench 11/11）。TileOPs bench_mamba 11 dispatch 基线（wrapper 默认 config 口径）：Perf 稳定 32–34 TOps/s 平台、Ratio 7.5–14.2%、小 dispatch（<40µs）启动开销主导——**口径注记**：bench 经 wrapper `default_config` 显式传参（block_n=64/num_stages=3），优先于 kernel 内嵌 TUNED_DEFAULT_CONFIG(block_n=128/num_stages=2)，与 Stage 4 自建 workload 数值不可同口径对比（VP-2026-0093）。适用触发条件：mamba/SSD/chunk-scan 族迁移设计；MixCV persistent 因子链（Vector 产因子 → ws 中继 → Cube 消费）结构参考；AIV 分片与任务级流水参照；band 分域掩码（band-free 惩罚 / band-carrying vselect）落地参照。
+
+**〔2026-09-20 4515de8 重跑档案（task 20260920T122332Z，迁移重做——升级工具链上的先例知识重验）〕**：设计以「结构性结论继承（有 HEAD 生产代码佐证）/ 硬边界标待重验」两分法消费 stale 预注入条目（VP-2026-0101），3 轮检视收敛：v0 协议/形状缺陷（尾置 wait WAR 竞争〔VP-2026-0096〕+ P_tiles≥2 域形状矛盾）→ v1 写实占位伪代码自创 **L1→L1 cbuf→cbuf 拷贝硬编译失败**（CG-2026-0002 occurrences 2 / queue VP-2026-0095）→ v2 清零；Stage 3 直接复刻 HEAD 旧 perf_opt 终版 + 三处差异适配（pass_configs 按规格扩为双关闭〔PL-1.16 4515de8 重验〕、golden 内联仓内参考 torch 计算〔薄包装被 S3-GOLDEN-TORCH 拒绝，VP-2026-0107〕、测试套件按新 L0 计划扩 w2 用例）——**首编即过、零调试往返**（L0–Boundary 全绿，max_diff ≤1.1e-3 bf16 / 1.4e-4 fp16；Boundary B-n16 实测 gemm K=16 静默有效〔VP-2026-0098〕）；R3 表 ws 中继流量曾按 per-l-tile 口径低估 2.5×（87→216MB@w2，per-task 全维乘积口径修正——复杂度表复算教训）；Stage 5 集成 attempts=0 首过（工厂闭包自分配 ws + 输入 cast 的零胶水形态〔VP-2026-0099〕；report 11 条 "missing tileops candidate record" 告警≠失败〔VP-2026-0100〕；11/11 bench msprof 全有效，ratio 0.13–14.00%）。适用触发条件补充：迁移重做任务（旧工件被 Stage 0 删除、仅存于 git HEAD——检视须 `git show HEAD:<path>` 核对，VP-2026-0102）的设计/检视/实现全链参照。
 
 ---
 id: CASE-CG-INDEX
@@ -303,7 +305,7 @@ capability-gaps 登记簿（`.agents/evolution/capability-gaps.md`）open 条目
 | gap_id | 层 | 一句话触发条件 |
 |--------|-----|---------------|
 | CG-2026-0001 | codegen (Developer mode) | Developer 形态 codegen 能力缺口 |
-| CG-2026-0002 | BishengIR (auto-multi-buffer) | auto-multi-buffer 相关缺口 |
+| CG-2026-0002 | BishengIR（cbuf→cbuf copy） | cbuf→cbuf 搬运不支持（vbrc 清零 lowering + Expert T.copy L1→L1 双形态；recurring） |
 | CG-2026-0003 | TileLangIR pass (Expert fixpipe lowering) | Expert fixpipe lowering 与 BishengIR 版本配对缺口 |
 | CG-2026-0004 | tladapter/codegen (load_nd2nz 区域描述符下推) | load_nd2nz 跨步区域静默误读（绕法见 traps-runtime.md TRAP-load-nd2nz-strided） |
 | CG-2026-0005 | Frontend API / codegen | 前端 API 能力缺口 |

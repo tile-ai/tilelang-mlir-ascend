@@ -440,10 +440,22 @@ in Phase 0 via `source.test`, under `{gpu_repo_root}/tests/ops/`).
 
 Create `benchmarks/ops/bench_{op_slug}.py`.
 
-**Port from GPU**: Copy the benchmark function from the GPU bench file
-(identified in Phase 0 via `source.bench`, under `{gpu_repo_root}/benchmarks/ops/`).
+**Port from GPU**: Use the benchmark function in the GPU bench file
+(identified in Phase 0 via `source.bench`, under `{gpu_repo_root}/benchmarks/ops/`)
+to migrate this operator's workloads and performance measurements.
 
-- **Preserve**: parametrization logic, baseline function, recording calls.
+- **Preserve**: parametrization, input generation, the TileOPs measurement and
+  recording calls, and any independent performance baseline that is meaningful
+  and runnable on NPU.
+- **Do not benchmark accuracy-only golden/reference implementations** (for
+  example, a handwritten PyTorch `ref_program` used solely for correctness
+  comparison). Keep those references in the correctness tests; omit their
+  `bm.profile(...)` and `BenchmarkReport.record(...)` calls from the NPU
+  benchmark entirely, rather than leaving commented-out code.
+- Classify a baseline by its purpose, not by whether it uses PyTorch or has a
+  `torch` tag: a native operator such as `F.mish` can be a performance
+  baseline, whereas `ssd_chunk_scan_fwd_ref` from `tileops.testing` is an
+  accuracy reference.
 - **Apply T3-T4** from the Standard NPU Adaptations section.
 
 **Single-input vs multi-input parametrization**:

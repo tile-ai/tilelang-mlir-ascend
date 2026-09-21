@@ -203,8 +203,8 @@ apis: [T.gemm, T.copy, T.alloc_L1, T.sync_block_set, T.sync_block_wait, T.Kernel
 dtype: [fp16, bf16]
 device: 910B2C
 status: verified
-origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4 第二轮 R7/R8，w4/w3 取景框）/ ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z（二轮调优 update：段数更正 + 三胜出 + 五否决 + repro 登记）
-toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17；2026-09-21 二轮调优 tilelang 0.1.2+15ad002b3d（与 4515de8 同源，git diff 零改动）/ CANN 8.5.0 / Ascend910B2C
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4 第二轮 R7/R8，w4/w3 取景框）/ ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z（二轮调优 update：段数更正 + 三胜出 + 五否决 + repro 登记）/ ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z（重建会话：三胜出重推导复证 + 跨引擎累积序调制 + 配置路径覆盖缺口）
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17；2026-09-21 二轮调优 tilelang 0.1.2+15ad002b3d（与 4515de8 同源，git diff 零改动）/ CANN 8.5.0 / Ascend910B2C；2026-09-21 重建会话 tilelang 0.1.2+96f287eeaa（与 15ad002 delta 仅文档）/ CANN 8.5.0 / Ascend910B2C
 repro: repro/PL-1.18-floor2-wins.py
 ---
 
@@ -223,5 +223,9 @@ repro: repro/PL-1.18-floor2-wins.py
   2. **三项胜出结构（P，全 msprof op Task Duration median-of-20 + ab_test）**：①prevhoist——prev 载装载提升出 lt 循环（mte2 字节 −20%、指令 19→16/任务）→ −2.0~−3.4%；②l0c2x——**L0C acc 乒乓**（配对循环 lt=2j/2j+1 交替 l0_acc_a/b，相邻 lt 的 hist→band→out gemm 链 2 深重叠，cube_wait 0.897→0.836）→ −1.7~−4.6%；③vbrchoist——**vbrc hoist 干净形态**（lt 不变行广播提升到 lt 层 + vsub 写 fresh dst〔无 alias〕+ diff_mat 死后复用为 dt 广播目标 = 净零 UB buffer；旧 v11 失败归因 vsub dst=src2 alias 税而非 hoist 本身，本条修正）→ −0.3~−3.5%（AIV-bound 的 w2 与 AIV 共临界的 w4 获益，Cube-bound 的 w3 不响应——逐 workload 约束判定与响应幅度互证）。
   3. **新否决（补入五方向后的清单）**：⑥L1 双缓冲在 prevhoist+l0c2x 新状态下二次否决（+2.9~+6.3%——端口竞争状态无关，mte2 idle ~18-22% 为端口轮转而非可填空闲）；⑦**运行时 if 进 Cube 热循环 = 调度毒**（once-true 守卫 `if jp == 0:` 包 32KB 拷贝，w4 +15.65%——跨迭代调度被控制流打断，远超字节模型预期）；⑧x 装载在 mte2 流头是局部最优（无守卫静态后移也 +3.1~+10.5%：32KB 大块在流头给长启动窗口）；⑨lt 内发射序变体（band 先行/先行+跟进）两形态均回退或无增益（最早 gemm 的操作数必须最先到达）；⑩acc 深度 4 无增益（距离-2 WAR 已被 ping-pong 相位隐藏）。
   4. **字节节省→墙钟换算率 ~20% 现象（D）**：prevhoist 削 20% mte2 字节仅兑现 −2~−3.4% 墙钟（节省的传输时间大部分转化为 mte2 idle 增长：w4 idle 613→910µs）——mte2 忙比不是线性可兑换资源，端口轮转地板下需同时解除 gemm 链串行（②）才能部分兑现。
+- **〔2026-09-21 重建会话 update，origin_task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z（perf_opt 被外部删除后的 mode=full 重建），tilelang 0.1.2+96f287eeaa（与 15ad002 delta 仅 .agents/skills 文档、tilelang 源码零改动）+ CANN 8.5.0 + 910B2C〕三胜出重建复证 + 跨引擎累积序调制（P/D）**：
+  1. **三胜出可仅凭 repro 骨架重推导**：perf_opt 全失（含实验分支与 opt_log）后，从 `repro/PL-1.18-floor2-wins.py` 骨架重实现 prevhoist/l0c2x/vbrchoist，锚点链复现——w2 probe 217.58→**200.18µs（−8.0%）** vs 旧二轮 223.53→204.33（−8.6%，同分布）；新 workload 集（H=24/80 两族 × 11）model-scale −5.0~−16.0%。**repro 骨架 + front-matter 常数的自包含性经住了工件全失场景检验**（ED-A/ED-B 设计目标达成实证）。
+  2. **跨引擎单点验证的累积序调制（P，本轮最大新发现）**：vbrchoist 单独叠加在无 prevhoist 的 base 上时，**H=80 族（2.7B，G=1 cb 读放大 3.3×于 H=24）回退 −4.2~−6.7%**（双引擎 mte2 传输时间 +22~28%，L2 局部性劣化）；同一形态叠加在 prevhoist 之上则全域 +2.2~+10.2%（回退消失）。**机制**：AIV 侧候选的单点效应受 Cube 侧 base 状态调制（prevhoist 削减 Cube mte2 压力后 L2/总线交互改变）——**MixCV 跨引擎结构中"单点分支从 current best 派生"的纪律须以已合入的累积序为基；与先验证据矛盾的 workload 族分裂（如方向翻转）应优先检验累积序假设而非引入 per-shape 条件路径**（本会话曾据 H 分裂考虑 trace-time H 条件分支，累积序复测后证伪该需求——避免了无谓的核内分派复杂度）。
+  3. **配置路径覆盖缺口（R→D）**：tuned bn=128 钳位后 N_TILES 恒为 1，kernel 自带 L0/L1 测试**永不触达** N_TILES_MULTI 路径；而 tileops wrapper 的 GPU 启发式默认 bn=min(64,N) 会走 multi 路径——结构改动涉及配置分支时须补 bn<N 探针（本会话 `probe_bn64.py` 4 case 覆盖双 dtype×尾块×双 pp）。与旧任务"bf16×非整除 shape"教训同族：**分支验证覆盖=shape 维度 × 配置路径维度的笛卡尔积**。
 - **方法论**：稳态画像暴露的「新瓶颈」不必然存在「可打空间」——段数是中继结构的物理流量；结构候选受数学事实（band 行绑定）/ L2 局部性（工作集）/ L1 端口（读写竞争）三重约束夹击，逐一实测是唯一裁决方式。单 buffer 消 idle 的正路是减少段数本身（数学/结构层），而非更深流水/更早预取。
 - 溯源：`examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/perf_opt/`（opt_log R7/R8 + §5 清单第二轮五行；perf_records round 7/8；分支文件 _opt_v10/v11/v12/v13/v14_*.py）。

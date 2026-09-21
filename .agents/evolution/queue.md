@@ -660,6 +660,7 @@ decided_by: evolver / human / -   # 裁决者
 - evidence:
   - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z：opt_log.md#round-4 现象节（逐引擎任务周期核算：w2 任务周期 6.58µs vs Cube mte2 busy 4.45µs/任务 ⟹ w2 已 AIV-bound——旧档 PL-1.18 的「AIV vec 62% 非关键」在 prevhoist+l0c2x 两轮 Cube 优化后不再成立，vbrchoist 因此获益 −3.5%）
   - 方法有效性的自然实验：同文件 R4（vbrchoist 获益分布 w2 −3.45% / w4 −3.30% 响应，w3 −0.27% 不响应——AIV-bound/AIV 共临界/Cube-bound 三态与逐 workload 约束判定逐一互证）
+  - 〔2026-09-21 重建会话方向翻转级证据（同 op 谱系不计确认），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z〕vbrchoist 单点在无 prevhoist 的 base 上 H=80 族回退 −4.2~−6.7%（双引擎 mte2 +22~28%）、叠加 prevhoist 后全转正 +2.2~+10.2%——不只收益幅度，效应方向本身随对侧累积序翻转（本条「临界性漂移」的更强形态，opt_log R1 机制分析 + R2 复测）；姊妹 BP 提案 VP-2026-0115（累积序检验步骤），两案合入时互链
   - 数据侧落点：attention.md PL-1.18 update③ 获益分布注（2026-09-21 已回写）；流程侧姊妹提案 VP-2026-0112（iteration-diagnosis.md 已知迭代结论补注——方法/流程两 Tier 拆分，合入时互链）
 - repro: none（方法类：判据与核算式自包含于 delta；效应载体为 attention.md PL-1.18 + repro/PL-1.18-floor2-wins.py 骨架）
 - toolchain_stamp: tilelang 0.1.2+15ad002b3d（与 4515de8 同源）/ CANN 8.5.0 / Ascend910B2C / 2026-09-21
@@ -673,6 +674,29 @@ decided_by: evolver / human / -   # 裁决者
 - status: pending
 - confirmations: 1/2
 - created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z 2026-09-21
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0115
+- type: P
+- title: BP_mixcv_cumulative_order——MixCV 跨引擎候选单点验证的累积序调制：与先验矛盾的 workload 族分裂（方向翻转）先检验累积序假设（合入对侧已验证胜出后复测），再谈 per-shape 条件路径
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z（重建会话 Stage 4）：opt_log.md#Round-1-机制分析 + #Round-2-结论与机制（round1_vbrchoist 在无 prevhoist 的 base 上 H=80 族〔2.7B，G=1 下 cb 读放大 3.3×于 H=24〕回退 −4.2~−6.7%〔双引擎 mte2 传输时间 +22~28%，L2 局部性劣化〕；同一形态叠加 prevhoist 之上 model-scale 全转正 +2.2~+10.2%——回退消失；判定「Round 1 的 H 族分裂是单点叠加顺序的伪象，非 vbrchoist 形态本身的缺陷」；本会话曾据 H 分裂考虑 trace-time H 条件分支，累积序复测后证伪该需求——避免了无谓的核内分派复杂度）
+  - 数据侧落点：attention.md PL-1.18 update②（2026-09-21 optimizer 已回写、evolver 复核对账相符——机制归因自包含：AIV 侧候选的单点效应受 Cube 侧 base 状态调制，prevhoist 削减 Cube mte2 压力后 L2/总线交互改变）
+  - 姊妹条目：queue VP-2026-0110（BP_engine_criticality_drift——临界性随对侧优化漂移；本条是其「方向翻转级」补全：不只收益幅度，效应方向本身可随累积序翻转）+ VP-2026-0112（流程侧每轮重算规则——三案合入时互链）
+- repro: repro/PL-1.18-floor2-wins.py（知识域结构骨架——三胜出与累积序效应载体；效应数据见该任务 perf_records round1/round2〔provenance，允许失效〕）
+- toolchain_stamp: tilelang 0.1.2+96f287eeaa（与 15ad002 delta 仅 .agents 文档、tilelang 源码零改动）/ CANN 8.5.0 / Ascend910B2C / 2026-09-21
+- target_doc: .agents/skills/tilelang-op-optimize/references/bottleneck-patterns.md
+- delta: |
+    add 新 BP 条目 BP_mixcv_cumulative_order（目录行与正文置于 BP_engine_criticality_drift 之后——若 VP-2026-0110 尚未合入则置于 BP_run_state_bimodality 之后，两案互链）：
+    触发信号：MixCV / 跨引擎（Cube+Vector）kernel 的单侧（Vector 或 Cube）候选单点验证出现与先验证据矛盾的 workload 族分裂——尤其方向翻转（某 workload 族稳定回退而先验记录该形态有效，或反之）。
+    检验步骤（先于 per-shape 条件路径）：① 刻画分裂族的结构特征（H/G/读放大比等维度）；② 把候选叠加到「已合入对侧已验证胜出」的 current best 上复测（复现既有累积序）；③ 分裂消失 ⟹ 单点结论依赖 base 状态（叠加顺序伪象）；分裂仍在 ⟹ 才评估核内 trace-time 条件分支。
+    机制：单侧候选的单点效应受对侧 base 状态调制（对侧字节削减/链解串行改变 L2/总线交互与双引擎 mte2 传输速度）——「单点分支从 current best 派生」的纪律须以已合入的累积序为基。
+    实测（ssd 重建会话，96f287e）：vbrchoist 单点 H=80 回退 −4.2~−6.7%（双引擎 mte2 +22~28%）→ prevhoist 之上 +2.2~+10.2%（回退消失）；机制归因与画像 diff 见 attention.md PL-1.18 update②（互链，不复制）。
+    验证指标：族分裂消失 + 全域（model-scale）非回退；与 BP_engine_criticality_drift 的逐 workload 临界性核算结论一致（响应/不响应互证）。
+- status: pending
+- confirmations: 1/2
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z 2026-09-21
 - decided_by: -
 - decided_note: -
 
@@ -1723,6 +1747,7 @@ decided_by: evolver / human / -   # 裁决者
   - task multi_head_attention-_gqa_prefill_fwd_kernel-20260915T025507Z：examples/multi_head_attention/RETROSPECTIVE.md Stage 5 round-2 Skill Flow Issues 第 2 行（Stage 3 L1 门禁用逐字 config `fn(64,64,ns=2)` → bn_eff∈{64,144} 验证 manifest 域，wrapper 实际派发走 E6 替换路径 (64,64,1)→(64,256)；L0-3/L0-4 仅 dim=64 smoke 验证替换路径）
   - integration_log.md Round 2 §Design-layer finding（E6 替换路径在 dim=128 causal 域的首次编译发生在 Stage 5 bench 且直接 UB 溢出 8/10；pytest 4 参数全 causal=False 三重掩盖）
   - 〔2026-09-16 第二证（不同任务），task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z r9 precision_fix〕同类失效再发生：r7e per-shape bm=80 分派 × E6 bn 钳位（S_kv≥3841 → bn_eff=288）的组合变体从未被任何门禁编译（standalone 29 例 S_kv≤2048 / manifest S≤2048 / 此前 pytest 域未覆盖该 S），首次编译发生在 TileOPs pytest full-fwd-bf16 且直接 UB 溢出 13472B（bishengir-compile exit 1）——「出厂 dispatch 的 traced 变体 ∉ 门禁验证集」的同一失效类，且两个守卫各自安全、组合超限（联合核算判据 + repro：attention.md PL-1.12 r9 update / repro/PL-1.12-bn-clamp-bm-guard.py）。Tier 2 人工门不因证据数豁免，供审批参考；与 VP-2026-0074（修复侧 config-契约范式）互补
+  - 〔2026-09-21 第三现（不同任务、kernel 内配置分支亚型），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z 重建会话〕tuned bn=128 经 min(bn,N) 钳位使 N_TILES 恒为 1——kernel 自带 L0/L1 门禁（TUNED config 口径）**永不触达 N_TILES_MULTI 代码路径**，而 tileops wrapper 的 GPU 启发式默认 bn=min(64,N)（H=80 时 N_tiles=2）会走该路径；结构改动涉及配置分支时须补 bn<N 探针（本会话 `perf_opt/probe_bn64.py` 4 case：双 dtype × 尾块 × 双 pp 全过）。**建议 apply 时把 new 文本的「门禁变体集」口径扩为「默认/tuned 双配置 × 关键配置分支形态」的笛卡尔积**（含 tilelang-op-optimize SKILL.md Phase 2 分支验证清单同句）；数据侧已回写 attention.md PL-1.18 update③（BP_config_path_coverage）
 - repro: 复现条件——任一 kernel 工厂带 config 替换/分派语义的迁移任务（wrapper default_config 派发的 traced 变体未入 L1 变体集时，出厂首编后移到 Stage 5 bench 暴露）
 - toolchain_stamp: tilelang 0.1.2+28783f45 + CANN 8.5.0 + Ascend910B2C / 2026-09-15
 - target_doc: .agents/skills/tilelang-op-develop/SKILL.md
@@ -2190,6 +2215,7 @@ decided_by: evolver / human / -   # 裁决者
   - Stage 1 first_design 同源问题：全局 stale 使设计期 roofline 只能按"估算口径"引用关键常数（CONST-capacity / CONST-vector-launch-overhead / CONST-mte2），削弱 D-2 定量性
   - pattern-library/attention.md#L110-L131（PL-1.11 status: verified + 重验行）vs DESIGN.md §1.6.3 候选 #3「stale 线索」定性
   - 〔2026-09-20 正确消费实例，task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z〕重跑任务设计以条目自身 status + 重验行消费 PL-1.11（DESIGN §1.6.1 OPT-B 主选依据引「PL-1.11 verified，2026-09-16 a13585dc 重验维持」），未被全局 stale_count 误导；其流程化产物（stale 条目两分法消费指引）另立 VP-2026-0101（判后如何消费 vs 本条如何判 stale，两案互补互链）
+  - 〔2026-09-21 第三现（规模峰值），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z 重建会话〕stale_count=125 几乎全库假阳性——根因为 repo HEAD（96f287e，evolution 文档 commit）被当作 tilelang 工具链戳：`git diff --stat 15ad002..96f287e` 仅 7 个 .agents/ 文件、tilelang 源码零改动；任务内以 docs-only delta 论证 + probe 锚点复现（217.58 vs 217.65，−0.03%）自行消解，未造成错误决策，但 Phase 0 被迫逐条 git diff 自证。**工具侧根因修复提案见 VP-2026-0116**（stamp diff 过滤非源码路径——本条与其构成消费侧/工具侧互补，三案〔含 0101〕建议同批审批）
 - repro: python3 .agents/tools/kb_stale_check.py（观察全局 stale_count 与单条 status 的口径差）；grep -n -A3 "^id: PL-1.11" .agents/skills/tilelang-op-optimize/references/pattern-library/attention.md（读 status 与重验行）
 - toolchain_stamp: kb_stale_check.py 现行版本；发生环境 tilelang 0.1.2+1990aa9fe4 / 2026-09-17
 - target_doc: .agents/skills/tilelang-design-review/SKILL.md
@@ -2580,6 +2606,7 @@ decided_by: evolver / human / -   # 裁决者
 - evidence:
   - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z：opt_log.md R2→R4 约束迁移链（prevhoist+l0c2x 后 w2 任务周期 6.58µs vs Cube mte2 busy 4.45µs/任务 ⟹ AIV-bound；vbrchoist 据此立项获益 −3.45%）+ Skill Retrospective Skill Flow Issues 第 2 行（「AIV『非关键路径』结论会随 Cube 侧优化失效」）
   - 知识侧姊妹条目：queue VP-2026-0110（BP_engine_criticality_drift，Tier 1——方法本体与判据；本条为流程侧每轮强制重算规则，两案合入时互链）
+  - 〔2026-09-21 重建会话同谱系追加（不计确认），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z〕方向翻转级证据：vbrchoist 单点 H=80 族回退（−4.2~−6.7%）在 prevhoist 合入后消失（+2.2~+10.2%）——单点结论依赖 base 状态的更强形态（数据侧 attention.md PL-1.18 update②）；**建议 apply 时在同节邻位增补「累积序检验」一句**：与先验证据矛盾的 workload 族分裂先合入对侧已验证胜出复测、再谈 per-shape 条件路径（姊妹 BP 提案 VP-2026-0115，合入时互链）
 - repro: none（流程规则；核算方法与实证数据自包含于 VP-2026-0110 delta 与 attention.md PL-1.18 update③）
 - toolchain_stamp: tilelang 0.1.2+15ad002b3d（与 4515de8 同源）/ CANN 8.5.0 / Ascend910B2C / 2026-09-21
 - target_doc: .agents/skills/tilelang-op-optimize/references/iteration-diagnosis.md
@@ -2649,6 +2676,118 @@ decided_by: evolver / human / -   # 裁决者
 - status: pending
 - confirmations: -/-
 - created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z 2026-09-21
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0116
+- type: R
+- title: kb_stale_check.py 的 stamp diff 过滤非源码路径——repo HEAD（含 .agents/docs 知识库 commit）被当作 tilelang 工具链戳产生全库假阳性（stale_count=125，实际 tilelang 源码零改动）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z：opt_log.md §0 E-5 段（启动时 kb_stale_check 报 stale_count=125 几乎全库，本 kernel 直接相关条目全部标「待重验」——五项结构否决的 carry-over 论证本可直接成立，被迫逐条 git diff 自证）+ Skill Retrospective Skill Flow Issues 第 2 行
+  - 机械复核（2026-09-21 蒸馏会话）：`git diff --stat 15ad002..96f287e` = 7 个文件全部位于 .agents/（queue/stats/INDEX/attention/cases/constants/repro——evolution commit），tilelang/ 源码零改动；kb_stale_check 现跑 stale_count=124——假阳性复现
+  - 根因：.agents/tools/kb_stale_check.py detect_current_stamp() 以 `git rev-parse --short=10 HEAD`（repo HEAD）为 tilelang_commit——知识库文档 commit 也推进 HEAD，使全部旧工具链戳条目批量失配
+  - 交叉引用：queue VP-2026-0089（消费侧口径——全局 stale_count 不作单条目判定依据，已三现）/ VP-2026-0101（消费侧两分法）——本条为工具侧根因修复，三案互补建议同批审批
+- repro: python3 .agents/tools/kb_stale_check.py（观察 stale_count）；git diff --stat 15ad002..96f287e（docs-only delta 复现命令——两相对照即假阳性证据）
+- toolchain_stamp: kb_stale_check.py 现行版本；发生环境 tilelang 0.1.2+96f287eeaa / CANN 8.5.0 / Ascend910B2C / 2026-09-21
+- target_doc: .agents/tools/kb_stale_check.py
+- delta: |
+    动作: update（detect_current_stamp 的 HEAD 查询替换为源码树过滤查询）
+    定位锚: |
+      (detect_current_stamp 函数体内)
+          try:
+              head = subprocess.run(
+                  ["git", "rev-parse", "--short=10", "HEAD"],
+                  cwd=REPO_ROOT,
+                  capture_output=True,
+                  text=True,
+                  timeout=10,
+              )
+              if head.returncode == 0:
+                  stamp["tilelang_commit"] = head.stdout.strip()
+          except Exception:  # noqa: BLE001 -- advisory tool
+              pass
+    old 文本: （即上述定位锚原文）
+    new 文本: |
+          try:
+              # The stamp must track the tilelang SOURCE tree, not repo HEAD:
+              # knowledge-base/doc-only commits (.agents/, docs/, examples/)
+              # also advance HEAD and would flip the stamp, producing
+              # whole-library false positives (2026-09-21 ssd rebuild task:
+              # stale_count=125 while `git diff --stat 15ad002..96f287e`
+              # showed 7 .agents files and zero tilelang source changes).
+              head = subprocess.run(
+                  [
+                      "git", "log", "-1", "--format=%h",
+                      "--",
+                      "tilelang/", "src/", "tilelangir/", "3rdparty/",
+                      "pyproject.toml", "CMakeLists.txt",
+                  ],
+                  cwd=REPO_ROOT,
+                  capture_output=True,
+                  text=True,
+                  timeout=10,
+              )
+              if head.returncode == 0 and head.stdout.strip():
+                  stamp["tilelang_commit"] = head.stdout.strip()
+          except Exception:  # noqa: BLE001 -- advisory tool
+              pass
+    动机: stale 检测的语义是「tilelang 行为可能变了」；文档 commit 不改变编译器行为，却使每次蒸馏后的全库条目批量假阳性——optimizer Phase 0 被迫逐条 git diff 自证（本任务实证），或更糟：照单全收「待重验」清单浪费调优预算。源码树过滤（tilelang/ src/ tilelangir/ 3rdparty/ + 构建文件——路径集 apply 时可复核增删）使 stamp 只随真实工具链变更推进。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z 2026-09-21
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0117
+- type: R
+- title: conductor 终态钩子前置「任务产物保全」步骤——DONE 前对算子目录未提交产物做零工作树影响的 git 保全（临时索引 write-tree + update-ref），防 perf_opt 外部删除致算子断裂与调优档案永久丢失
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z：opt_log.md 任务背景（上一调优会话〔task ...20260921T003531Z〕DONE 后 perf_opt/ 目录被外部删除——wrapper 指向 perf_opt 导致算子断裂；14 个实验分支 + 64 行 perf_records 永久丢失）+ Skill Retrospective Skill Flow Issues 第 3 行 + 重建全程（本会话 mode=full 重建耗 10413s，靠 repro/PL-1.18-floor2-wins.py 骨架才恢复三胜出结构——实验数据与 opt_log 不可恢复）
+  - 既有机制缺口：statectl `complete` 的「工件 SHA256 快照」只记哈希不保内容（.stage_state.json artifact_hashes——目录删除后无法恢复）；perf_opt/ 未提交文件在 git 工作区无任何恢复途径
+  - 数据侧互补：attention.md PL-1.18 update①（repro 骨架自包含性经工件全失场景检验——ED-A/ED-B 的正反面实证：结构可由骨架重推导，过程数据全失）
+- repro: 复现条件——任一 DONE 后算子目录 perf_opt/ 被外部删除（wrapper 断裂 + 档案丢失；恢复路径仅 repro 骨架重推导，实验记录不可恢复）
+- toolchain_stamp: 会话层工作流（无运行时依赖）；发生环境 2026-09-21（git 仓可用）
+- target_doc: .opencode/agents/tilelang-op-conductor.md
+- delta: |
+    动作: update（「### 1. 任务终态蒸馏钩子（必执行）」步骤列表前插入第 0 步）
+    定位锚: |
+      `phase` 进入 `DONE` 或 `FAILED` 后（最终报告输出后、同一会话内）：
+
+      1. 判断是否存在**可蒸馏信号**（任一为真即有）：
+    old 文本: （即上述定位锚原文——intro 行 + 步骤 1 起始行）
+    new 文本: |
+      `phase` 进入 `DONE` 或 `FAILED` 后（最终报告输出后、同一会话内）：
+
+      0. **任务产物保全（零工作树影响，best-effort）**：对任务算子目录的未提交产物（`perf_opt/` 全部文件、`history_version/`、`integration_log.md` 等）执行 git 保全——`idx=$(mktemp); GIT_INDEX_FILE=$idx git read-tree HEAD; GIT_INDEX_FILE=$idx git add -- <算子目录>; tree=$(GIT_INDEX_FILE=$idx git write-tree); commit=$(git commit-tree $tree -p HEAD -m "task artifacts: {task_id}"); git update-ref refs/task-artifacts/{task_id} $commit; rm -f $idx`（分支头与工作树均不动；恢复 = `git checkout refs/task-artifacts/{task_id} -- <算子目录>`）。失败不阻塞、不重试，记录到最终报告。动机：上一会话 DONE 后 perf_opt/ 被外部删除致 wrapper 断裂 + 14 实验分支/64 行 records 永久丢失（2026-09-21 ssd 重建任务实证——重建耗整个会话且实验数据不可恢复；statectl SHA256 快照只记哈希不保内容）。
+      1. 判断是否存在**可蒸馏信号**（任一为真即有）：
+    动机: 调优产物是后续蒸馏/续调/断裂修复的唯一载体；「wrapper 指向 perf_opt + 目录可被外部删除 + 内容无 git 保全」三条件叠加使每个 DONE 任务暴露于不可恢复损失——零工作树影响的 ref 保全把恢复成本从「整个重建会话」降到一条 checkout 命令。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z 2026-09-21
+- decided_by: -
+- decided_note: 备选实现（apply 时可裁决）：① statectl `complete` 内置同构保全（工具侧，需改 .agents/tools/statectl.py——机械动作更可靠）；② optimize SKILL.md Phase 4 交付清单加「提示用户 commit perf_opt/」提醒（最轻量）。三形态取一即可。
+
+## VP-2026-0118
+- type: R
+- title: profile-collection.md 补长采集后台运行形态——`cd X && nohup ... &` 的 `&` 作用于整链，调用方 shell 工具超时 SIGKILL 连带杀死采集进程组；须 setsid 脱离进程组启动
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z：opt_log.md §2 注（perf_records.jsonl 前三行为启动事故——首次后台 baseline 采集被 shell 超时连带杀死前已落 3 行，重启后重测同三案例产生同分布重复记录，append-only 契约下须逐行注记对账）+ Skill Retrospective Skill Flow Issues 第 5 行 + perf_opt/logs/phase1_baseline_all.log（首次启动事故日志）
+- repro: 复现条件——以 `cd <dir> && nohup <采集命令> > log 2>&1 &` 形态从带超时的 shell 工具启动分钟级采集，超时触发后观察采集进程被连带 SIGKILL（对照 setsid 形态存活）
+- toolchain_stamp: 会话层工作流（无运行时依赖）；发生环境 2026-09-21
+- target_doc: .agents/skills/tilelang-op-optimize/references/profile-collection.md
+- delta: |
+    动作: update（§3 串行运行 msprof op 的注意事项后追加一段）
+    定位锚: "注意：`msprof op` 多 launch 稳定性需要靠多次独立运行，不要用 CSV 记录条数推断实际 launch 次数。"
+    old 文本: |
+      注意：`msprof op` 多 launch 稳定性需要靠多次独立运行，不要用 CSV 记录条数推断实际 launch 次数。
+    new 文本: |
+      注意：`msprof op` 多 launch 稳定性需要靠多次独立运行，不要用 CSV 记录条数推断实际 launch 次数。
+
+      长采集（全 workload baseline 扫描等分钟级任务）以后台方式运行时，用 `setsid` 脱离当前 shell 的进程组启动（`setsid nohup bash -c '<采集命令>' > {log} 2>&1 &`）——`cd X && nohup ... &` 形态中 `&` 作用于整条链，调用方 shell 工具超时的 SIGKILL 会连带杀死采集进程组，产出半途记录（2026-09-21 ssd 重建任务实证：首次 baseline 采集即被连带杀死、重启后 3 行同分布重复记录，append-only 契约下须逐行注记对账）。
+    动机: 采集被中途杀死产生两类成本：半途记录污染 append-only 对账（须注记区分）+ 整轮重采；setsid 是零成本进程组隔离。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T120526Z 2026-09-21
 - decided_by: -
 - decided_note: -
 

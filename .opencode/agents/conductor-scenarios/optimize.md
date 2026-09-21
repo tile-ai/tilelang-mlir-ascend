@@ -26,7 +26,10 @@ INIT --> TUNING --> 精度回归 --> DONE / FAILED
 
 - kernel 路径（可自动定位，见 §2 两类目录规则）；
 - 性能目标类型 / 数值 / baseline（字段与默认值同 `conductor-scenarios/new-op.md` §5 调优必要信息收集表，缺省 `best_effort`）；
+- TileOPs 集成算子的 benchmark 参数化入口（`benchmarks/ops/bench_*.py::test_*`，定位到实际对应该算子的测试函数）；从迁移后的 benchmark 定位，无法确定或有多个候选而无法区分时先解决入口歧义，不得用 manifest 或 DESIGN.md 的 shape 代填；
 - 回归入口（见 §4）。
+
+调度 optimizer 时传入上述 benchmark 入口、性能目标及用户明确指定的关注 shape（如有）。关注 shape 只影响调优分析的优先顺序，不缩减 workload 集合；完整集合由 optimizer 展开 benchmark 的实际参数化案例并分类。conductor 不从 DESIGN.md、manifest 或正确性测试推导、筛选或写死 `tune` 用例及数量。非 TileOPs 且确无迁移 benchmark 的独立算子，按 optimizer 的 `explicit_target` 规则传入用户明确指定的性能 workload。
 
 ## 4. 回归入口与精度回归 gate
 

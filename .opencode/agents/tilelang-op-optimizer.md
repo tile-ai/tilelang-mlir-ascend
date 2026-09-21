@@ -52,7 +52,7 @@ skills:
 
 ## 调度模式
 
-conductor 调度本 Agent 时传入 `kernel_py_path`、`design_md_path` 与性能目标信息（类型/目标数值/测试 shape/噪声阈值/`max_rounds`/`max_experiments`；`budget.max_stage4_experiments` 已设置时以其为实验分支上限）。mode 枚举的唯一出处是 `_shared/standards/signal-registry.md` §2：
+conductor 调度本 Agent 时传入 `kernel_py_path`、`design_md_path` 与性能目标信息（类型/目标数值/噪声阈值/`max_rounds`/`max_experiments`；`budget.max_stage4_experiments` 已设置时以其为实验分支上限）。`scenario=optimize` 且 `mode=full` 的 TileOPs 集成算子还须传入迁移后 benchmark 的参数化入口 `benchmark_entry`（文件路径及对应测试函数）；用户指定的关注 shape 为可选的分析优先级，不用于缩减 benchmark 案例。mode 枚举的唯一出处是 `_shared/standards/signal-registry.md` §2：
 
 | mode | 含义 | 行为 |
 |------|------|------|
@@ -69,7 +69,9 @@ conductor 调度本 Agent 时传入 `kernel_py_path`、`design_md_path` 与性�
 | 必需输入   | `kernel_py_path`                              | Stage 3 精度通过的`{op}.py`                                          |
 | 必需输入   | `design_md_path`                              | 含性能目标章节的 DESIGN.md                                             |
 | 必需输入   | `mode`（`full` 默认 / `precision_fix`）        | 调度模式，行为见「调度模式」节                                          |
-| 必需输入   | 性能目标                                        | 类型、目标数值、测试 shape、噪声阈值、`max_rounds`、`max_experiments` |
+| 必需输入   | 性能目标                                        | 类型、目标数值、噪声阈值、`max_rounds`、`max_experiments`；无迁移 benchmark 的独立算子另需用户明确指定性能 workload |
+| 条件必需输入 | `benchmark_entry`（`scenario=optimize`、`mode=full` 且为 TileOPs 集成算子） | 迁移后 benchmark 的文件路径及对应 pytest 参数化测试函数；据此展开完整 workload 集合 |
+| 可选输入   | 关注 shape                                     | 仅影响分析与调优顺序，不排除其他 benchmark 案例                         |
 | 输出文件   | `examples/{project}/{op}/perf_opt/{op}.py`    | 最优版本                                                               |
 | 输出文件   | `examples/{project}/{op}/perf_opt/opt_log.md` | 调优日志（每轮含候选 vs current best 对比表）                          |
 | 输出文件   | `examples/{project}/{op}/perf_opt/perf_records.jsonl` | **结构化性能记录（append-only）**：每轮每实验分支一行，字段契约唯一出处 `_shared/standards/signal-registry.md` §5；gate 4 据此对账 winner 声称的 duration |
@@ -78,6 +80,8 @@ conductor 调度本 Agent 时传入 `kernel_py_path`、`design_md_path` 与性�
 | 可选输出   | `examples/{project}/{op}/perf_opt/perf_feedback.md` | `[DESIGN_LIMIT]` 设计层天花板反馈（触发条件两项同时满足时必须产出，否则禁止产出；固定 schema 见 `_shared/standards/perf-feedback.md` §2） |
 | 可选输出   | `examples/{project}/{op}/Optimize.md`         | 仅当项目流程要求交付摘要时生成，内容来自 `opt_log.md`                  |
 | 使用 Skill | `tilelang-op-optimize`                        | 执行调优流程                                                           |
+
+TileOPs optimize 场景中，`DESIGN.md` 的「测试 shape」或 manifest workloads 只作设计与规格参考；即使与 `benchmark_entry` 展开的案例不一致，也不得用它们确定、增加或缩减 `tune` 集合。按 skill Phase 1 从 benchmark 展开并分类。
 
 ---
 
@@ -109,7 +113,7 @@ conductor 调度本 Agent 时传入 `kernel_py_path`、`design_md_path` 与性�
 
 ## 执行清单
 
-- [ ] 接收 `kernel_py_path`、`design_md_path`、`mode`、性能目标信息。
+- [ ] 接收 `kernel_py_path`、`design_md_path`、`mode`、性能目标信息；TileOPs optimize 场景的 `mode=full` 还须接收 `benchmark_entry`，关注 shape 如有则只用于排序。
 - [ ] 调用 `tilelang-op-optimize` skill。
 - [ ] skill 内部 Phase 0：加载 `{op}.py`、`DESIGN.md`、硬件上下文，并判断算子类型。
 - [ ] skill 内部 Phase 1：从迁移后 benchmark 建立完整 workload inventory；smoke/skip 不做性能调优；逐 kernel 对所有 tune workload 串行采集 baseline，依据实测瓶颈排序并记录理由。

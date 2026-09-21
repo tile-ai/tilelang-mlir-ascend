@@ -128,6 +128,7 @@ test -d {gpu_repo_root}/tileops/manifest \
 
 - **触发**：new_op / migration-plain 开发完成且用户确认需要性能调优（确认流程见 new-op.md §5）；optimize 场景任务启动即进入（细则见 optimize.md）。
 - **输入**：`kernel_py_path`、`design_md_path`、`project_name`、`op_name`、`mode`（`full` 默认 / `precision_fix`——optimize 场景精度回归失败重调度专用，只跑回归修复不重走已完成轮次）、分核调优维度提示（`core-split-strategy.md` §2.4）、调优必要信息（new-op.md §5 收集表；`budget.max_stage4_experiments` 已设置时一并透传）、**kb_search 预注入条目**（「知识预注入」产出，含同族调优先例案例）。
+- **optimize 场景的输入优先规则**：`mode=full` 时，TileOPs 集成算子按 `conductor-scenarios/optimize.md` §3 定位并透传 benchmark 参数化入口；`DESIGN.md` 只作设计参考，`new-op.md` §5 的「测试 shape」默认值不用于确定或缩减 `tune` 集合。不得在 dispatch 中以 manifest、DESIGN.md 或正确性测试的案例替代 benchmark，或预先写死 `tune` 用例及数量；由 optimizer 展开 benchmark 并分类。`mode=precision_fix` 不重走 benchmark 展开。非 TileOPs 且无迁移 benchmark 的独立算子按用户明确指定的性能 workload 调优。
 - **输出/信号**：`perf_opt/{op}.py` + `perf_opt/opt_log.md` + `perf_opt/perf_records.jsonl`（**结构化性能记录，append-only**：每轮每分支一行，字段契约唯一出处 `signal-registry.md` §5）+ 可选 `perf_opt/perf_feedback.md`（`[DESIGN_LIMIT]`）+ `TUNING_COMPLETED`（触发 `phase=DONE`）。opt_log.md 每轮须含候选 vs current best 对比表（Task Duration / AICore 利用率 / memory 指标 / L0 结果，B2 结构化回流；两者均由 gate 4 机械校验）。可附 `[DESIGN_LIMIT]` + `perf_feedback_path`——非阻塞逆向反馈，路由见「TUNING→DESIGN 受控逆向反馈」。
 
 ### 终态蒸馏 — 自进化蒸馏（`@tilelang-skill-evolver`，非 Stage）

@@ -73,6 +73,13 @@ description: "根据冻结的 DESIGN.md 生成算子实现（{op}.py：kernel + 
 
 ## 4. `{op}.py` 结构规范
 
+TileOPs harness 迁移的最终 kernel 产物必须在模块顶层声明字面量
+`ASCEND_MODE = "Developer"` 或 `ASCEND_MODE = "Expert"`。该值是 Stage 3
+实际通过验证的实现模式；实现过程中切换模式时，以最终实现为准。独立运行
+kernel 测试时设置的 `TILELANG_ASCEND_MODE` 必须与此值一致。保留这一声明，
+供 Stage 5 在运行 report 前同步 TileOPs 的 `Kernel.ascend_mode`。不要把 Stage 3
+调度字段 `mode`（`first_impl` / `retry_impl` / `precision_fix`）当作编程模式。
+
 生成的文件必须包含以下组成部分（顺序）：
 注意：*.py 中的注释只能使用英文
 
@@ -136,6 +143,7 @@ cp {op}.py history_version/{op}_impl_s3_attempt{N}.py
 ## Stage Result
 - stage: 3
 - mode: first_impl / retry_impl / precision_fix
+- programming_mode: Developer / Expert（最终通过验证的 kernel 模式）
 - project: {project}
 - operator: {op}
 - output: examples/{project}/{op}/{op}.py

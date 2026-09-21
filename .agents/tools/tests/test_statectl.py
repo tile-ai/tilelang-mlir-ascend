@@ -1325,7 +1325,7 @@ def test_gate5_integration_lint(tmp_path):
     (pkg / "__init__.py").write_text("", encoding="utf-8")
     (pkg / "integration_log.md").write_text("ok\n", encoding="utf-8")
     for f in ("funcA", "funcB"):
-        (pkg / f"{f}.py").write_text(KERNEL_PY, encoding="utf-8")
+        (pkg / f"{f}.py").write_text('ASCEND_MODE = "Developer"\n' + KERNEL_PY, encoding="utf-8")
         (pkg / f"{f}_DESIGN.md").write_text(DESIGN_MD, encoding="utf-8")
     wrapper = (
         repo
@@ -1340,7 +1340,10 @@ def test_gate5_integration_lint(tmp_path):
     wrapper.parent.mkdir(parents=True, exist_ok=True)
     wrapper.write_text(
         "from .mop_kernel import funcA  # baseline\n"
-        "# from .mop_kernel.perf_opt import funcA  # perf_opt\n",
+        "# from .mop_kernel.perf_opt import funcA  # perf_opt\n"
+        "from tileops.kernels.kernel_base import Kernel\n"
+        "class MopKernel(Kernel):\n"
+        "    ascend_mode = \"Developer\"\n",
         encoding="utf-8",
     )
     rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
@@ -1367,15 +1370,36 @@ def _ready_stage5_gate(tmp_path):
     (pkg / "__init__.py").write_text("", encoding="utf-8")
     (pkg / "integration_log.md").write_text("ok\n", encoding="utf-8")
     for func in ("funcA", "funcB"):
-        (pkg / f"{func}.py").write_text(KERNEL_PY, encoding="utf-8")
+        (pkg / f"{func}.py").write_text('ASCEND_MODE = "Developer"\n' + KERNEL_PY, encoding="utf-8")
         (pkg / f"{func}_DESIGN.md").write_text(DESIGN_MD, encoding="utf-8")
     wrapper = pkg.parent / "mop.py"
     wrapper.write_text(
         "from .mop_kernel import funcA  # baseline\n"
-        "# from .mop_kernel.perf_opt import funcA  # perf_opt\n",
+        "# from .mop_kernel.perf_opt import funcA  # perf_opt\n"
+        "from tileops.kernels.kernel_base import Kernel\n"
+        "class MopKernel(Kernel):\n"
+        "    ascend_mode = \"Developer\"\n",
         encoding="utf-8",
     )
     return repo, slug_dir, pkg, wrapper
+
+
+def test_gate5_rejects_missing_or_mismatched_ascend_mode(tmp_path):
+    repo, slug_dir, pkg, wrapper = _ready_stage5_gate(tmp_path)
+    _write_stage5_report(repo, pkg)
+    wrapper.write_text(wrapper.read_text(encoding="utf-8").replace(
+        'ascend_mode = "Developer"', 'ascend_mode = "Expert"'
+    ), encoding="utf-8")
+    rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
+    assert rc == 1
+    assert "S5-ASCEND-MODE" in {f["rule_id"] for f in out["failures"]}
+    wrapper.write_text(wrapper.read_text(encoding="utf-8").replace(
+        'ascend_mode = "Expert"', 'ascend_mode = "Developer"'
+    ), encoding="utf-8")
+    (pkg / "funcA.py").write_text(KERNEL_PY, encoding="utf-8")
+    rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
+    assert rc == 1
+    assert "S5-ASCEND-MODE" in {f["rule_id"] for f in out["failures"]}
 
 
 def test_gate5_partial_benchmark_is_warning(tmp_path):

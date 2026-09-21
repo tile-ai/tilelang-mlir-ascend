@@ -111,6 +111,94 @@ def find_design_doc(kernel_src: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def kernel_ascend_mode(kernel_src: Path) -> str:
+    """Read the verified source mode, accepting legacy literal setdefault calls."""
+    tree = ast.parse(kernel_src.read_text(encoding="utf-8"))
+    declared: list[str] = []
+    defaults: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "ASCEND_MODE"
+            for target in node.targets
+        ):
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                declared.append(node.value.value)
+        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        if (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "setdefault"
+            and isinstance(call.func.value, ast.Attribute)
+            and call.func.value.attr == "environ"
+            and len(call.args) >= 2
+            and isinstance(call.args[0], ast.Constant)
+            and call.args[0].value == "TILELANG_ASCEND_MODE"
+        ):
+            value = call.args[1]
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                defaults.append(value.value)
+            elif isinstance(value, ast.Name) and value.id == "ASCEND_MODE" and declared:
+                defaults.append(declared[-1])
+    modes = {mode.capitalize() for mode in declared + defaults}
+    if not modes or modes - {"Developer", "Expert"} or len(modes) != 1:
+        raise SystemExit(
+            f"[error] {kernel_src}: missing or conflicting ASCEND_MODE / "
+            "TILELANG_ASCEND_MODE declaration; expected one Developer or Expert mode"
+        )
+    return modes.pop()
+
+
+def sync_wrapper_ascend_mode(wrapper_path: Path, kernel_class: str | None, mode: str) -> bool:
+    """Set the Kernel subclass mode once, without changing other wrapper logic."""
+    source = wrapper_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    classes = [node for node in tree.body if isinstance(node, ast.ClassDef)]
+    if kernel_class:
+        classes = [node for node in classes if node.name == kernel_class]
+    else:
+        classes = [
+            node
+            for node in classes
+            if any(isinstance(base, ast.Name) and base.id == "Kernel" for base in node.bases)
+        ]
+    if len(classes) != 1:
+        raise SystemExit(
+            f"[error] {wrapper_path}: expected one Kernel class"
+            + (f" named {kernel_class}" if kernel_class else "")
+        )
+    cls = classes[0]
+    assignments = [
+        node
+        for node in cls.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "ascend_mode" for target in node.targets)
+    ]
+    if len(assignments) > 1:
+        raise SystemExit(f"[error] {wrapper_path}: duplicate ascend_mode in {cls.name}")
+    lines = source.splitlines(keepends=True)
+    declaration = f'    ascend_mode = "{mode}"\n'
+    if assignments:
+        current = assignments[0]
+        if not isinstance(current.value, ast.Constant) or current.end_lineno != current.lineno:
+            raise SystemExit(f"[error] {wrapper_path}: non-literal ascend_mode in {cls.name}")
+        if current.value.value == mode:
+            return False
+        lines[current.lineno - 1] = declaration
+    else:
+        first = cls.body[0]
+        insert_after = (
+            first.end_lineno
+            if isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+            else cls.lineno
+        )
+        lines.insert(insert_after, "\n" + declaration)
+    wrapper_path.write_text("".join(lines), encoding="utf-8")
+    return True
+
+
 def parse_wrapper_imports(wrapper_path: Path, extracted_module: str) -> list[str]:
     """Return the names the wrapper imports from .{extracted_module}."""
     tree = ast.parse(wrapper_path.read_text(encoding="utf-8"))
@@ -344,6 +432,14 @@ def main() -> None:
         wrapper_names = list(functions)
 
     sources = {f: find_conductor_file(f, examples_root, op_slug, overrides) for f in functions}
+    source_modes = {func: kernel_ascend_mode(src) for func, src in sources.items()}
+    unique_modes = set(source_modes.values())
+    if len(unique_modes) != 1:
+        raise SystemExit(
+            f"[error] {wrapper_path}: one Kernel class cannot use mixed programming "
+            f"modes without per-call scoping: {source_modes}"
+        )
+    ascend_mode = unique_modes.pop()
 
     target_dir = tileops_root / "tileops" / "kernels" / family / op_slug / f"{op_slug}_kernel"
     integrated: dict[str, Path] = {}
@@ -392,6 +488,10 @@ def main() -> None:
             else "already integrated"
         )
     )
+    mode_updated = sync_wrapper_ascend_mode(
+        wrapper_path, meta.get("kernel_class_name"), ascend_mode
+    )
+    print(f"[mode] {wrapper_path}: {ascend_mode} ({'updated' if mode_updated else 'unchanged'})")
 
     ok, out = (
         (True, "skipped")
@@ -415,6 +515,8 @@ def main() -> None:
         "target_dir": str(target_dir),
         "wrapper": str(wrapper_path),
         "wrapper_rewritten": rewritten,
+        "ascend_mode": ascend_mode,
+        "wrapper_mode_updated": mode_updated,
         "reexported": wrapper_names,
         "smoke": "pass" if out != "skipped" else "skipped",
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),

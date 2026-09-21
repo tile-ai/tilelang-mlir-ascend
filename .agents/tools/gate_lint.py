@@ -1184,6 +1184,41 @@ def meta_lint(meta_path: str, repo_root: str):
 WRAPPER_PERF_IMPORT_RE = re.compile(r"^\s*#\s*(?:from|import)\s+.*perf_opt", re.M)
 
 
+def _literal_ascend_mode(source: str) -> str | None:
+    """Find the final kernel's explicit mode (legacy setdefault is accepted)."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    declared, defaults = [], []
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "ASCEND_MODE"
+            for target in node.targets
+        ):
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                declared.append(node.value.value)
+        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        if (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "setdefault"
+            and isinstance(call.func.value, ast.Attribute)
+            and call.func.value.attr == "environ"
+            and len(call.args) >= 2
+            and isinstance(call.args[0], ast.Constant)
+            and call.args[0].value == "TILELANG_ASCEND_MODE"
+        ):
+            value = call.args[1]
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                defaults.append(value.value)
+            elif isinstance(value, ast.Name) and value.id == "ASCEND_MODE" and declared:
+                defaults.append(declared[-1])
+    modes = {mode.capitalize() for mode in declared + defaults}
+    return modes.pop() if len(modes) == 1 and modes <= {"Developer", "Expert"} else None
+
+
 def integration_lint(migration_state: dict, repo_root: str):
     """Stage 5 gate: integration package, wrapper, and single-op report.
 
@@ -1224,9 +1259,50 @@ def integration_lint(migration_state: dict, repo_root: str):
         repo_root, f"examples/TileOPs/tileops/kernels/{family}/{op_slug}/{op_slug}.py"
     )
     wtext = _read_text(wrapper)
+    source_modes = set()
+    for func in migration_state.get("functions") or {}:
+        kernel_path = os.path.join(pkg_dir, f"{func}.py")
+        kernel_text = _read_text(kernel_path)
+        if kernel_text is None:
+            continue
+        mode = _literal_ascend_mode(kernel_text)
+        if mode is None:
+            failures.append(
+                _fail("S5-ASCEND-MODE", kernel_path, "kernel 缺少明确且一致的 Developer/Expert 模式声明")
+            )
+        else:
+            source_modes.add(mode)
+    if len(source_modes) > 1:
+        failures.append(
+            _fail("S5-ASCEND-MODE", pkg_dir, "同一 Kernel class 集成了不同编程模式，需逐调用限定模式")
+        )
     if wtext is None:
         failures.append(_fail("S5-WRAPPER", wrapper, "wrapper 文件不存在或不可读"))
     else:
+        try:
+            wrapper_tree = ast.parse(wtext)
+            classes = [
+                node for node in wrapper_tree.body
+                if isinstance(node, ast.ClassDef)
+                and any(isinstance(base, ast.Name) and base.id == "Kernel" for base in node.bases)
+            ]
+            class_modes = [
+                stmt.value.value
+                for cls in classes
+                for stmt in cls.body
+                if isinstance(stmt, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == "ascend_mode"
+                    for target in stmt.targets
+                )
+                and isinstance(stmt.value, ast.Constant)
+            ]
+            if len(classes) != 1 or len(class_modes) != 1 or set(class_modes) != source_modes:
+                failures.append(
+                    _fail("S5-ASCEND-MODE", wrapper, "wrapper 的 Kernel.ascend_mode 与集成 kernel 模式不一致")
+                )
+        except SyntaxError:
+            failures.append(_fail("S5-ASCEND-MODE", wrapper, "wrapper Python 语法错误，无法检查编程模式"))
         if "perf_opt" not in wtext:
             failures.append(
                 _fail(

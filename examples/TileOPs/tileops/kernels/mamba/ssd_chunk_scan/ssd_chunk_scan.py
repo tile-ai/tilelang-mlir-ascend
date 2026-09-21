@@ -139,6 +139,8 @@ class SSDChunkScanFwdKernel(Kernel):
     ``tune`` argument.
     """
 
+    ascend_mode = "Expert"
+
     # K5: [80, 86, 89, 90] (CUDA SM) -> None (all architectures).
     supported_archs: Optional[list] = None
 

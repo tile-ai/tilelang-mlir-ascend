@@ -59,6 +59,8 @@ python .agents/skills/add-npu-op/scripts/integrate_kernel.py --meta <meta_path>
 ```
 
 - 脚本幂等；重复运行安全（kernel 与 `{func}_DESIGN.md` 均整文件覆盖）。
+- 集成脚本从最终 Stage 3 kernel 的 `ASCEND_MODE` 读取编程模式（已有产物可读取字面量 `TILELANG_ASCEND_MODE` 声明），在 report 前同步到 wrapper 的 `Kernel.ascend_mode`。重复集成也必须重新核对；不得从最初 DESIGN 或算子名称猜测模式。
+- 若最终产物未明确声明模式或声明冲突，脚本报 `[error]`，修正产物后重新集成。若同一 Kernel 类的函数混用 Developer/Expert，当前自动集成不支持类级 `ascend_mode`；报告 `[INTEGRATE_FAIL]` 并交回设计逐调用模式作用域，不得给整个类强行填一个模式或原样重试。
 - 脚本同时把每个函数的 Stage 1 交付件 `examples/{op_slug}/{func}/DESIGN.md` 复制为集成包内 `{func}_DESIGN.md`，与集成 kernel 文件同目录。
 - 脚本末行输出 `[json] {...}` 摘要（含 `design_docs` 映射），捕获供日志。
 - 若脚本报 `[error]`（找不到 conductor 产物 / wrapper 缺 extracted import）：属集成前置条件不满足 → 返回 `[INTEGRATE_FAIL]` + 错误详情，不做手工绕过。

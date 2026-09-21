@@ -4,5 +4,7 @@ include requirements.txt
 include requirements-test.txt
 include requirements-dev.txt
 include tilelang/jit/adapter/cython/cython_wrapper.pyx
+include tools/bundle_npuir.py
+include tools/isolate_wheel_zstd.py
 recursive-include src *
 recursive-include 3rdparty/tvm *

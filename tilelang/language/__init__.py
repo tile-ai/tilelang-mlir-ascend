@@ -132,6 +132,9 @@ from .customize_npuir import (
     npuir_cumsum as cumsum,  # noqa: F401, F811
     npuir_sort,  # noqa: F401
     npuir_sort as vsort,  # noqa: F401
+    vmrgsort,  # noqa: F401
+    vsort32,  # noqa: F401
+    vextract_pairs,  # noqa: F401
     npuir_clamp,  # noqa: F401
     npuir_clamp as vclamp,  # noqa: F401
     npuir_atomic_add,  # noqa: F401

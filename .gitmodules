@@ -3,7 +3,7 @@
 	url = https://github.com/TileLang/tvm
 [submodule "3rdparty/AscendNPU-IR"]
 	path = 3rdparty/AscendNPU-IR
-	url = https://gitcode.com/Ascend/AscendNPU-IR.git
+	url = https://gitcode.com/qq_51358522/AscendNPU-IR.git
 [submodule "3rdparty/AscendNPU-IR-Dev"]
 	path = 3rdparty/AscendNPU-IR-Dev
 	url = https://gitcode.com/Ascend/AscendNPU-IR-Dev.git

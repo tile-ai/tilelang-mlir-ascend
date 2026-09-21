@@ -58,7 +58,7 @@
 | PL-1.11-causal-mask-scalartrap | 第五轮 causal 域 14.2x：vcmp int16 全形态标量化陷阱 + 算术惩罚掩码 + zbuf l1_b 零初始化（NaN 边界）+ UB ×1.10–1.12 开销 | verified |
 | PL-1.12-task-pipeline-depth2 | 第六轮：TASKDONE 屏障冗余审计（全域 −7~−21%）+ Cube 深度 2 任务流水（flag slot 双槽，2×nk≤15）+ f32 S 载体；Vec 侧同构 blocked（MTE2/MTE3 同 buffer WAR）；r9：bn 钳位域×bm80 UB 耦合→守卫 `bn_min≤tuned_bn`（UB∝half） | verified |
 | PL-1.13-aiv-dup-subid-split | Mix kernel 双 AIV 默认重复执行 Vector 程序；subid 边界表达式分片（蛇形均衡）实测 −28~−36%（判据：两 AIV 子块指标相同） | verified |
-| PL-1.18-ssd-steady-structure-floor | 稳态画像以最长任务串 workload 为准（短串低估引擎占比）；mte2 段数墙五方向否决：band 增量=数学不可行（行绑定 lt）/ 深度 3=L2 劣化每条 mte2 / x 预取=稳态无间隙 / L1 双缓冲=端口互拖倒贴 / AIV 减负=非关键+alias 税 | verified |
+| PL-1.18-ssd-steady-structure-floor | 稳态画像以最长任务串 workload 为准；段数记账二轮更正（prev ×4 漏算，指令数互证法）+ 三胜出（prevhoist/L0C acc 乒乓/vbrc hoist 干净形态，几何 1.078×）+ 否决扩至十方向（band 数学不可行 / 深度 3 L2 劣化 / x 预取无间隙 + 流头局部最优 / L1 双缓冲两态两证 / 运行时 if 调度毒 / 发射序 / acc 深度 4） | verified |
 | PL-1.16-expert-dualscope-bypass | Developer 阻塞（标量化 / 条件构造崩溃 / persistent+gemm 崩溃）的结构级绕法：Expert 双 Scope + pass_configs 硬边界（attention+ssd 两证） | verified |
 
 ### traps-compiler.md — 编译器/解析器陷阱
@@ -126,7 +126,7 @@
 | CASE-norm-adalayern-stage4 | norm/row-reduction 调优档案（bm 第一杠杆 + loads-first + 2.14x 几何平均） | verified |
 | CASE-attention-twophase-causal-regen | 两相位 causal 域重生成 + 第五轮（标量化判别链 14.2x）+ 第六轮（屏障审计/深度 2/Ratio 口径/r9 守卫）调优档案 | verified |
 | CASE-attention-mha-config-unvalidated | 反例：设计默认 config 路径未编译验证即出厂（bench 期 UB 溢出） | verified |
-| CASE-ssd-chunkscan-migration | mamba/SSD 族 MixCV Expert 迁移完整档案（模式切换实证 + 六轮 2.91× + 首过集成 + 4515de8 重跑重验；Stage 4 知识 durable 载体集群） | verified |
+| CASE-ssd-chunkscan-migration | mamba/SSD 族 MixCV Expert 迁移完整档案（模式切换实证 + 六轮 2.91× + 首过集成 + 4515de8 重跑重验 + 二轮调优 1.078× plateau；Stage 4 知识 durable 载体集群） | verified |
 
 ### repro/ — 最小可复现代码（ED-B）
 

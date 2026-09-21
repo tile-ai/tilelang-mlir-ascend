@@ -203,20 +203,25 @@ apis: [T.gemm, T.copy, T.alloc_L1, T.sync_block_set, T.sync_block_wait, T.Kernel
 dtype: [fp16, bf16]
 device: 910B2C
 status: verified
-origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4 第二轮 R7/R8，w4/w3 取景框）
-toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17
-repro: repro-missing
+origin_task: ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260917T035420Z（Stage 4 第二轮 R7/R8，w4/w3 取景框）/ ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z（二轮调优 update：段数更正 + 三胜出 + 五否决 + repro 登记）
+toolchain: tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / Ascend910B2C / 2026-09-17；2026-09-21 二轮调优 tilelang 0.1.2+15ad002b3d（与 4515de8 同源，git diff 零改动）/ CANN 8.5.0 / Ascend910B2C
+repro: repro/PL-1.18-floor2-wins.py
 ---
 
 ### SSD chunk scan 稳态结构地板：Cube mte2 段数墙的五方向否决（R7/R8）
 
 - **稳态画像（w4：B2·C128·Q256·H64，16384 任务 / 24 核 = 683 任务/核串行）**：Cube mte2 **83.5% 忙比**（3217µs，12978 条 nd2nz，~256ns/条 = 64 段 × ~4ns/128B，段传输主导）+ cube_wait 0.919 / mte1_wait 0.908（数据供应饥饿）；AIV vec 62% **非关键路径**。**短任务串 workload（w2：32 任务/核）的 mte2 72% 是流水爬坡瞬态、低估引擎占比——persistent 任务流水 kernel 的瓶颈诊断须以最长任务串 workload 画像为取景框**。
-- **段数墙构成**（每任务 Cube mte2）：ws_lcb band 重组 640 段（Σ(lt+1)=10 块）+ x 256 + ws_c 128 + prev 128 ≈ 1216 段 × ~4ns —— 这是「Vector 产因子 → GM ws 中继 → Cube 消费」Expert 结构的物理流量（GQA 读放大 H/G 由 L2 吸收，cube read_hit 91% / AIV 99%，非带宽墙）。**拆分口径注（2026-09-20 ssd 重跑任务 Stage 2 检视登记）**：与 constants.md CONST-mte2-degradation 指令维度口径的段数拆分互斥（彼处记 ws_lcb 640 + ws_c 256 + x 256 + prev 64）——总和一致（≈1216）而分项矛盾，源出两任务不同估算/标定路径；引用以总段数为准，分项拆分待下次 Stage 4 段数墙 profile 复核厘清。
+- **段数墙构成**（每任务 Cube mte2）：ws_lcb band 重组 640 段（Σ(lt+1)=10 块）+ x 256 + ws_c 128 + prev 128 ≈ 1216 段 × ~4ns —— 这是「Vector 产因子 → GM ws 中继 → Cube 消费」Expert 结构的物理流量（GQA 读放大 H/G 由 L2 吸收，cube read_hit 91% / AIV 99%，非带宽墙）。**拆分口径注（2026-09-20 ssd 重跑任务 Stage 2 检视登记）**：与 constants.md CONST-mte2-degradation 指令维度口径的段数拆分互斥（彼处记 ws_lcb 640 + ws_c 256 + x 256 + prev 64）——总和一致（≈1216）而分项矛盾，源出两任务不同估算/标定路径；引用以总段数为准，分项拆分待下次 Stage 4 段数墙 profile 复核厘清。〔2026-09-21 复核解决：两套拆分与总数均漏算 prev_states 的 lt 循环 ×4 重读——真实 240KB/1920 段（指令数互证见下方 update①），引用以指令数互证口径为准〕
 - **五个候选方向的实测否决**（全部 msprof op 同 session 同口径）：
   1. **band 增量组装**（嵌套包含 → L1 跨 lt 累积，640→256 段）：**数学不可行**——band 块 (lt,s_blk) 内容 = lcb[l0+i, s0+j]，**行内容随 lt 变化**（dA_l 依赖 l），band(lt) 与 band(lt−1) 列前缀无公共可复用内容；L0 实测 L_tiles=1 全过、L_tiles≥2 全挂（max_diff 5.9e-3/7.9e-3）。
   2. **深度 3 任务流水**（ws 三槽 + 6 flag ≤15）：w2 +0.1% / w3 −2.7% / w4 +1.4% 平区——**3 任务 in-flight 的 ws 工作集 9.2→13.8MB 劣化 L2 局部性，mte2 每条 256→346ns（busy 85%→93% 但更慢）**；任务流水深度存在 L2 甜点（本结构=2）。
-  3. **AIV 减负**（vbrc hoist 等）：无墙钟收益（AIV 非关键）且 hoist 的 vsub alias 形态 +17~20% 税（layout.md PL-1.15 形态二）。
+  3. **AIV 减负**（vbrc hoist 等）：无墙钟收益（AIV 非关键）且 hoist 的 vsub alias 形态 +17~20% 税（layout.md PL-1.15 形态二）。〔2026-09-21 修正：税源 = vsub dst=src2 alias 而非 hoist 本身——干净形态（fresh dst + 死后复用）实测 −0.3~−3.5% 胜出（update③）；「AIV 非关键」结论随对侧优化漂移（w2 转 AIV-bound，见 update③ 获益分布）〕
   4. **x 预取**（x copy 提到 factors-ready wait 前）：稳态 wait ≈ 0（AIV 快于 Cube），ab_test 交错协议 tie（+0.48%, p=0.25）——无间隙可填。
   5. **L1 双缓冲软件流水**（_a/_b 槽 + lt 编译期展开 + prefetch 先行）：w2 +11.9% / w3 +17.9% / w4 +18.8%——mte2 纯传输 3217→3056µs（idle 确被填）但 **mte2_wait 0.864→0.976：prefetch 的 MTE2 写（L1 _b 槽）与 gemm 操作数装载的 MTE1 读（L1 _a 槽）在 L1 端口层互拖，+700µs 代价 > ~160µs 收益**——910B2C 此 BiSheng 调度下 L1 双缓冲 family blocked（与 PL-1.9-hardlimits 的 L1 端口常数互证）。
+- **〔2026-09-21 二轮调优 update，origin_task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z（4515de8 重跑谱系 Stage 4），tilelang 0.1.2+15ad002b3d + CANN 8.5.0 + 910B2C〕地板修正与三项新胜出（7 轮 10 分支，几何 1.078×，w2 223.53→204.33 / w3 638.85→601.61 / w4 3902.26→3616.80µs）**：
+  1. **段数墙记账修正（D，更正上文 prev 128 段）**：prev_states 拷贝位于 lt 循环内且对 lt 无依赖——Q=256 时每任务 **4× 重读（512 段/64KB，非 128 段/16KB）**；实测 Cube mte2 指令数 19.0/任务（= 1(x)+Σ[1(ws_c)+1(prev)+(lt+1)(band)]）与代码结构精确互证。两套旧拆分（1216 段）均漏算 ×4，真实 240KB/任务（1920 段）。**互证方法（P）**：aic_mte2_instructions ÷ 任务数 对照 kernel 拷贝语句清单——逐维核对循环体内张量索引的循环不变性是发现冗余装载的机械化路径。
+  2. **三项胜出结构（P，全 msprof op Task Duration median-of-20 + ab_test）**：①prevhoist——prev 载装载提升出 lt 循环（mte2 字节 −20%、指令 19→16/任务）→ −2.0~−3.4%；②l0c2x——**L0C acc 乒乓**（配对循环 lt=2j/2j+1 交替 l0_acc_a/b，相邻 lt 的 hist→band→out gemm 链 2 深重叠，cube_wait 0.897→0.836）→ −1.7~−4.6%；③vbrchoist——**vbrc hoist 干净形态**（lt 不变行广播提升到 lt 层 + vsub 写 fresh dst〔无 alias〕+ diff_mat 死后复用为 dt 广播目标 = 净零 UB buffer；旧 v11 失败归因 vsub dst=src2 alias 税而非 hoist 本身，本条修正）→ −0.3~−3.5%（AIV-bound 的 w2 与 AIV 共临界的 w4 获益，Cube-bound 的 w3 不响应——逐 workload 约束判定与响应幅度互证）。
+  3. **新否决（补入五方向后的清单）**：⑥L1 双缓冲在 prevhoist+l0c2x 新状态下二次否决（+2.9~+6.3%——端口竞争状态无关，mte2 idle ~18-22% 为端口轮转而非可填空闲）；⑦**运行时 if 进 Cube 热循环 = 调度毒**（once-true 守卫 `if jp == 0:` 包 32KB 拷贝，w4 +15.65%——跨迭代调度被控制流打断，远超字节模型预期）；⑧x 装载在 mte2 流头是局部最优（无守卫静态后移也 +3.1~+10.5%：32KB 大块在流头给长启动窗口）；⑨lt 内发射序变体（band 先行/先行+跟进）两形态均回退或无增益（最早 gemm 的操作数必须最先到达）；⑩acc 深度 4 无增益（距离-2 WAR 已被 ping-pong 相位隐藏）。
+  4. **字节节省→墙钟换算率 ~20% 现象（D）**：prevhoist 削 20% mte2 字节仅兑现 −2~−3.4% 墙钟（节省的传输时间大部分转化为 mte2 idle 增长：w4 idle 613→910µs）——mte2 忙比不是线性可兑换资源，端口轮转地板下需同时解除 gemm 链串行（②）才能部分兑现。
 - **方法论**：稳态画像暴露的「新瓶颈」不必然存在「可打空间」——段数是中继结构的物理流量；结构候选受数学事实（band 行绑定）/ L2 局部性（工作集）/ L1 端口（读写竞争）三重约束夹击，逐一实测是唯一裁决方式。单 buffer 消 idle 的正路是减少段数本身（数学/结构层），而非更深流水/更早预取。
 - 溯源：`examples/ssd_chunk_scan/_ssd_chunk_scan_fwd_kernel/perf_opt/`（opt_log R7/R8 + §5 清单第二轮五行；perf_records round 7/8；分支文件 _opt_v10/v11/v12/v13/v14_*.py）。

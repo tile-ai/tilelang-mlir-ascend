@@ -654,6 +654,28 @@ decided_by: evolver / human / -   # 裁决者
 - decided_by: -
 - decided_note: 消费场景在 Stage 5 integrator 侧——若审批倾向改 integrator known-fixes（Tier 2 域）而非 traps-runtime 条目，可在审批时改路由（事实本体不变）。
 
+## VP-2026-0110
+- type: P
+- title: BP-engine-criticality-drift——persistent 双引擎 kernel 的引擎临界性随对侧优化漂移，「引擎 X 非关键」结论每轮 winner 合并后重算（任务周期 vs 引擎 busy 逐 workload 核算）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z：opt_log.md#round-4 现象节（逐引擎任务周期核算：w2 任务周期 6.58µs vs Cube mte2 busy 4.45µs/任务 ⟹ w2 已 AIV-bound——旧档 PL-1.18 的「AIV vec 62% 非关键」在 prevhoist+l0c2x 两轮 Cube 优化后不再成立，vbrchoist 因此获益 −3.5%）
+  - 方法有效性的自然实验：同文件 R4（vbrchoist 获益分布 w2 −3.45% / w4 −3.30% 响应，w3 −0.27% 不响应——AIV-bound/AIV 共临界/Cube-bound 三态与逐 workload 约束判定逐一互证）
+  - 数据侧落点：attention.md PL-1.18 update③ 获益分布注（2026-09-21 已回写）；流程侧姊妹提案 VP-2026-0112（iteration-diagnosis.md 已知迭代结论补注——方法/流程两 Tier 拆分，合入时互链）
+- repro: none（方法类：判据与核算式自包含于 delta；效应载体为 attention.md PL-1.18 + repro/PL-1.18-floor2-wins.py 骨架）
+- toolchain_stamp: tilelang 0.1.2+15ad002b3d（与 4515de8 同源）/ CANN 8.5.0 / Ascend910B2C / 2026-09-21
+- target_doc: .agents/skills/tilelang-op-optimize/references/bottleneck-patterns.md
+- delta: |
+    add 新 BP 条目 BP_engine_criticality_drift（目录行置于 BP_run_state_bimodality 之后）：
+    触发信号：Expert/persistent 双引擎（Cube+Vector）kernel 的 profile 或前轮结论含「引擎 X 非关键路径 / 非瓶颈」定性；或本轮 winner 改变了某一引擎的负载/串行结构（字节削减、链解串行、op 削减类合并）。
+    核算方法（每轮 winner 合并后执行）：逐 workload 比较「任务周期（Task Duration ÷ 每核任务数）」与「各引擎 per-task busy 时间」——引擎 busy 之和逼近或超过任务周期 ⟺ 该 workload 转为该引擎 bound；临界性是随结构状态漂移的动态量，不是一次性判定（ssd 实证：AIV「非关键」结论在两轮 Cube 优化后失效，w2 转 AIV-bound 使 Vector 侧 hoist 重新有收益）。
+    推荐动作：临界性反转的 workload 上重启「此前因非关键被否决」的对侧候选（旧否决注须核对其归因是否含形态税等可修正因素——ssd v11 vbrc hoist 失败实为 vsub dst=src2 alias 税，干净形态胜出）；Cube-bound workload 对 Vector 侧优化不响应是判定正确的佐证。
+    验证指标：候选获益分布与逐 workload 临界性判定一致（响应/不响应互证）；任务周期与引擎 busy 核算在合并后重新闭合。
+- status: pending
+- confirmations: 1/2
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z 2026-09-21
+- decided_by: -
+- decided_note: -
+
 ### Tier 2（R 类，结构化 diff 提案，待人工批准后 mode=apply 执行）
 
 ## VP-2026-0008
@@ -2143,6 +2165,7 @@ decided_by: evolver / human / -   # 裁决者
 - title: optimize SKILL.md T-4 实验批处理 runner 补适用边界——结构重构类分支（指令流重排/流水深度/同步协议）默认手工 diff 串行，生成脚本化仅用于参数扫描类
 - evidence:
   - task multi_head_attention-_gqa_prefill_fwd_kernel-20260916T033847Z：opt_log Skill Retrospective（第六轮）第 6 条（T-4 runner 未搭建的决策依据：分支数 8、依赖交互调试多，手工串行可控性更高；r8g 结构分支的生成脚本引入 3 次脚本 bug，叠加 2 次编译错 + 1 次精度失败 + 1 次 flaky 超时，消耗 ~40% 轮次时间）
+  - 〔2026-09-21 第二任务证据（不同任务），task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z〕opt_log Skill Retrospective Skill Flow Issues 第 4 行：str.replace 型代码生成分支时同构 body（even/odd/tail）文本相同导致多点命中——round3 cband 生成脚本 + round7 xmid 两度返工共 3 次工具事故均为此类（单点实验纪律本身无缺口）；作者建议的缓解工具（run_experiments 模板提供 branch-from-base 结构化 diff 生成）作为本提案 apply 时的可选配套一并裁决
 - repro: 复现条件——以脚本生成结构重构类分支（指令流重排/多槽 buffer/flag 协议变更）且需多轮交互调试的调优轮（本任务 r8g 实证形态）
 - toolchain_stamp: 会话层工作流（无运行时依赖）；发生环境 tilelang 0.1.2+a13585dc / 2026-09-16
 - target_doc: .agents/skills/tilelang-op-optimize/SKILL.md
@@ -2523,6 +2546,109 @@ decided_by: evolver / human / -   # 裁决者
 - status: pending
 - confirmations: -/-
 - created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260920T122332Z 2026-09-20
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0111
+- type: R
+- title: iteration-diagnosis.md Step 2「代码结构观察」补机械互证检查——继承的段数/流量记账须做「引擎指令数 ÷ 任务数」与 kernel 拷贝语句清单逐项对照（指令数是装载冗余的直接探测器，比散文记账可靠）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z：opt_log.md §1 末节（Phase 1 代码结构新发现：prev_states 切片对 lt 无依赖却在 lt 循环体内 ⟹ Q=256 时 4× 重读 = 48KB/任务冗余 = Cube mte2 字节 20%；实测 19.0 指令/任务 = 1(x)+Σ_lt[1(ws_c)+1(prev)+(lt+1)(band)] 与代码结构精确互证）
+  - 误判代价实证：旧任务（1990aa9fe4 谱系）两套段数拆分共同漏算 ×4（「1216 段不可减」的地板定位错误），本轮据此再挖出几何 1.078× 中的第一项（prevhoist −2.0~−3.4%）；constants.md CONST-mte2 段数更正注 + attention.md PL-1.18 update①（2026-09-21 已回写）
+  - .task_timeline.jsonl（Stage 4 无 fail 于该项——发现靠 optimizer 自发代码结构核对，非流程强制；Skill Retrospective Skill Flow Issues 首行自评「旧档数字未被要求做代码结构级互证」）
+- repro: python3 .agents/tools/kb_search.py "mte2 段数 指令数 互证"（数据侧落点：constants.md CONST-mte2 / attention.md PL-1.18）
+- toolchain_stamp: tilelang 0.1.2+15ad002b3d（与 4515de8 同源）/ CANN 8.5.0 / Ascend910B2C / 2026-09-21
+- target_doc: .agents/skills/tilelang-op-optimize/references/iteration-diagnosis.md
+- delta: |
+    动作: update（「### 代码结构观察」bullet 列表末条之后追加一条）
+    定位锚: "- 冗余访问：是否有中间结果写回 GM 后又读回，或重复读取同一批 GM 数据。"
+    old 文本: |
+      - 冗余访问：是否有中间结果写回 GM 后又读回，或重复读取同一批 GM 数据。
+    new 文本: |
+      - 冗余访问：是否有中间结果写回 GM 后又读回，或重复读取同一批 GM 数据。
+      - 装载冗余互证（含继承数字）：对每个搬运引擎把「指令数（如 aic_mte2_instructions）÷ 每核任务数」与 kernel 内拷贝语句清单逐项对照——每条 T.copy 对应一条指令，对不上即有漏算/冗余；逐维核对循环体内张量索引的循环不变性（索引不含某循环变量 ⟺ 该装载可提升出该循环）。从旧档/前轮继承的段数/流量记账在用于地板定位前必须过此互证（2026-09-21 ssd 实证：两套旧拆分共同漏算 prev ×4 重读，致「1216 段不可减」错误地板定位跨任务存活，指令数互证一轮发现 20% 可削字节）。
+    动机: 散文式段数记账不可机械复核，错误记账一旦进入「继承裁决」链就跨任务存活并封死候选方向；指令数是 msprof 直接给出的机械计数，与代码结构一一对应——把互证设为 Step 2 标准动作可在首轮 profile 即发现记账盲区，而不是依赖 optimizer 自发核对。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z 2026-09-21
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0112
+- type: R
+- title: iteration-diagnosis.md「已知迭代结论」节补注——引擎临界性是动态量，「引擎 X 非关键」类结论每轮 winner 合并后须重算（AIV「非关键」在两轮 Cube 优化后失效、w2 转 AIV-bound）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z：opt_log.md R2→R4 约束迁移链（prevhoist+l0c2x 后 w2 任务周期 6.58µs vs Cube mte2 busy 4.45µs/任务 ⟹ AIV-bound；vbrchoist 据此立项获益 −3.45%）+ Skill Retrospective Skill Flow Issues 第 2 行（「AIV『非关键路径』结论会随 Cube 侧优化失效」）
+  - 知识侧姊妹条目：queue VP-2026-0110（BP_engine_criticality_drift，Tier 1——方法本体与判据；本条为流程侧每轮强制重算规则，两案合入时互链）
+- repro: none（流程规则；核算方法与实证数据自包含于 VP-2026-0110 delta 与 attention.md PL-1.18 update③）
+- toolchain_stamp: tilelang 0.1.2+15ad002b3d（与 4515de8 同源）/ CANN 8.5.0 / Ascend910B2C / 2026-09-21
+- target_doc: .agents/skills/tilelang-op-optimize/references/iteration-diagnosis.md
+- delta: |
+    动作: update（「### 已知迭代结论」text block 之后追加一段）
+    定位锚: |
+      本轮 profile 相比上一轮 profile 哪些指标发生变化
+      ```
+    old 文本: |
+      本轮 profile 相比上一轮 profile 哪些指标发生变化
+      ```
+    new 文本: |
+      本轮 profile 相比上一轮 profile 哪些指标发生变化
+      ```
+
+      **引擎临界性是动态量（2026-09-21 ssd 实证）**：双引擎（Cube+Vector）kernel 的「引擎 X 非关键路径」结论只对当时的结构状态有效——每轮 winner 合并后须重算逐 workload 的「任务周期（Task Duration ÷ 每核任务数）vs 各引擎 per-task busy」核算，临界性反转时重启此前因「非关键」被否决的对侧候选（ssd：AIV「非关键」在两轮 Cube 优化后失效，w2 转 AIV-bound，Vector 侧 hoist 重新获益 −3.5%）。重算方法与判据见 bottleneck-patterns.md BP_engine_criticality_drift。
+    动机: 旧结论按字面继承会把「当前非关键」固化为「永远非关键」，直接封死对侧候选池；重算成本是一次除法对照，收益是整轮优化方向（本任务 vbrchoist 即靠该核算立项）。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z 2026-09-21
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0113
+- type: R
+- title: ab_test 交错协议判读规则——3-pair 符号检验统计功效不足（3/3 同向仍 p=0.25 判 tie），采纳判据 = 配对方向一致 + 机制佐证（资源占用严格更优），临界情形 --pairs 5 复测
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z：opt_log R1 ab_test（ab_round1_w4：3/3 pair 一致 −2.85/−2.27/−3.02%，合并 −2.84%，verdict 仍 tie——p=0.25 为 3-pair 符号检验固有功效上限）+ R4（ab_round4_w2：3/3 一致 −2.97% 同判 tie）+ R2（ab_round2_w3：B_better 3/3 −3.0~−4.0% 合并 −3.97%——幅度够大时协议能判）
+  - 本任务正确采纳路径：靠 iteration-diagnosis.md Step 6 既有「资源占用决胜」规则 + 机制佐证（mte2 指令 19→16/任务、Cube mte2 字节 −20%、busy 3289→2913µs −11.4%）采纳 prevhoist——判据形态有效但未在 T-2 协议条成文，本轮为自发正确应用
+  - 工具侧查重确认：`.agents/tools/ab_test.py` 已支持 `--pairs`（L108，默认 3）——缺口在判读协议文档，非工具
+- repro: python3 .agents/tools/ab_test.py --a <baseline> --b <candidate> --pairs 5 ...（工具现成；复现条件 = 任一 <5% 增益的 3-pair 交错协议输出 tie 而 pair 方向全一致）
+- toolchain_stamp: tilelang 0.1.2+15ad002b3d（与 4515de8 同源）/ CANN 8.5.0 / Ascend910B2C / 2026-09-21
+- target_doc: .agents/skills/tilelang-op-optimize/references/iteration-diagnosis.md
+- delta: |
+    动作: update（Step 6 交错 A/B 协议 bullet 末尾追加判读规则）
+    定位锚: "工具化执行：`python3 .agents/tools/ab_test.py --a <baseline_kernel> --b <candidate_kernel> ...`（交错多 run + 合并中位差 + 配对方向一致性判定）。"
+    old 文本: |
+      工具化执行：`python3 .agents/tools/ab_test.py --a <baseline_kernel> --b <candidate_kernel> ...`（交错多 run + 合并中位差 + 配对方向一致性判定）。
+    new 文本: |
+      工具化执行：`python3 .agents/tools/ab_test.py --a <baseline_kernel> --b <candidate_kernel> ...`（交错多 run + 合并中位差 + 配对方向一致性判定）。**判读规则（2026-09-21 ssd 实证）**：3-pair 符号检验的统计功效上限 p=0.25——**3/3 配对同向仍判 tie 是协议固有，不是「无差异」证据**（两例：3/3 一致 −2.84% / −2.97% 均判 tie）；此形态的采纳判据 = ① 配对方向全一致（≥3/3 同向）**且** ② 机制佐证独立成立（资源占用严格更优：指令数/忙比/字节数等机制性削减指标，与 Task Duration 无关的计数）——两条件同时满足可采纳（本任务 prevhoist：pair 全同向 + mte2 指令 19→16/任务 + busy −11.4%）；仅方向一致而无机制佐证时用 `--pairs 5` 复测提高功效，不得据 3-pair tie 丢弃。
+    动机: tie 判定若无配套采纳规则，3/3 同向的真增益会被当噪声丢弃（或反之被主观采纳）——机制佐证把「统计上未决」转化为「机制上可判」，且佐证指标（指令数/字节）不受 run 双态噪声影响。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z 2026-09-21
+- decided_by: -
+- decided_note: -
+
+## VP-2026-0114
+- type: R
+- title: signal-registry.md §5 S4 产物格式契约显式化——perf_records final 的 artifact_path 以 perf_opt/ 为基准（裸文件名），Final Performance Test Data 表为 ##/### 标题 + 恰 5 列纯数字（gate 4 机械解析形态）
+- evidence:
+  - task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z：.task_timeline.jsonl（Stage 4 attempt 1 fail 7681s，verdict=runtime，2026-09-21T02:43:32Z——gate 4 S4-PERF-RECORDS-RECON 对账失败；attempt 2 窄修复 complete 170s）——失败细节来自 conductor 终态钩子输入，opt_log §7 复盘未覆盖该次 fail 的 gate 侧原因（复盘缺口形态，同 stats ⑧⑩ 先例）
+  - 两处产物格式错误（attempt 1）：① perf_records.jsonl final 记录 artifact_path 用仓库根相对路径（examples/TileOPs/... 前缀），gate 以 perf_records.jsonl 所在目录（perf_opt/）为基准拼接成双重前缀 → abspath 不匹配 → 「final 未测最终 perf_opt 文件」；② opt_log Final Performance Test Data 用加粗列表项而非 ##/### 标题 + 6 列且数值加粗——gate_lint.py L908 要求 `^#{2,3} Final Performance Test Data\s*$` 标题、L919 要求恰 5 列、L925 要求 float() 可解析（加粗 → ValueError / 6 列 → 行被跳过 → 「Final 表缺少 {key}」）
+  - 修复形态（attempt 2，170s）：final 行 artifact_path = 裸文件名 `_ssd_chunk_scan_fwd_kernel.py`（perf_records.jsonl 末 3 行）+ opt_log §6 `### Final Performance Test Data` + 5 列纯数字表
+  - .agents/tools/gate_lint.py L882-884（相对路径 join dirname(records_path)）/ L908-927（标题正则 + 5 列 + float 解析）；现行 signal-registry.md §5 已列 5 列字段名但未写标题层级/纯数字/路径基准三要素
+- repro: python3 .agents/tools/gate_lint.py（现行 S4-PERF-RECORDS-RECON 规则；负例 = final 行 artifact_path 带仓库根前缀 + Final 表加粗 6 列形态，正例 = 本任务 attempt 2 修复后产物）
+- toolchain_stamp: gate_lint.py 现行版本（statectl gate 4 机械核对层）；发生环境 tilelang 0.1.2+15ad002b3d / CANN 8.5.0 / Ascend910B2C / 2026-09-21
+- target_doc: .agents/skills/_shared/standards/signal-registry.md
+- delta: |
+    动作: update（§5 字段契约段扩展一句）
+    定位锚: "`phase` 为 `baseline` / `candidate` / `merged` / `final`。`artifact_path` 指向实际测量的候选 kernel 文件，`artifact_sha256` 是采集时该文件的 SHA256；final 记录的路径和哈希须与最终 `perf_opt/{op}.py` 一致。"
+    old 文本: |
+      `phase` 为 `baseline` / `candidate` / `merged` / `final`。`artifact_path` 指向实际测量的候选 kernel 文件，`artifact_sha256` 是采集时该文件的 SHA256；final 记录的路径和哈希须与最终 `perf_opt/{op}.py` 一致。
+    new 文本: |
+      `phase` 为 `baseline` / `candidate` / `merged` / `final`。`artifact_path` 指向实际测量的候选 kernel 文件，`artifact_sha256` 是采集时该文件的 SHA256；final 记录的路径和哈希须与最终 `perf_opt/{op}.py` 一致。**`artifact_path` 相对基准 = `perf_records.jsonl` 所在目录（`perf_opt/`）——final 记录写裸文件名 `{op}.py`，仓库根相对路径会被 gate 以 `perf_opt/` 为基准拼接成双重前缀而判「final 未测最终 perf_opt 文件」（2026-09-21 ssd 二轮调优实证：Stage 4 attempt 1 整轮 gate 对账失败重试）**。Final Performance Test Data 表的机械解析形态：`##`/`###` 标题行 + 恰 5 列 `| kernel_id | workload_id | baseline_us | final_us | final_candidate_id |`，时延列为纯数字（不加粗、不用列表项替代表格行——6 列或加粗数值均使 gate 4 `S4-PERF-RECORDS-RECON` 解析失败或跳行）。
+    动机: 契约的字段名已成文但「路径基准 / 标题层级 / 纯数字」三个 gate 解析要素未写——首轮按直觉写仓库根相对路径与富文本表格会整轮 gate 失败（本任务 7681s attempt 的收尾对账失败 + 170s 窄修复 + 一次 stage_retry；与 VP-2026-0036 的 null/手抄亚型同属 S4-PERF-RECORDS 产物契约违例家族，第三亚型）。
+- status: pending
+- confirmations: -/-
+- created_by: task ssd_chunk_scan-_ssd_chunk_scan_fwd_kernel-20260921T003531Z 2026-09-21
 - decided_by: -
 - decided_note: -
 

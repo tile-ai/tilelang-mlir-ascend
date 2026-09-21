@@ -107,6 +107,8 @@ from .customize_npuir import (
     npuir_exp2 as vexp2,  # noqa: F401
     npuir_log2,  # noqa: F401
     npuir_log2 as vlog2,  # noqa: F401
+    npuir_copy_nd2nd,  # noqa: F401
+    npuir_copy_nd2nd as copy_nd2nd,  # noqa: F401
     npuir_load_nd2nz,  # noqa: F401
     npuir_load_nd2nz as load_nd2nz,  # noqa: F401
     npuir_store_nz2nd,  # noqa: F401
@@ -134,6 +136,9 @@ from .customize_npuir import (
     npuir_sort as vsort,  # noqa: F401
     npuir_clamp,  # noqa: F401
     npuir_clamp as vclamp,  # noqa: F401
+    set_atomic,  # noqa: F401
+    set_atomic_add,  # noqa: F401
+    set_atomic_none,  # noqa: F401
     npuir_atomic_add,  # noqa: F401
     npuir_atomic_add as atomic_add,  # noqa: F401
     npuir_atomic_addx4,  # noqa: F401

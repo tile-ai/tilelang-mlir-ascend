@@ -187,6 +187,7 @@ protected:
 
   // Make mlir::value from PrimExpr
   mlir::Value MakeValue(const PrimExpr &e) { return VisitExpr(e); }
+  mlir::Value GetBufferValue(const Buffer &buffer);
   // Initialize each function state in AddFunction
   void InitFuncState();
 
@@ -224,6 +225,8 @@ private:
   template <typename T> void SyncBlockCodegen(const T &sync_op);
   void CallExternCodegen(const CallNode *op);
   void AscendCopyCodegen(const CallNode *op);
+  void CopyJumpCodegen(const CallNode *op);
+  void Nd2NdCodegen(const CallNode *op);
   void Nd2NzCodegen(const CallNode *op);
   void Nz2NdCodegen(const CallNode *op);
   void VexpCodegen(const CallNode *op);

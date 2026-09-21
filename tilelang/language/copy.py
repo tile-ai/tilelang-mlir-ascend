@@ -95,11 +95,110 @@ def buffer_region_to_tile_region(
     )
 
 
+def _copy_with_jump(src, dst, coalesced_width, size, jump):
+    """用于 SFA 单指令双搬运：jump 为两个 GM 块起点间的有符号元素距离。
+
+    Output rows always follow ascending GM start addresses. A negative jump
+    swaps the requested rows, including on single-row fallback paths. Legal
+    gaps in either direction and contiguous UB rows enable a two-block DMA.
+    Paired SFA KV/RoPE copies must use indices with the same address ordering.
+    """
+    from tvm import arith
+
+    analyzer = arith.Analyzer()
+
+    def resolve(value):
+        if isinstance(value, tir.Var) and T.has_let_value(value):
+            return T.get_let_value(value)
+        return value
+
+    def i64(value):
+        if isinstance(value, bool):
+            raise TypeError("T.copy jump: bool is not an integer address")
+        if isinstance(value, int):
+            return tir.const(value, "int64")
+        if not isinstance(value, tir.PrimExpr) or not str(value.dtype).startswith(
+            "int"
+        ):
+            raise TypeError("T.copy jump: expected a signed scalar integer")
+        if "x" in str(value.dtype):
+            raise TypeError("T.copy jump: vector indices are unsupported")
+        return tir.Cast("int64", value)
+
+    src, dst = resolve(src), resolve(dst)
+    if coalesced_width is not None:
+        raise ValueError("T.copy: jump and coalesced_width are mutually exclusive")
+    if not isinstance(src, tir.BufferLoad) or any(
+        isinstance(index, tir.Ramp) for index in src.indices
+    ):
+        raise TypeError("T.copy jump requires a scalar source start, e.g. A[p, 0]")
+    if len(src.buffer.strides) != 0:
+        raise ValueError("T.copy jump requires a contiguous GM source buffer")
+    if src.buffer.scope() != "global":
+        raise ValueError("T.copy jump only supports GM -> UB")
+
+    if isinstance(dst, tir.Buffer):
+        if size is not None:
+            raise ValueError("T.copy jump: use dst[i, j] with size, or a dst slice")
+        dst_buffer, dst_mins, extents = dst, [0] * len(dst.shape), list(dst.shape)
+    elif isinstance(dst, tir.BufferRegion):
+        if size is not None:
+            raise ValueError(
+                "T.copy: cannot use both slice syntax and the size parameter"
+            )
+        dst_buffer = dst.buffer
+        dst_mins = [r.min for r in dst.region]
+        extents = [r.extent for r in dst.region]
+    elif isinstance(dst, tir.BufferLoad) and size is not None:
+        dst_buffer, dst_mins, extents = dst.buffer, list(dst.indices), list(size)
+    else:
+        raise TypeError(
+            "T.copy jump requires a 2D dst buffer/slice, or dst start + size"
+        )
+    if len(dst_buffer.shape) != 2 or len(extents) != 2:
+        raise ValueError("T.copy jump requires a rank-2 UB destination")
+    if any(isinstance(index, tir.Ramp) for index in dst_mins):
+        raise ValueError("T.copy jump does not accept stepped destination slices")
+    extents = [analyzer.simplify(i64(x)) for x in extents]
+    if not all(isinstance(x, tir.IntImm) for x in extents):
+        raise ValueError("T.copy jump requires a static [2, width] copy shape")
+    if int(extents[0]) != 2 or int(extents[1]) <= 0:
+        raise ValueError("T.copy jump requires exactly two nonempty rows")
+    if dst_buffer.scope() != "shared" or len(dst_buffer.strides) != 0:
+        raise ValueError("T.copy jump requires a contiguous UB destination")
+    if src.buffer.dtype != dst_buffer.dtype:
+        raise ValueError("T.copy jump does not cast element types")
+
+    # Widen before flattening. A caller must also widen operands before computing
+    # a potentially overflowing jump expression at the call site.
+    offset = tir.const(0, "int64")
+    for index, dim in zip(src.indices, src.buffer.shape):  # noqa: B905 - preserve Python 3.9 support
+        offset = offset * i64(dim) + i64(index)
+    offset = analyzer.simplify(offset)
+    pitch = analyzer.simplify(i64(jump))
+
+    # Conservative READ footprint: both rows may be anywhere in this GM buffer.
+    # This descriptor is not the logical copy shape; dst supplies [2, width].
+    src_region = buffer_to_tile_region(src.buffer, "r")
+    dst_region = region(T.BufferLoad(dst_buffer, dst_mins), "w", *extents)
+    return tir.call_intrin(
+        "handle",
+        tir.op.Op.get("tl.copy"),
+        src_region,
+        dst_region,
+        tir.StringImm("jump_v1"),
+        offset,
+        pitch,
+    )
+
+
 def copy(
     src: Union[tir.Buffer, tir.BufferLoad, tir.BufferRegion],
     dst: Union[tir.Buffer, tir.BufferLoad, tir.BufferRegion],
     coalesced_width: Optional[int] = None,
     size: Optional[List] = None,
+    *,
+    jump: Optional[Union[int, tir.PrimExpr]] = None,
 ):
     """Copy data between memory regions.
 
@@ -108,6 +207,11 @@ def copy(
         dst (Union[tir.Buffer, tir.BufferLoad, tir.BufferRegion]): Destination memory region
         coalesced_width (Optional[int], optional): Width for coalesced memory access. Defaults to None.
         size (Optional[list], optional): Explicit extent for copy region. Legacy API compatibility.
+        jump: SFA single-instruction dual-block transfer: optional signed
+            source row pitch, in elements. NPUIR Expert
+            non-A5 only; copies two static-width rows from a scalar GM start.
+            Rows follow ascending GM addresses on every lowering path;
+            a negative jump swaps the two requested rows.
 
 
     Raises:
@@ -116,6 +220,9 @@ def copy(
     Returns:
         tir.Call: A handle to the copy operation
     """
+
+    if jump is not None:
+        return _copy_with_jump(src, dst, coalesced_width, size, jump)
 
     def get_extent(data):
         if isinstance(data, tir.Var) and T.has_let_value(data):

@@ -749,6 +749,8 @@ void CodeGenTileLangNPUIR::VselectCodegen(const CallNode *op,
   ///   1], offset:0>, #hivm.address_space<ub>>) outs(%C_VEC : memref<32x64xf16,
   ///   strided<[64, 1], offset:0>, #hivm.address_space<ub>>)
   tvm::tl::NpuirSelect npuirop(op->args, this->vmap);
+  ICHECK(npuirop.src0.defined() && npuirop.src1.defined())
+      << "Scalar T.vselect requires the Expert API backend";
   // gen memref.subview
   String cond_data_name =
       GenSubviewFromRegion(npuirop.cond, npuirop.cond_range);
@@ -931,6 +933,8 @@ void CodeGenTileLangNPUIR::FixpipeCodegen(const CallNode *op,
                                           std::ostream &os) {
   // Generate hivm.hir.fixpipe for tl.npuir_store_fixpipe.
   tvm::tl::NpuirFixpipe npuirop(op->args, this->vmap);
+  ICHECK(npuirop.unit_flag == -1)
+      << "Fixpipe unit_flag requires the A2/A3 Expert API backend";
   // gen memref.subview
   String src_data_name = GenSubviewFromRegion(npuirop.src, npuirop.src_range);
   String dst_data_name = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
@@ -1068,6 +1072,9 @@ void CodeGenTileLangNPUIR::DotCodegen(const CallNode *op, std::ostream &os) {
   //                 outs(%alloc_9 : memref<128x64xf32,
   //                      #hivm.address_space<cc>>)
   tvm::tl::NpuirDot npuirop(op->args, this->vmap);
+  ICHECK(!npuirop.HasManualControls())
+      << "GEMM manual L0/unit-flag controls require the A2/A3 Expert API "
+         "backend";
   Buffer a_buffer = npuirop.src0;
   Buffer b_buffer = npuirop.src1;
   Buffer c_buffer = npuirop.dst;

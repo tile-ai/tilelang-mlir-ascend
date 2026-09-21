@@ -19,8 +19,33 @@
 #include "../op/op.h"
 #include "target/source/codegen_c.h"
 
+// Forward declarations keep the shared codegen interface independent of MLIR
+// headers for the textual backend.
+namespace mlir {
+class OpBuilder;
+class Location;
+class TypeRange;
+class Value;
+class UnitAttr;
+class BoolAttr;
+namespace hivm {
+class FixpipePreQuantModeAttr;
+class FixpipePreReluModeAttr;
+} // namespace hivm
+} // namespace mlir
+
 namespace tvm {
 namespace codegen {
+
+// Shared A2/A3 API lowering helpers, implemented in codegen_npuir_api.cc.
+void EmitSetAtomic(mlir::OpBuilder &builder, const tir::CallNode *op,
+                   tl::BufferMap vmap);
+void CreateFixpipeCompat(mlir::OpBuilder &builder, mlir::Location loc,
+                         mlir::TypeRange results, mlir::Value src,
+                         mlir::Value dst, mlir::UnitAttr nz2nd,
+                         mlir::hivm::FixpipePreQuantModeAttr quant,
+                         mlir::hivm::FixpipePreReluModeAttr relu,
+                         mlir::BoolAttr channelSplit);
 
 enum class NPU_CORETYPE { AIC, AIV, MIX };
 

@@ -479,23 +479,31 @@ def npuir_log2(A, B, Tmp):
 
 
 def npuir_select(Cond, A, B, Out):
-    """Select elements based on a condition: Out = Cond ? A : B.
+    """Select Out = Cond ? A : B; A/B may be tensor regions or numeric scalars.
 
-    Args:
-        Cond (Union[tir.Buffer, tir.Var]): Condition argument
-        A (Union[tir.Buffer, tir.Var]): First input argument (selected when condition is true)
-        B (Union[tir.Buffer, tir.Var]): Second input argument (selected when condition is false)
-        Out (Union[tir.Buffer, tir.Var]): Output argument
-
-    Returns:
-        tir.Call: A handle to the npuir_select operation
+    Scalar inputs are converted to the output element dtype. Tensor operands
+    retain their region extents, including slices of larger state banks.
     """
 
-    Cond = _to_region(Cond, "r", _get_extent(A))
-    A = _to_region(A, "r", _get_extent(A))
-    B = _to_region(B, "r", _get_extent(B))
-    Out = _to_region(Out, "w", _get_extent(Out))
-    return tir.call_intrin("handle", tir.op.Op.get("tl.npuir_select"), Cond, A, B, Out)
+    def source(value):
+        if isinstance(value, tir.Var) and T.has_let_value(value):
+            value = T.get_let_value(value)
+        if isinstance(value, (int, float)):
+            dtype = (
+                Out.buffer.dtype
+                if isinstance(Out, (tir.BufferRegion, tir.BufferLoad))
+                else Out.dtype
+            )
+            return tir.const(value, dtype)
+        if isinstance(value, tir.PrimExpr) and not isinstance(value, tir.BufferLoad):
+            return value
+        return _to_region(value, "r", _get_extent(value))
+
+    cond = _to_region(Cond, "r", _get_extent(Cond))
+    out = _to_region(Out, "w", _get_extent(Out))
+    return tir.call_intrin(
+        "handle", tir.op.Op.get("tl.npuir_select"), cond, source(A), source(B), out
+    )
 
 
 def npuir_cmp(A, B, C, cmp_mod):
@@ -514,8 +522,15 @@ def npuir_cmp(A, B, C, cmp_mod):
     valid_cmp_mode = {"eq", "ne", "lt", "gt", "ge", "le"}
     assert cmp_mod in valid_cmp_mode, "cmp mode is invalid."
 
+    dtype = (
+        A.buffer.dtype if isinstance(A, (tir.BufferLoad, tir.BufferRegion)) else A.dtype
+    )
     A = _to_region(A, "r", _get_extent(A))
-    B = _to_region(B, "r", _get_extent(B))
+    B = (
+        tir.const(B, dtype)
+        if isinstance(B, (int, float))
+        else _to_region(B, "r", _get_extent(B))
+    )
     C = _to_region(C, "w", _get_extent(C))
     return tir.call_intrin("handle", tir.op.Op.get("tl.npuir_cmp"), A, B, C, cmp_mod)
 
@@ -547,6 +562,10 @@ def npuir_dot(
     initC: bool = False,
     a_transpose: bool = False,
     b_transpose: bool = False,
+    *,
+    kloop_db_cond=None,
+    l0_sync_events=None,
+    unit_flag=None,
 ):
     """Matrix multiplication: C = C + A * B.
 
@@ -559,9 +578,60 @@ def npuir_dot(
         a_transpose (bool): Whether matrix A is transposed before load. Defaults to False.
         b_transpose (bool): Whether matrix B is transposed before load. Defaults to False.
 
+        kloop_db_cond (int or tir.PrimExpr): Outer MMAD invocation index used
+            for L0A/B ping-pong. Supply together with l0_sync_events.
+        l0_sync_events (tuple[int, int]): Two distinct M -> MTE1 events (0..7).
+            Caller seeds them before the loop and drains them after the loop.
+        unit_flag (Optional[int]): MMAD unit flag: 0 (disabled), 2 (enabled
+            without update), or 3 (enabled with update). None keeps compiler defaults.
+
+    Manual controls require the A2/A3 Expert API backend and disabled automatic
+    sync injection. Unit flag 2 alone does not publish accumulator completion;
+    the final MMAD must use 3 when a matching unit-flag Fixpipe consumes it.
+
     Returns:
         tir.Call: A handle to the npuir_dot operation
     """
+
+    controls = []
+    if kloop_db_cond is not None or l0_sync_events is not None or unit_flag is not None:
+        if (kloop_db_cond is None) != (l0_sync_events is None):
+            raise ValueError(
+                "kloop_db_cond and l0_sync_events must be supplied together"
+            )
+        events = (-1, -1)
+        if l0_sync_events is not None:
+            if (
+                not isinstance(l0_sync_events, (tuple, list))
+                or len(l0_sync_events) != 2
+            ):
+                raise ValueError("l0_sync_events must contain two distinct event IDs")
+            if any(not isinstance(e, (int, tir.IntImm)) for e in l0_sync_events):
+                raise TypeError("l0_sync_events must be compile-time integers")
+            events = tuple(int(e) for e in l0_sync_events)
+            if any(e < 0 or e > 7 for e in events) or events[0] == events[1]:
+                raise ValueError("l0_sync_events must be distinct IDs in [0, 7]")
+            if not isinstance(kloop_db_cond, (int, tir.PrimExpr)):
+                raise TypeError("kloop_db_cond must be an integer expression")
+            if isinstance(kloop_db_cond, (int, tir.IntImm)) and int(kloop_db_cond) < 0:
+                raise ValueError("kloop_db_cond must be nonnegative")
+            if isinstance(kloop_db_cond, tir.PrimExpr) and not str(
+                kloop_db_cond.dtype
+            ).startswith(("int", "uint")):
+                raise TypeError("kloop_db_cond must be an integer expression")
+        if unit_flag is not None and (
+            not isinstance(unit_flag, (int, tir.IntImm))
+            or int(unit_flag) not in (0, 2, 3)
+        ):
+            raise ValueError("unit_flag must be a compile-time constant 0, 2, or 3")
+        controls = [
+            tir.Cast("int64", kloop_db_cond)
+            if kloop_db_cond is not None
+            else tir.const(-1, "int64"),
+            tir.const(events[0], "int64"),
+            tir.const(events[1], "int64"),
+            tir.const(int(unit_flag) if unit_flag is not None else -1, "int32"),
+        ]
 
     if size is None:
         A_extent = _get_extent(A)
@@ -586,7 +656,21 @@ def npuir_dot(
         initC,
         a_transpose,
         b_transpose,
+        *controls,
     )
+
+
+def npuir_copy_nd2nd(src, dst, size: Optional[list] = None):
+    """Copy contiguous ND data between GM and L1 without layout conversion.
+
+    Expert A2/A3 API backend. Source/destination must have the same dtype
+    and element count. Addresses and byte count must be multiples of 32.
+    Contiguous multidimensional regions are flattened; dynamic offsets must
+    obey the same alignment contract. No atomic writes or NZ layout conversion.
+    """
+    src = _to_region(src, "r", _get_extent(src) if size is None else size)
+    dst = _to_region(dst, "w", _get_extent(dst) if size is None else size)
+    return tir.call_intrin("handle", tir.op.Op.get("tl.npuir_copy_nd2nd"), src, dst)
 
 
 def npuir_load_nd2nz(src, dst, size: Optional[list] = None):
@@ -635,6 +719,8 @@ def npuir_store_fixpipe(
     enable_nz2nd=False,
     channel_split=False,
     pre_relu_mode="",
+    *,
+    unit_flag=None,
 ):
     """Store data from L0C to output buffer with optional post-processing.
 
@@ -646,19 +732,37 @@ def npuir_store_fixpipe(
         channel_split (bool): Whether to split channels when storing. Defaults to False.
         pre_relu_mode (str): Pre-ReLU mode, one of {"", "relu", "leaky_relu", "prelu"}. Defaults to "".
 
+        unit_flag (Optional[int]): Expert A2/A3 manual unit flag, 0/2/3.
+            Use 3 to consume the final MMAD update and release L0C for reuse.
+            Requires disabled automatic sync injection.
+
     Returns:
         tir.Call: A handle to the npuir_store_fixpipe operation
     """
 
-    assert (
-        (src.dtype == dst.dtype)
-        or (src.dtype == "float32" and dst.dtype == "float16")
-        or (src.dtype == "float32" and dst.dtype == "bfloat16")
-        or (src.dtype == "int32" and dst.dtype == "int8")
-    ), "Unexpected pre-quant mode in npuir_store_fixpipe"
+    controls = []
+    if unit_flag is not None:
+        if not isinstance(unit_flag, (int, tir.IntImm)) or int(unit_flag) not in (
+            0,
+            2,
+            3,
+        ):
+            raise ValueError("unit_flag must be a compile-time constant 0, 2, or 3")
+        controls = [tir.const(int(unit_flag), "int32")]
 
     src = _to_region(src, "r", _get_extent(src) if size is None else size)
     dst = _to_region(dst, "w", _get_extent(dst) if size is None else size)
+    # Slices and macro aliases describe regions; validate the buffer element
+    # type, not the descriptor's handle type or a vector load's lane type.
+    src_dtype = src.args[0].buffer.dtype
+    dst_dtype = dst.args[0].buffer.dtype
+    assert (
+        (src_dtype == dst_dtype)
+        or (src_dtype == "float32" and dst_dtype == "float16")
+        or (src_dtype == "float32" and dst_dtype == "bfloat16")
+        or (src_dtype == "int32" and dst_dtype == "int8")
+    ), "Unexpected pre-quant mode in npuir_store_fixpipe"
+
     pre_relu_map = {"": 0, "relu": 1, "leaky_relu": 2, "prelu": 3}
     return tir.call_intrin(
         "handle",
@@ -668,18 +772,21 @@ def npuir_store_fixpipe(
         enable_nz2nd,
         channel_split,
         pre_relu_map[pre_relu_mode],
+        *controls,
     )
 
 
-def npuir_brc(src, dst):
+def npuir_brc(src, dst, size=None):
     """Broadcast a vector or a scalar according to the broadcast axes array
 
     Args:
         src (Union[tir.Buffer, tir.BufferLoad, tir.BufferRegion, tir.PrimExpr]): Source vector or scalar
         dst (Union[tir.Buffer, tir.BufferLoad]): Destination vector
+        size (Optional[list[PrimExpr]]): Explicit destination extents. Use a
+            scalar buffer load as the origin for runtime-sized regions.
     """
     src_extent = _get_extent(src)
-    dst_extent = _get_extent(dst)
+    dst_extent = _get_extent(dst) if size is None else size
 
     if not isinstance(src, tir.PrimExpr):
         assert len(src_extent) == len(dst_extent), (
@@ -712,8 +819,13 @@ def npuir_fill(buffer, value):
         tir.Call: A handle to the npuir_fill operation
     """
 
-    if not isinstance(buffer, (tir.Buffer, tir.BufferRegion)):
-        raise TypeError("buffer must be a tir.Buffer or tir.BufferRegion")
+    if isinstance(buffer, tir.Var) and has_let_value(buffer):
+        buffer = get_let_value(buffer)
+    if not isinstance(buffer, (tir.Buffer, tir.BufferRegion, tir.BufferLoad)):
+        raise TypeError("buffer must be a buffer or a buffer region")
+    if isinstance(value, (int, float)):
+        dtype = buffer.dtype if isinstance(buffer, tir.Buffer) else buffer.buffer.dtype
+        value = tir.const(value, dtype)
     if not isinstance(value, (tir.PrimExpr, tir.BufferLoad)):
         raise TypeError("value must be a tir.PrimExpr or tir.BufferLoad")
 
@@ -1170,6 +1282,32 @@ def npuir_clamp(
     )
 
     T.evaluate(min_call)
+
+
+def set_atomic(kind: str, dtype: str = "float32"):
+    """Set atomic mode for subsequent GM writes on the current core.
+
+    This stateful operation does not insert barriers. Synchronize outstanding
+    writes on PIPE_MTE3 or PIPE_FIX before changing or resetting the mode.
+    Use ordinary T.copy/store_fixpipe inside the region, not T.atomic_add.
+    Reset to "none" before normal writes and before leaving the kernel.
+    Requires an AscendNPU-IR build providing hivm.hir.set_atomic.
+    """
+    if kind not in ("add", "max", "min", "none"):
+        raise ValueError(f"Unsupported atomic kind: {kind}")
+    if dtype not in ("float16", "float32", "bfloat16", "int8", "int16", "int32"):
+        raise ValueError(f"Unsupported atomic dtype: {dtype}")
+    return tir.call_intrin("handle", tir.op.Op.get("tl.npuir_set_atomic"), kind, dtype)
+
+
+def set_atomic_add(dtype: str = "float32"):
+    """Enable atomic addition; see set_atomic for synchronization requirements."""
+    return set_atomic("add", dtype)
+
+
+def set_atomic_none(dtype: str = "float32"):
+    """Disable atomic mode after synchronizing outstanding writes."""
+    return set_atomic("none", dtype)
 
 
 def npuir_atomic_add(dst, src, size: Optional[list] = None):

@@ -91,6 +91,17 @@ public:
   Buffer src, dst;
 
   Array<Range> src_range, dst_range;
+
+  // 用于 SFA 单指令双搬运：jump 是源块起点间的元素距离，不是字节 gap。
+  bool has_jump = false;
+  PrimExpr src_linear_offset;
+  PrimExpr jump;
+};
+
+class NpuirNd2nd : public AscendCopy {
+public:
+  using AscendCopy::AscendCopy;
+  static const Op &Get();
 };
 
 class NpuirBinaryOperator : public Operator {
@@ -162,6 +173,13 @@ public:
   bool a_transpose, b_transpose;
 
   Array<Range> src0_range, src1_range, dst_range;
+
+  PrimExpr kloop_db_cond;
+  int l0_sync_event0 = -1, l0_sync_event1 = -1;
+  int unit_flag = -1;
+  bool HasManualControls() const {
+    return kloop_db_cond.defined() || unit_flag != -1;
+  }
 };
 
 /// HIVM data copy operation with on-the-fly ND to NZ layout transformation.
@@ -209,6 +227,7 @@ public:
   int pre_relu_mode; // 0: no; 1: relu; 2: leaky_relu; 3: prelu.
 
   Array<Range> src_range, dst_range;
+  int unit_flag = -1;
 };
 
 enum class SyncBlockMode : uint32_t {
@@ -362,6 +381,13 @@ public:
   Array<Range> src_range, dst_value_range, dst_index_range;
 };
 
+class NpuirSetAtomic : public Operator {
+public:
+  NpuirSetAtomic(Array<PrimExpr> args, BufferMap vmap);
+  static const Op &Get();
+  std::string kind, dtype;
+};
+
 class NpuirAtomicAdd : public Operator {
 public:
   NpuirAtomicAdd(Array<PrimExpr> args, BufferMap vmap);
@@ -378,6 +404,7 @@ public:
   static const Op &Get();
 
   Buffer cond, src0, src1, dst;
+  PrimExpr src0_scalar, src1_scalar;
   Array<Range> cond_range, src0_range, src1_range, dst_range;
 };
 

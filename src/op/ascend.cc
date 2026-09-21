@@ -73,6 +73,18 @@ NpuirOperand NpuirOperand::FromExpr(const PrimExpr &expr,
 }
 
 AscendCopy::AscendCopy(Array<PrimExpr> args, BufferMap vmap) : args_(args) {
+  ICHECK(args.size() == 2 || args.size() == 3 || args.size() == 5)
+      << "T.copy expects 2/3 legacy operands or 5 jump operands";
+  if (args.size() == 5) {
+    const auto *tag = args[2].as<StringImmNode>();
+    ICHECK(tag && tag->value == "jump_v1") << "Unknown T.copy extension";
+    ICHECK(args[3].dtype() == DataType::Int(64) &&
+           args[4].dtype() == DataType::Int(64))
+        << "T.copy jump requires int64 offset and pitch";
+    has_jump = true;
+    src_linear_offset = args[3];
+    jump = args[4];
+  }
   Array<Range> rgs[2];
   Buffer bf[2];
   for (int i = 0; i < 2; i++) {
@@ -202,6 +214,14 @@ NpuirNz2nd::NpuirNz2nd(Array<PrimExpr> args, BufferMap vmap) {
 }
 
 NpuirFixpipe::NpuirFixpipe(Array<PrimExpr> args, BufferMap vmap) {
+  ICHECK(args.size() == 5 || args.size() == 6)
+      << "npuir_store_fixpipe expects 5 legacy or 6 extended arguments";
+  if (args.size() == 6) {
+    const auto *flag = args[5].as<IntImmNode>();
+    ICHECK(flag && (flag->value == 0 || flag->value == 2 || flag->value == 3))
+        << "Fixpipe unit_flag must be a compile-time constant 0, 2, or 3";
+    unit_flag = flag->value;
+  }
   Array<Range> rgs[2];
   Buffer bf[2];
   for (int i = 0; i < 2; i++) {
@@ -221,6 +241,27 @@ NpuirFixpipe::NpuirFixpipe(Array<PrimExpr> args, BufferMap vmap) {
 }
 
 NpuirDot::NpuirDot(Array<PrimExpr> args, BufferMap vmap) {
+  ICHECK(args.size() == 6 || args.size() == 10)
+      << "npuir_dot expects 6 legacy or 10 extended arguments";
+  if (args.size() == 10) {
+    const auto *event0 = args[7].as<IntImmNode>();
+    const auto *event1 = args[8].as<IntImmNode>();
+    const auto *flag = args[9].as<IntImmNode>();
+    ICHECK(event0 && event1 && flag)
+        << "GEMM events and unit_flag must be compile-time integers";
+    l0_sync_event0 = event0->value;
+    l0_sync_event1 = event1->value;
+    unit_flag = flag->value;
+    ICHECK(unit_flag == -1 || unit_flag == 0 || unit_flag == 2 ||
+           unit_flag == 3);
+    if (l0_sync_event0 != -1 || l0_sync_event1 != -1) {
+      ICHECK(l0_sync_event0 >= 0 && l0_sync_event0 <= 7 &&
+             l0_sync_event1 >= 0 && l0_sync_event1 <= 7 &&
+             l0_sync_event0 != l0_sync_event1);
+      ICHECK(args[6].dtype() == DataType::Int(64));
+      kloop_db_cond = args[6];
+    }
+  }
   Array<Range> rgs[3];
   Buffer bf[3];
   for (int i = 0; i < 3; i++) {
@@ -361,6 +402,19 @@ NpuirSort::NpuirSort(Array<PrimExpr> args, BufferMap vmap) {
   sort_axis = args[4].as<IntImmNode>()->value;
 }
 
+NpuirSetAtomic::NpuirSetAtomic(Array<PrimExpr> args, BufferMap vmap) {
+  ICHECK_EQ(args.size(), 2U);
+  ICHECK(args[0].as<StringImmNode>() && args[1].as<StringImmNode>())
+      << "set_atomic requires constant kind and dtype strings";
+  kind = args[0].as<StringImmNode>()->value;
+  dtype = args[1].as<StringImmNode>()->value;
+  ICHECK(kind == "add" || kind == "max" || kind == "min" || kind == "none")
+      << "Unsupported atomic kind: " << kind;
+  ICHECK(dtype == "float16" || dtype == "float32" || dtype == "bfloat16" ||
+         dtype == "int8" || dtype == "int16" || dtype == "int32")
+      << "Unsupported atomic dtype: " << dtype;
+}
+
 NpuirAtomicAdd::NpuirAtomicAdd(Array<PrimExpr> args, BufferMap vmap) {
   Array<Range> rgs[2];
   Buffer bf[2];
@@ -377,12 +431,23 @@ NpuirAtomicAdd::NpuirAtomicAdd(Array<PrimExpr> args, BufferMap vmap) {
 }
 
 NpuirSelect::NpuirSelect(Array<PrimExpr> args, BufferMap vmap) {
+  ICHECK_EQ(args.size(), 4U);
   Array<Range> rgs[4];
   Buffer bf[4];
   for (int i = 0; i < 4; i++) {
     auto expr = args[i];
     auto call = expr.as<CallNode>();
-    ICHECK(call);
+    if ((i == 1 || i == 2) && (!call || call->op != Op::Get("tl.region"))) {
+      ICHECK(expr.dtype().is_float() || expr.dtype().is_bfloat16() ||
+             expr.dtype().is_int() || expr.dtype().is_uint())
+          << "vselect scalar must have a numeric type";
+      if (i == 1)
+        src0_scalar = expr;
+      else
+        src1_scalar = expr;
+      continue;
+    }
+    ICHECK(call) << "vselect condition and output must be tensor regions";
     auto region = RegionOp(call->args, vmap);
     rgs[i] = region.GetRanges();
     bf[i] = region.GetBuffer();
@@ -733,7 +798,12 @@ TIR_REGISTER_TL_OP(AscendCopy, ascend_copy)
                                Integer(CallEffectKind::kOpaque));
 
 TIR_REGISTER_TL_OP(NpuirDot, npuir_dot)
-    .set_num_inputs(6)
+    .set_num_inputs(-1)
+    .set_attr<TCallEffectKind>("TCallEffectKind",
+                               Integer(CallEffectKind::kOpaque));
+
+TIR_REGISTER_TL_OP(NpuirNd2nd, npuir_copy_nd2nd)
+    .set_num_inputs(2)
     .set_attr<TCallEffectKind>("TCallEffectKind",
                                Integer(CallEffectKind::kOpaque));
 
@@ -748,7 +818,7 @@ TIR_REGISTER_TL_OP(NpuirNz2nd, npuir_store_nz2nd)
                                Integer(CallEffectKind::kOpaque));
 
 TIR_REGISTER_TL_OP(NpuirFixpipe, npuir_store_fixpipe)
-    .set_num_inputs(5)
+    .set_num_inputs(-1)
     .set_attr<TCallEffectKind>("TCallEffectKind",
                                Integer(CallEffectKind::kOpaque));
 
@@ -799,6 +869,11 @@ TIR_REGISTER_TL_OP(NpuirCumsum, npuir_cumsum)
 
 TIR_REGISTER_TL_OP(NpuirSort, npuir_sort)
     .set_num_inputs(5)
+    .set_attr<TCallEffectKind>("TCallEffectKind",
+                               Integer(CallEffectKind::kOpaque));
+
+TIR_REGISTER_TL_OP(NpuirSetAtomic, npuir_set_atomic)
+    .set_num_inputs(2)
     .set_attr<TCallEffectKind>("TCallEffectKind",
                                Integer(CallEffectKind::kOpaque));
 

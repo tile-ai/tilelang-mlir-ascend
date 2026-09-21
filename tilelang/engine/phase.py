@@ -50,6 +50,9 @@ def allow_warp_specialized(
 def allow_tma_and_warp_specialized(
     pass_ctx: Optional[PassContext] = None, target: Optional[Target] = None
 ) -> bool:
+    # The NPU TIR pipeline does not use CUDA TMA or its runtime adapter.
+    if target is not None and target.kind.name == "npuir":
+        return False
     # avoid circular import
     from tilelang.jit.adapter.utils import is_cuda_target
 
@@ -87,7 +90,41 @@ def need_npuir_bf16_legalize(target: Optional[Target] = None) -> bool:
     return not supports_native_bf16(get_ascend_device_name())
 
 
+def _validate_copy_jump(mod: IRModule, target: Target) -> None:
+    """Reject unsupported targets/parallel contexts before any rewriting."""
+    from tilelang import tvm
+
+    def is_jump_copy(node):
+        return (
+            isinstance(node, tir.Call)
+            and isinstance(node.op, tvm.ir.Op)
+            and node.op.name == "tl.copy"
+            and len(node.args) == 5
+        )
+
+    for func in mod.functions.values():
+        if not isinstance(func, tir.PrimFunc):
+            continue
+
+        def visit(node):
+            if is_jump_copy(node) and target.kind.name != "npuir":
+                raise ValueError("T.copy jump requires target='npuir'")
+            if isinstance(node, tir.For) and node.kind == tir.ForKind.PARALLEL:
+                found = []
+                tir.stmt_functor.post_order_visit(
+                    node.body,
+                    lambda child: found.append(child) if is_jump_copy(child) else None,
+                )
+                if found:
+                    raise ValueError(
+                        "T.copy jump is unsupported inside T.Parallel; use T.serial"
+                    )
+
+        tir.stmt_functor.post_order_visit(func.body, visit)
+
+
 def LowerAndLegalize(mod: IRModule, target: Target) -> IRModule:
+    _validate_copy_jump(mod, target)
     # Bind the target device information to the module
     mod = tir.transform.BindTarget(target)(mod)
     if target.kind.name == "npuir":
@@ -137,10 +174,13 @@ def OptimizeForTarget(mod: IRModule, target: Target) -> IRModule:
         mod = tilelang.transform.InjectFenceProxy()(mod)
     elif target.kind.name == "npuir":
         # A5 SIMT indirect load must run before NpuLoopVectorize
-        from tilelang.jit.jit_npu import _is_a5_device
+        # Host-side NPU TIR testing must not initialize torch_npu when SIMT
+        # is disabled. Runtime architecture detection is only needed for SIMT.
+        if enable_npuir_simt():
+            from tilelang.jit.jit_npu import _is_a5_device
 
-        if _is_a5_device() and enable_npuir_simt():
-            mod = tilelang.transform.NpuSimtIndirectLoad()(mod)
+            if _is_a5_device():
+                mod = tilelang.transform.NpuSimtIndirectLoad()(mod)
         # The position of NpuLoopVectorize pass has two requirements:
         # 1. must be before LowerOpaqueBlock pass, otherwise the temporary buffer created cannot correctly become T.decl_buffer
         # 2. better to be before PlanAndUpdateBufferAllocationLocation, reuse its ability of Memory reusing

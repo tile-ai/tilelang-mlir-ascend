@@ -9,6 +9,9 @@
 #include "../op/ascend.h"
 #include "../op/builtin.h"
 #include "arith/pattern_match.h"
+#include <type_traits>
+#include <utility>
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -88,6 +91,87 @@ using namespace mlir;
 
 namespace tvm {
 namespace codegen {
+
+namespace detail {
+
+// The pinned IR uses enable_nz2nd; CANN 9.0.0 IR uses dma_mode.
+// Detect the actual API instead of relying on a release version macro.
+template <typename Op, typename = void> struct FixpipeBuilder {
+  static void Create(mlir::OpBuilder &builder, mlir::Location loc,
+                     mlir::TypeRange results, mlir::Value src, mlir::Value dst,
+                     mlir::UnitAttr nz2nd,
+                     mlir::hivm::FixpipePreQuantModeAttr quant,
+                     mlir::hivm::FixpipePreReluModeAttr relu,
+                     mlir::BoolAttr channelSplit) {
+    builder.create<Op>(loc, results, src, dst, nz2nd, quant, relu,
+                       channelSplit);
+  }
+};
+
+template <typename Op>
+struct FixpipeBuilder<
+    Op, std::void_t<decltype(std::declval<Op>().getDmaModeAttr())>> {
+  static void Create(mlir::OpBuilder &builder, mlir::Location loc,
+                     mlir::TypeRange results, mlir::Value src, mlir::Value dst,
+                     mlir::UnitAttr nz2nd,
+                     mlir::hivm::FixpipePreQuantModeAttr quant,
+                     mlir::hivm::FixpipePreReluModeAttr relu,
+                     mlir::BoolAttr channelSplit) {
+    using DmaAttr = decltype(std::declval<Op>().getDmaModeAttr());
+    using DmaMode = decltype(std::declval<Op>().getDmaMode());
+    using DualDstAttr = decltype(std::declval<Op>().getDualDstModeAttr());
+    auto dma = DmaAttr::get(builder.getContext(),
+                            nz2nd ? DmaMode::NZ2ND : DmaMode::NZ2NZ);
+    builder.create<Op>(loc, results, src, dst, dma, DualDstAttr{}, quant, relu,
+                       channelSplit);
+  }
+};
+
+} // namespace detail
+
+void CreateFixpipeCompat(mlir::OpBuilder &builder, mlir::Location loc,
+                         mlir::TypeRange results, mlir::Value src,
+                         mlir::Value dst, mlir::UnitAttr nz2nd,
+                         mlir::hivm::FixpipePreQuantModeAttr quant,
+                         mlir::hivm::FixpipePreReluModeAttr relu,
+                         mlir::BoolAttr channelSplit) {
+  detail::FixpipeBuilder<mlir::hivm::FixpipeOp>::Create(
+      builder, loc, results, src, dst, nz2nd, quant, relu, channelSplit);
+}
+
+void EmitSetAtomic(mlir::OpBuilder &builder, const tir::CallNode *op,
+                   tl::BufferMap vmap) {
+  tl::NpuirSetAtomic atomic(op->args, vmap);
+#ifdef TILELANG_HAS_HIVM_SET_ATOMIC
+  auto kind = mlir::hivm::AtomicKind::NONE;
+  if (atomic.kind == "add")
+    kind = mlir::hivm::AtomicKind::ADD;
+  if (atomic.kind == "max")
+    kind = mlir::hivm::AtomicKind::MAX;
+  if (atomic.kind == "min")
+    kind = mlir::hivm::AtomicKind::MIN;
+  mlir::Type type;
+  if (atomic.dtype == "float16")
+    type = builder.getF16Type();
+  else if (atomic.dtype == "float32")
+    type = builder.getF32Type();
+  else if (atomic.dtype == "bfloat16")
+    type = builder.getBF16Type();
+  else if (atomic.dtype == "int8")
+    type = builder.getIntegerType(8);
+  else if (atomic.dtype == "int16")
+    type = builder.getIntegerType(16);
+  else
+    type = builder.getIntegerType(32);
+  builder.create<mlir::hivm::SetAtomicOp>(
+      builder.getUnknownLoc(),
+      mlir::hivm::AtomicKindAttr::get(builder.getContext(), kind),
+      mlir::TypeAttr::get(type));
+#else
+  LOG(FATAL) << "T.set_atomic requires an AscendNPU-IR build with SetAtomicOp; "
+                "rebuild TileLang against that build's headers and libraries";
+#endif
+}
 
 constexpr uint8_t FLAG_ID_BITS = 64;
 
@@ -596,12 +680,28 @@ mlir::Type CodeGenTileLangNPUIRAPI::DTypetoMLIRType(DataType t) { // NOLINT(*)
 mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const FloorDivNode *op) {
   auto lhs = MakeValue(op->a);
   auto rhs = MakeValue(op->b);
-  // FIXME: The floor div in python is not the same as arith.divsi in negative
-  // scenarios.
   mlir::Value mlirVal;
-  if (op->dtype.is_int() || op->dtype.is_uint()) {
-    mlirVal = BinaryOpCodegen<mlir::arith::DivSIOp, std::nullptr_t>(op, nullptr,
+  if (op->dtype.is_uint()) {
+    mlirVal = BinaryOpCodegen<mlir::arith::DivUIOp, std::nullptr_t>(op, nullptr,
                                                                     lhs, rhs);
+  } else if (op->dtype.is_int()) {
+    auto loc = builder.getUnknownLoc();
+    auto q = builder.create<mlir::arith::DivSIOp>(loc, lhs, rhs);
+    auto r = builder.create<mlir::arith::RemSIOp>(loc, lhs, rhs);
+    auto zero = builder.create<mlir::arith::ConstantOp>(
+        loc, lhs.getType(), builder.getIntegerAttr(lhs.getType(), 0));
+    auto one = builder.create<mlir::arith::ConstantOp>(
+        loc, lhs.getType(), builder.getIntegerAttr(lhs.getType(), 1));
+    auto nonzero = builder.create<mlir::arith::CmpIOp>(
+        loc, mlir::arith::CmpIPredicate::ne, r, zero);
+    auto lhsNeg = builder.create<mlir::arith::CmpIOp>(
+        loc, mlir::arith::CmpIPredicate::slt, lhs, zero);
+    auto rhsNeg = builder.create<mlir::arith::CmpIOp>(
+        loc, mlir::arith::CmpIPredicate::slt, rhs, zero);
+    auto opposite = builder.create<mlir::arith::XOrIOp>(loc, lhsNeg, rhsNeg);
+    auto adjust = builder.create<mlir::arith::AndIOp>(loc, nonzero, opposite);
+    auto floor = builder.create<mlir::arith::SubIOp>(loc, q, one);
+    mlirVal = builder.create<mlir::arith::SelectOp>(loc, adjust, floor, q);
   } else if (op->dtype.is_float()) {
     mlirVal = BinaryOpCodegen<mlir::arith::DivFOp, std::nullptr_t>(op, nullptr,
                                                                    lhs, rhs);
@@ -613,9 +713,24 @@ mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const FloorModNode *op) {
   auto lhs = MakeValue(op->a);
   auto rhs = MakeValue(op->b);
   mlir::Value mlirVal;
-  if (op->dtype.is_int() || op->dtype.is_uint()) {
-    mlirVal = BinaryOpCodegen<mlir::arith::RemSIOp, std::nullptr_t>(op, nullptr,
+  if (op->dtype.is_uint()) {
+    mlirVal = BinaryOpCodegen<mlir::arith::RemUIOp, std::nullptr_t>(op, nullptr,
                                                                     lhs, rhs);
+  } else if (op->dtype.is_int()) {
+    auto loc = builder.getUnknownLoc();
+    auto r = builder.create<mlir::arith::RemSIOp>(loc, lhs, rhs);
+    auto zero = builder.create<mlir::arith::ConstantOp>(
+        loc, lhs.getType(), builder.getIntegerAttr(lhs.getType(), 0));
+    auto nonzero = builder.create<mlir::arith::CmpIOp>(
+        loc, mlir::arith::CmpIPredicate::ne, r, zero);
+    auto lhsNeg = builder.create<mlir::arith::CmpIOp>(
+        loc, mlir::arith::CmpIPredicate::slt, lhs, zero);
+    auto rhsNeg = builder.create<mlir::arith::CmpIOp>(
+        loc, mlir::arith::CmpIPredicate::slt, rhs, zero);
+    auto opposite = builder.create<mlir::arith::XOrIOp>(loc, lhsNeg, rhsNeg);
+    auto adjust = builder.create<mlir::arith::AndIOp>(loc, nonzero, opposite);
+    auto floor = builder.create<mlir::arith::AddIOp>(loc, r, rhs);
+    mlirVal = builder.create<mlir::arith::SelectOp>(loc, adjust, floor, r);
   } else if (op->dtype.is_float()) {
     mlirVal = BinaryOpCodegen<mlir::arith::RemFOp, std::nullptr_t>(op, nullptr,
                                                                    lhs, rhs);
@@ -742,22 +857,22 @@ mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const CastNode *op) {
   } else if (srcIsUInt && targetIsFloat) {
     return builder.create<mlir::arith::UIToFPOp>(
         mlir::UnknownLoc::get(&context), targetType, val);
-  } else if (targetIsInt) {
-    if (op->dtype.bits() > op->value->dtype.bits()) {
-      return builder.create<mlir::arith::ExtSIOp>(
-          mlir::UnknownLoc::get(&context), targetType, val);
-    } else {
+  } else if (targetIsInt || targetIsUInt) {
+    // MLIR integers are signless: a same-width signedness cast is a no-op.
+    // Widening is determined by the source type, not the destination type.
+    if (op->dtype.bits() == op->value->dtype.bits()) {
+      return val;
+    }
+    if (op->dtype.bits() < op->value->dtype.bits()) {
       return builder.create<mlir::arith::TruncIOp>(
           mlir::UnknownLoc::get(&context), targetType, val);
     }
-  } else if (targetIsUInt) {
-    if (op->dtype.bits() > op->value->dtype.bits()) {
+    if (srcIsUInt) {
       return builder.create<mlir::arith::ExtUIOp>(
           mlir::UnknownLoc::get(&context), targetType, val);
-    } else {
-      return builder.create<mlir::arith::TruncIOp>(
-          mlir::UnknownLoc::get(&context), targetType, val);
     }
+    return builder.create<mlir::arith::ExtSIOp>(mlir::UnknownLoc::get(&context),
+                                                targetType, val);
   } else if (targetIsFloat) {
     if (op->dtype.bits() > op->value->dtype.bits()) {
       return builder.create<mlir::arith::ExtFOp>(
@@ -806,7 +921,7 @@ mlir::Value CodeGenTileLangNPUIRAPI::GenRankReducedSubviewFromRegion(
     region_indices.push_back(r.get()->min);
   }
   const VarNode *v = buffer_data->data.get();
-  mlir::Value v_value = GetVarValue(v);
+  mlir::Value v_value = GetBufferValue(buffer_data);
   // Full-region marker used for fast path after rank-reduction shape is known.
   const bool is_full_region =
       IsEqual(buffer_data->shape, region_shape) && AllZero(region_indices);
@@ -930,7 +1045,7 @@ mlir::Value CodeGenTileLangNPUIRAPI::GenSubviewFromRegion(Buffer buffer_data,
     region_indeces.push_back(r.get()->min);
   }
   const VarNode *v = buffer_data->data.get();
-  mlir::Value v_value = GetVarValue(v);
+  mlir::Value v_value = GetBufferValue(buffer_data);
   if ((IsEqual(buffer_data->shape, region_shape) && AllZero(region_indeces))) {
     return v_value; // return original buffer and no need to create subview
   }
@@ -1115,7 +1230,7 @@ CodeGenTileLangNPUIRAPI::SliceFacts
 CodeGenTileLangNPUIRAPI::BuildSliceFacts(Buffer buffer_data,
                                          Array<Range> range) {
   SliceFacts facts;
-  facts.baseMemref = GetVarValue(buffer_data->data.get());
+  facts.baseMemref = GetBufferValue(buffer_data);
   facts.baseMemrefType =
       facts.baseMemref.getType().dyn_cast<mlir::MemRefType>();
   // Generic T.copy only reasons about memref views in the default path.
@@ -1343,6 +1458,149 @@ mlir::Value CodeGenTileLangNPUIRAPI::BuildAlignedCopyView(
       layout.viewSizes, layout.viewStrideValues);
 }
 
+// 用于 SFA 单指令双搬运：合法 jump 生成一次两块 GM->UB copy。
+// jump is a physical source pitch in elements, not a byte gap. Output rows
+// follow ascending GM addresses, including on the single-row DMA fallback.
+void CodeGenTileLangNPUIRAPI::CopyJumpCodegen(const CallNode *op) {
+  tvm::tl::AscendCopy cp(op->args, this->vmap);
+  ICHECK(cp.has_jump);
+  ICHECK(GetPtrStorageScope(cp.src->data) == "global" &&
+         GetPtrStorageScope(cp.dst->data) == "shared")
+      << "T.copy jump only supports GM -> UB";
+  ICHECK(cp.src->dtype == cp.dst->dtype)
+      << "T.copy jump requires identical element types";
+  auto dtype = cp.src->dtype;
+  ICHECK(dtype.lanes() == 1 &&
+         (dtype.is_int() || dtype.is_uint() || dtype.is_float() ||
+          dtype.is_bfloat16()) &&
+         (dtype.bits() == 8 || dtype.bits() == 16 || dtype.bits() == 32));
+  ICHECK(cp.src->strides.empty() && cp.dst->strides.empty());
+  // T.view aliases are deliberately excluded until metadata aliasing is
+  // covered.
+  bool is_parameter = false;
+  for (const auto &entry : this->vmap) {
+    is_parameter |= entry.second.same_as(cp.src);
+  }
+  ICHECK(is_parameter) << "T.copy jump source must be a GM parameter buffer";
+  ICHECK(cp.dst->shape.size() == 2 && cp.dst_range.size() == 2);
+  const auto *rows = cp.dst_range[0]->extent.as<IntImmNode>();
+  const auto *width = cp.dst_range[1]->extent.as<IntImmNode>();
+  ICHECK(rows && rows->value == 2 && width && width->value > 0);
+  const int64_t w = width->value;
+  const int64_t bytes = dtype.bits() / 8;
+  // This initial API excludes padding and burst-length splitting.
+  ICHECK(w <= 2097120 / bytes && (w * bytes) % 32 == 0)
+      << "T.copy jump row length must be 32B aligned and <= 2097120B";
+  arith::Analyzer analyzer;
+  ICHECK(cp.src_range.size() == cp.src->shape.size());
+  for (size_t i = 0; i < cp.src_range.size(); ++i) {
+    ICHECK(analyzer.CanProveEqual(cp.src_range[i]->min, 0) &&
+           analyzer.CanProveEqual(cp.src_range[i]->extent, cp.src->shape[i]))
+        << "T.copy jump requires a conservative whole-GM read region";
+  }
+  auto i64 = [](PrimExpr value) { return tir::Cast(DataType::Int(64), value); };
+  PrimExpr dstPitch = i64(cp.dst->shape[1]);
+  PrimExpr dstOffset =
+      i64(cp.dst_range[0]->min) * dstPitch + i64(cp.dst_range[1]->min);
+  const PrimExpr elementBytes = IntImm(DataType::Int(64), bytes);
+  const PrimExpr rowWidth = IntImm(DataType::Int(64), w);
+  ICHECK(analyzer.CanProve(floormod(dstPitch * elementBytes, 32) == 0) &&
+         analyzer.CanProve(floormod(dstOffset * elementBytes, 32) == 0) &&
+         analyzer.CanProve(dstPitch >= rowWidth))
+      << "T.copy jump requires provably 32B-aligned UB rows and start";
+
+  auto loc = builder.getUnknownLoc();
+  auto src = GetBufferValue(cp.src);
+  auto srcTy = src.getType().cast<mlir::MemRefType>();
+  ICHECK(srcTy.getRank() == static_cast<int64_t>(cp.src->shape.size()));
+  auto meta = builder.create<mlir::memref::ExtractStridedMetadataOp>(loc, src);
+  auto offset = builder.create<mlir::arith::AddIOp>(
+      loc, meta.getOffset(),
+      CreateIndexCastOp(MakeValue(cp.src_linear_offset)));
+  mlir::Value pitch = CreateIndexCastOp(MakeValue(cp.jump));
+  auto dst = GenSubviewFromRegion(cp.dst, cp.dst_range);
+  auto dstTy = dst.getType().cast<mlir::MemRefType>();
+  ICHECK(dstTy.getRank() == 2 && dstTy.getDimSize(0) == 2 &&
+         dstTy.getDimSize(1) == w);
+
+  auto makeSrc = [&](mlir::Value start, int64_t count,
+                     mlir::OpFoldResult rowPitch) -> mlir::Value {
+    int64_t staticPitch = mlir::ShapedType::kDynamic;
+    if (auto attr = rowPitch.dyn_cast<mlir::Attribute>())
+      staticPitch = attr.cast<mlir::IntegerAttr>().getInt();
+    auto layout = mlir::StridedLayoutAttr::get(
+        builder.getContext(), mlir::ShapedType::kDynamic, {staticPitch, 1});
+    auto type = mlir::MemRefType::get({count, w}, srcTy.getElementType(),
+                                      layout, srcTy.getMemorySpace());
+    llvm::SmallVector<mlir::OpFoldResult> sizes = {builder.getIndexAttr(count),
+                                                   builder.getIndexAttr(w)};
+    llvm::SmallVector<mlir::OpFoldResult> strides = {rowPitch,
+                                                     builder.getIndexAttr(1)};
+    // reinterpret_cast offset is relative to the underlying allocation, not
+    // relative to the input view. Include meta.offset exactly once.
+    return builder.create<mlir::memref::ReinterpretCastOp>(
+        loc, type, src, mlir::OpFoldResult(start), sizes, strides);
+  };
+  auto emitCopy = [&](mlir::Value from, mlir::Value to) {
+    builder.create<mlir::memref::CopyOp>(loc, mlir::TypeRange{}, from, to);
+  };
+
+  auto zero = builder.create<mlir::arith::ConstantIndexOp>(loc, 0);
+  auto reversed = builder.create<mlir::arith::CmpIOp>(
+      loc, mlir::arith::CmpIPredicate::slt, pitch, zero);
+  auto otherOffset = builder.create<mlir::arith::AddIOp>(loc, offset, pitch);
+  // 用于 SFA 单指令双搬运：负 jump 交换输出两行，不做 UB 重排。
+  // Apply the same address order on EVERY path: KV and RoPE may have different
+  // widths/layouts and therefore take different fast/fallback branches.
+  auto firstOffset =
+      builder.create<mlir::arith::SelectOp>(loc, reversed, otherOffset, offset);
+  auto secondOffset =
+      builder.create<mlir::arith::SelectOp>(loc, reversed, offset, otherOffset);
+
+  // Check signed bounds before negation so INT64_MIN cannot overflow an abs.
+  const int64_t maxDistance = w + 2147483646LL / bytes;
+  auto inRange = [&](int64_t low, int64_t high) -> mlir::Value {
+    auto lo = builder.create<mlir::arith::ConstantIndexOp>(loc, low);
+    auto hi = builder.create<mlir::arith::ConstantIndexOp>(loc, high);
+    auto lowerOk = builder.create<mlir::arith::CmpIOp>(
+        loc, mlir::arith::CmpIPredicate::sge, pitch, lo);
+    auto upperOk = builder.create<mlir::arith::CmpIOp>(
+        loc, mlir::arith::CmpIPredicate::sle, pitch, hi);
+    return builder.create<mlir::arith::AndIOp>(loc, lowerOk, upperOk);
+  };
+  mlir::Value fast = builder.create<mlir::arith::OrIOp>(
+      loc, inRange(w, maxDistance), inRange(-maxDistance, -w));
+  // 用于 SFA 单指令双搬运的 UB 两行必须连续。CANN 9 mis-lowers
+  // the row pitch of a two-row load into a padded, column-offset UB subview.
+  // Preserve such slices with the verified single-row fallback instead.
+  if (!analyzer.CanProveEqual(dstPitch, rowWidth))
+    fast = builder.create<mlir::arith::ConstantIntOp>(loc, 0, 1);
+  auto ifOp =
+      builder.create<mlir::scf::IfOp>(loc, mlir::TypeRange{}, fast, true, true);
+  builder.setInsertionPointToEnd(&ifOp.getThenRegion().front());
+  auto negPitch = builder.create<mlir::arith::SubIOp>(loc, zero, pitch);
+  auto positivePitch =
+      builder.create<mlir::arith::SelectOp>(loc, reversed, negPitch, pitch);
+  emitCopy(makeSrc(firstOffset, 2, mlir::OpFoldResult(positivePitch)), dst);
+  builder.create<mlir::scf::YieldOp>(loc);
+
+  builder.setInsertionPointToEnd(&ifOp.getElseRegion().front());
+  for (int64_t row = 0; row < 2; ++row) {
+    mlir::Value start = row == 0 ? firstOffset : secondOffset;
+    llvm::SmallVector<mlir::OpFoldResult> offsets = {builder.getIndexAttr(row),
+                                                     builder.getIndexAttr(0)};
+    llvm::SmallVector<mlir::OpFoldResult> sizes = {builder.getIndexAttr(1),
+                                                   builder.getIndexAttr(w)};
+    llvm::SmallVector<mlir::OpFoldResult> strides = {builder.getIndexAttr(1),
+                                                     builder.getIndexAttr(1)};
+    auto dstRow = builder.create<mlir::memref::SubViewOp>(loc, dst, offsets,
+                                                          sizes, strides);
+    emitCopy(makeSrc(start, 1, builder.getIndexAttr(w)), dstRow);
+  }
+  builder.create<mlir::scf::YieldOp>(loc);
+  builder.setInsertionPointAfter(ifOp);
+}
+
 /// Generate hivm.hir.load or hivm.hir.store for tl.copy.
 /// before:
 ///   T.copy(T.region(A[bx, by], 1, 128, 256), T.region(A_VEC[0, 0],
@@ -1355,6 +1613,10 @@ mlir::Value CodeGenTileLangNPUIRAPI::BuildAlignedCopyView(
 ///     - L0C -> GM : hivm.hir.fixpipe (enable_nz2nd=true)
 void CodeGenTileLangNPUIRAPI::AscendCopyCodegen(const CallNode *op) {
   tvm::tl::AscendCopy npuirop(op->args, this->vmap);
+  if (npuirop.has_jump) {
+    CopyJumpCodegen(op);
+    return;
+  }
 
   const std::string src_scope = GetPtrStorageScope(npuirop.src->data);
   const std::string dst_scope = GetPtrStorageScope(npuirop.dst->data);
@@ -1411,9 +1673,9 @@ void CodeGenTileLangNPUIRAPI::AscendCopyCodegen(const CallNode *op) {
         mlir::hivm::FixpipePreReluModeAttr::get(builder.getContext(),
                                                 pre_relu_mode);
     mlir::BoolAttr channel_split = builder.getBoolAttr(false);
-    builder.create<mlir::hivm::FixpipeOp>(
-        builder.getUnknownLoc(), mlir::TypeRange{}, src, dst, enable_nz2nd,
-        pre_quant, pre_relu, channel_split);
+    CreateFixpipeCompat(builder, builder.getUnknownLoc(), mlir::TypeRange{},
+                        src, dst, enable_nz2nd, pre_quant, pre_relu,
+                        channel_split);
     return;
   }
 
@@ -1455,6 +1717,14 @@ void CodeGenTileLangNPUIRAPI::AscendCopyCodegen(const CallNode *op) {
   ICHECK(src_ty.getShape() == dst_ty.getShape())
       << "generic T.copy internal error: src/dst projected views do not "
          "share the same logical shape.";
+  if (src_scope == "shared" && dst_scope == "global") {
+    // Express the DMA explicitly, including through typed GM aliases.
+    // A generic memref.copy through hivm.bitcast can otherwise survive until
+    // library lowering and select a nonexistent copy_ubuf_to_gm template.
+    builder.create<mlir::hivm::StoreOp>(builder.getUnknownLoc(), TypeRange{},
+                                        srcAlignedView, dstAlignedView);
+    return;
+  }
   builder.create<mlir::memref::CopyOp>(builder.getUnknownLoc(), TypeRange{},
                                        srcAlignedView, dstAlignedView);
 }
@@ -1464,7 +1734,9 @@ void CodeGenTileLangNPUIRAPI::UnaryVecOpCodegen(const CallNode *op) {
   T npuirop(op->args, this->vmap);
   auto in_data_name = GenSubviewFromRegion(npuirop.src, npuirop.src_range);
   auto out_data_name = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
-  auto dims = getBroadcastDim(npuirop.src->shape, npuirop.dst->shape);
+  auto dims = getBroadcastDim(
+      in_data_name.getType().template cast<mlir::MemRefType>().getShape(),
+      out_data_name.getType().template cast<mlir::MemRefType>().getShape());
   // Create HIVM Op
   builder.create<U>(builder.getUnknownLoc(), mlir::TypeRange{}, // result type
                     mlir::ValueRange{in_data_name},             // in
@@ -1495,11 +1767,29 @@ void CodeGenTileLangNPUIRAPI::VselectCodegen(const CallNode *op) {
   tvm::tl::NpuirSelect npuirop(op->args, this->vmap);
   // gen memref.subview
   auto cond_data_name = GenSubviewFromRegion(npuirop.cond, npuirop.cond_range);
-  auto src0_data_name = GenSubviewFromRegion(npuirop.src0, npuirop.src0_range);
-  auto src1_data_name = GenSubviewFromRegion(npuirop.src1, npuirop.src1_range);
+  auto emitSource = [&](const Buffer &buffer, const Array<Range> &ranges,
+                        const PrimExpr &scalar) -> mlir::Value {
+    if (buffer.defined()) {
+      ICHECK(buffer->dtype == npuirop.dst->dtype)
+          << "vselect source and destination dtypes must match";
+      return GenSubviewFromRegion(buffer, ranges);
+    }
+    return scalar.dtype() == npuirop.dst->dtype
+               ? MakeValue(scalar)
+               : ScalarConvertType(scalar, npuirop.dst->dtype);
+  };
+  auto src0_data_name =
+      emitSource(npuirop.src0, npuirop.src0_range, npuirop.src0_scalar);
+  auto src1_data_name =
+      emitSource(npuirop.src1, npuirop.src1_range, npuirop.src1_scalar);
   auto dst_data_name = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
   // gen mlir::hivm::VSelOp
-  auto broadcastDim = getBroadcastDim(npuirop.src0->shape, npuirop.dst->shape);
+  // Derive shape from the selected region, never from the backing bank.
+  auto dstShape = dst_data_name.getType().cast<mlir::MemRefType>().getShape();
+  llvm::SmallVector<int64_t> broadcastDim;
+  auto vectorSource = npuirop.src0.defined() ? src0_data_name : src1_data_name;
+  if (auto ty = vectorSource.getType().dyn_cast<mlir::MemRefType>())
+    broadcastDim = getBroadcastDim(ty.getShape(), dstShape);
   auto selOp = builder.create<mlir::hivm::VSelOp>(
       builder.getUnknownLoc(), mlir::TypeRange{},
       mlir::ValueRange{cond_data_name, src0_data_name, src1_data_name},
@@ -1651,8 +1941,8 @@ void CodeGenTileLangNPUIRAPI::VAtomicAddCodegen(const CallNode *op) {
   /// after:
   ///   hivm.hir.store ins(src) outs(dst) atomic = <add>
   tvm::tl::NpuirAtomicAdd npuirop(op->args, this->vmap);
-  Value src = GenSubviewFromRegion(npuirop.src, npuirop.src_range);
-  Value dst = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
+  Value src = GenRankReducedSubviewFromRegion(npuirop.src, npuirop.src_range);
+  Value dst = GenRankReducedSubviewFromRegion(npuirop.dst, npuirop.dst_range);
 
   // create StoreOp
   auto newStoreOp = builder.create<hivm::StoreOp>(builder.getUnknownLoc(),
@@ -1785,6 +2075,72 @@ void CodeGenTileLangNPUIRAPI::VflipCodegen(const CallNode *op) {
                                       dst, npuirop.axis);
 }
 
+void CodeGenTileLangNPUIRAPI::Nd2NdCodegen(const CallNode *op) {
+  tvm::tl::AscendCopy copy(op->args, this->vmap);
+  const std::string from = GetPtrStorageScope(copy.src->data);
+  const std::string to = GetPtrStorageScope(copy.dst->data);
+  ICHECK((from == "global" && to == "shared.dyn") ||
+         (from == "shared.dyn" && to == "global"))
+      << "copy_nd2nd supports only GM <-> L1";
+  ICHECK(copy.src->dtype == copy.dst->dtype)
+      << "copy_nd2nd requires identical element types";
+  auto markNDStorage = [&](mlir::Value value) {
+    // Reinterpret casts used by explicit ND DMA are physical storage views,
+    // not logical NZ reshapes. Preserve this boundary during layout inference.
+    while (auto *def = value.getDefiningOp()) {
+      if (mlir::isa<mlir::memref::ReinterpretCastOp>(def)) {
+        def->setAttr("hivm.nd_storage", builder.getUnitAttr());
+        break;
+      }
+      if (!mlir::isa<mlir::memref::SubViewOp, mlir::memref::CollapseShapeOp,
+                     mlir::memref::CastOp>(def))
+        break;
+      value = def->getOperand(0);
+    }
+  };
+  auto flatten = [&](mlir::Value value) -> mlir::Value {
+    auto type = value.getType().cast<mlir::MemRefType>();
+    llvm::SmallVector<int64_t> strides;
+    int64_t offset;
+    ICHECK(mlir::succeeded(mlir::getStridesAndOffset(type, strides, offset)));
+    int64_t count = 1;
+    for (int i = type.getRank() - 1; i >= 0; --i) {
+      ICHECK(!type.isDynamicDim(i) && strides[i] == count)
+          << "copy_nd2nd requires a statically sized contiguous region";
+      count *= type.getDimSize(i);
+    }
+    unsigned bits = type.getElementTypeBitWidth();
+    ICHECK(bits == 8 || bits == 16 || bits == 32 || bits == 64);
+    ICHECK((count * (bits / 8)) % 32 == 0)
+        << "copy_nd2nd byte count must be a multiple of 32";
+    ICHECK(mlir::ShapedType::isDynamic(offset) ||
+           (offset * (bits / 8)) % 32 == 0)
+        << "copy_nd2nd offsets must be 32-byte aligned";
+    if (type.getRank() == 1)
+      return value;
+    mlir::ReassociationIndices axes;
+    for (int i = 0; i < type.getRank(); ++i)
+      axes.push_back(i);
+    return builder.create<mlir::memref::CollapseShapeOp>(
+        builder.getUnknownLoc(), value,
+        llvm::ArrayRef<mlir::ReassociationIndices>{axes});
+  };
+  auto src = flatten(GenRankReducedSubviewFromRegion(copy.src, copy.src_range,
+                                                     /*min_rank=*/1));
+  auto dst = flatten(GenRankReducedSubviewFromRegion(copy.dst, copy.dst_range,
+                                                     /*min_rank=*/1));
+  ICHECK(src.getType().cast<mlir::MemRefType>().getShape() ==
+         dst.getType().cast<mlir::MemRefType>().getShape())
+      << "copy_nd2nd requires equal element counts";
+  markNDStorage(from == "global" ? dst : src);
+  if (from == "global")
+    builder.create<mlir::hivm::LoadOp>(builder.getUnknownLoc(),
+                                       mlir::TypeRange{}, src, dst);
+  else
+    builder.create<mlir::hivm::StoreOp>(builder.getUnknownLoc(),
+                                        mlir::TypeRange{}, src, dst);
+}
+
 void CodeGenTileLangNPUIRAPI::Nd2NzCodegen(const CallNode *op) {
   // Generate hivm.hir.nd2nz for tl.npuir_load_nd2nz.
   tvm::tl::NpuirNd2nz npuirop(op->args, this->vmap);
@@ -1821,6 +2177,14 @@ void CodeGenTileLangNPUIRAPI::Nz2NdCodegen(const CallNode *op) {
 void CodeGenTileLangNPUIRAPI::FixpipeCodegen(const CallNode *op) {
   // Generate hivm.hir.fixpipe for tl.npuir_store_fixpipe.
   tvm::tl::NpuirFixpipe npuirop(op->args, this->vmap);
+  if (npuirop.unit_flag != -1) {
+    ICHECK(
+        tvm::transform::PassContext::Current()
+            ->GetConfig<Bool>(tvm::tl::kDisableHivmAutoInjectSync, Bool(false))
+            .value())
+        << "Fixpipe unit_flag requires "
+           "npuir.disable_hivm_auto_inject_sync=true";
+  }
   // gen memref.subview
   // src is cc: no min_rank needed.
   mlir::Value src =
@@ -1861,9 +2225,25 @@ void CodeGenTileLangNPUIRAPI::FixpipeCodegen(const CallNode *op) {
       mlir::hivm::FixpipePreReluModeAttr::get(builder.getContext(),
                                               pre_relu_mode);
   mlir::BoolAttr channel_split = builder.getBoolAttr(npuirop.channel_split);
-  builder.create<mlir::hivm::FixpipeOp>(unknown_loc, result, src, dst,
-                                        enable_nz2nd, pre_quant, pre_relu,
-                                        channel_split);
+  CreateFixpipeCompat(builder, unknown_loc, result, src, dst, enable_nz2nd,
+                      pre_quant, pre_relu, channel_split);
+  if (npuirop.unit_flag != -1) {
+    // The compatibility builder also inserts exactly one Fixpipe operation.
+    auto fixpipe = mlir::cast<mlir::hivm::FixpipeOp>(
+        &*std::prev(builder.getInsertionPoint()));
+    auto flag = mlir::hivm::UnitFlagAttr::get(
+        builder.getContext(),
+        static_cast<mlir::hivm::UNIT_FLAG>(npuirop.unit_flag));
+    auto set_mode = [&](auto op) {
+      if constexpr (std::is_same_v<decltype(op.getUnitFlagModeAttr()),
+                                   mlir::ArrayAttr>) {
+        op.setUnitFlagModeAttr(builder.getArrayAttr({flag}));
+      } else {
+        op.setUnitFlagModeAttr(flag);
+      }
+    };
+    set_mode(fixpipe);
+  }
 }
 
 void CodeGenTileLangNPUIRAPI::DotCodegen(const CallNode *op) {
@@ -1880,6 +2260,14 @@ void CodeGenTileLangNPUIRAPI::DotCodegen(const CallNode *op) {
   //                 outs(%alloc_9 : memref<128x64xf32,
   //                      #hivm.address_space<cc>>)
   tvm::tl::NpuirDot npuirop(op->args, this->vmap);
+  if (npuirop.HasManualControls()) {
+    ICHECK(
+        tvm::transform::PassContext::Current()
+            ->GetConfig<Bool>(tvm::tl::kDisableHivmAutoInjectSync, Bool(false))
+            .value())
+        << "GEMM manual controls require "
+           "npuir.disable_hivm_auto_inject_sync=true";
+  }
   auto extract_region_shape =
       [](const Array<Range> &ranges) -> Array<PrimExpr> {
     Array<PrimExpr> region_shape;
@@ -1893,22 +2281,14 @@ void CodeGenTileLangNPUIRAPI::DotCodegen(const CallNode *op) {
 
   mlir::Location unknown_loc = builder.getUnknownLoc();
   mlir::IndexType idx_ty = builder.getIndexType();
-  mlir::Value a, b, c;
-  if (npuirop.src0_range.size() > 2) {
-    a = GenRankReducedSubviewFromRegion(npuirop.src0, npuirop.src0_range, 2);
-  } else {
-    a = GetVarValue(npuirop.src0->data.get());
-  }
-  if (npuirop.src1_range.size() > 2) {
-    b = GenRankReducedSubviewFromRegion(npuirop.src1, npuirop.src1_range, 2);
-  } else {
-    b = GetVarValue(npuirop.src1->data.get());
-  }
-  if (npuirop.dst_range.size() > 2) {
-    c = GenRankReducedSubviewFromRegion(npuirop.dst, npuirop.dst_range, 2);
-  } else {
-    c = GetVarValue(npuirop.dst->data.get());
-  }
+  // Rank-two slices still carry row/column offsets. Dropping their subview
+  // silently repeats the first K tile when callers use physical slab views.
+  mlir::Value a =
+      GenRankReducedSubviewFromRegion(npuirop.src0, npuirop.src0_range, 2);
+  mlir::Value b =
+      GenRankReducedSubviewFromRegion(npuirop.src1, npuirop.src1_range, 2);
+  mlir::Value c =
+      GenRankReducedSubviewFromRegion(npuirop.dst, npuirop.dst_range, 2);
   mlir::TypeRange result_tensors = {};
   mlir::Value init_condition = MakeValue(npuirop.initC);
 
@@ -1932,9 +2312,42 @@ void CodeGenTileLangNPUIRAPI::DotCodegen(const CallNode *op) {
   mlir::UnitAttr b_transpose =
       npuirop.b_transpose ? builder.getUnitAttr() : mlir::UnitAttr();
   mlir::UnitAttr enable_HF32 = mlir::UnitAttr();
-  builder.create<mlir::hivm::MmadL1Op>(
+  auto gemm = builder.create<mlir::hivm::MmadL1Op>(
       unknown_loc, result_tensors, a, b, init_condition, real_m, real_k, real_n,
       c, per_channel_bias, a_transpose, b_transpose, enable_HF32);
+  if (npuirop.kloop_db_cond.defined()) {
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPoint(gemm);
+    auto i64 = [&](int64_t value) -> mlir::Value {
+      return builder.create<mlir::arith::ConstantIntOp>(unknown_loc, value, 64);
+    };
+    // Keep L1 events caller-managed. Share the two L0 release events across
+    // MMAD calls so the template neither seeds nor drains them per call.
+    mlir::Value unset = i64(-1);
+    llvm::SmallVector<mlir::Value> sync_args{unset,
+                                             unset,
+                                             unset,
+                                             unset,
+                                             MakeValue(npuirop.kloop_db_cond),
+                                             i64(npuirop.l0_sync_event0),
+                                             i64(npuirop.l0_sync_event1)};
+    gemm.getSyncRelatedArgsMutable().assign(sync_args);
+  }
+  if (npuirop.unit_flag != -1) {
+    auto flag = mlir::hivm::UnitFlagAttr::get(
+        builder.getContext(),
+        static_cast<mlir::hivm::UNIT_FLAG>(npuirop.unit_flag));
+    // AscendNPU-IR versions use either a single mode or an array of modes.
+    auto set_mode = [&](auto op) {
+      if constexpr (std::is_same_v<decltype(op.getUnitFlagModeAttr()),
+                                   mlir::ArrayAttr>) {
+        op.setUnitFlagModeAttr(builder.getArrayAttr({flag}));
+      } else {
+        op.setUnitFlagModeAttr(flag);
+      }
+    };
+    set_mode(gemm);
+  }
 }
 
 void CodeGenTileLangNPUIRAPI::BitcastCodegen(const CallNode *op) {
@@ -1968,7 +2381,7 @@ mlir::Value
 CodeGenTileLangNPUIRAPI::GenMemrefLoadFromRegion(Buffer buffer_data,
                                                  Array<Range> range) {
   // Convert buffer from Buffer in TIR 2 memref in MLIR
-  auto mem = GetVarValue(buffer_data->data.get());
+  auto mem = GetBufferValue(buffer_data);
 
   // Convert index from PrimExpr in TIR 2 index type in MLIR
   SmallVector<mlir::Value> convert_inds;
@@ -2596,7 +3009,22 @@ void CodeGenTileLangNPUIRAPI::VtanhCodegen(const CallNode *op) {
 }
 
 mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const CallNode *op) {
-  if (op->op.same_as(Op::Get("tl.npuir_pipe_barrier"))) {
+  if (op->op.same_as(builtin::if_then_else())) {
+    // Unlike arith.select, TIR if_then_else evaluates only the selected arm.
+    auto conditional = builder.create<mlir::scf::IfOp>(
+        builder.getUnknownLoc(), mlir::TypeRange{DTypetoMLIRType(op->dtype)},
+        MakeValue(op->args[0]), true);
+    {
+      mlir::OpBuilder::InsertionGuard guard(builder);
+      builder.setInsertionPointToStart(&conditional.getThenRegion().front());
+      builder.create<mlir::scf::YieldOp>(builder.getUnknownLoc(),
+                                         MakeValue(op->args[1]));
+      builder.setInsertionPointToStart(&conditional.getElseRegion().front());
+      builder.create<mlir::scf::YieldOp>(builder.getUnknownLoc(),
+                                         MakeValue(op->args[2]));
+    }
+    return conditional.getResult(0);
+  } else if (op->op.same_as(Op::Get("tl.npuir_pipe_barrier"))) {
     BarrierCodegen(op);
   } else if (op->op.same_as(builtin::call_extern())) {
     CallExternCodegen(op);
@@ -2637,6 +3065,8 @@ mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const CallNode *op) {
     VselectCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_cmp"))) {
     CreateHIVMBinaryVectorOp<mlir::hivm::VCmpOp>(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_copy_nd2nd"))) {
+    Nd2NdCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_load_nd2nz"))) {
     Nd2NzCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_store_nz2nd"))) {
@@ -2681,6 +3111,8 @@ mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const CallNode *op) {
     VcumsumCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_sort"))) {
     VsortCodegen(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_set_atomic"))) {
+    EmitSetAtomic(builder, op, this->vmap);
   } else if (op->op.same_as(Op::Get("tl.npuir_atomic_add"))) {
     VAtomicAddCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_gather"))) {
@@ -2713,7 +3145,7 @@ mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const CallNode *op) {
   } else if (op->op.same_as(Op::Get("tl.npuir_reshape"))) {
     ReshapeCodegen(op);
   } else {
-    VisitExpr_(op);
+    LOG(FATAL) << "Unsupported NPUIR call: " << op->op;
   }
   return mlir::Value();
 }
@@ -2758,7 +3190,44 @@ void CodeGenTileLangNPUIRAPI::VisitStmt_(const LetStmtNode *op) {
 }
 
 void CodeGenTileLangNPUIRAPI::VisitStmt_(const AttrStmtNode *op) {
-  if (op->attr_key == "thread_extent") {
+  if (op->attr_key == "npuir.physical_address" ||
+      op->attr_key == "npuir.physical_buffers") {
+    ICHECK(
+        tvm::transform::PassContext::Current()
+            ->GetConfig<Bool>(tvm::tl::kDisableHivmAutoInjectSync, Bool(false))
+            .value())
+        << "Physical buffer views require explicit synchronization";
+    Map<Var, PrimExpr> bindings;
+    if (op->attr_key == "npuir.physical_address") {
+      bindings.Set(Downcast<Var>(op->node), op->value);
+    } else {
+      bindings = Downcast<Map<Var, PrimExpr>>(op->node);
+    }
+    std::unordered_map<const VarNode *, mlir::Value> previous;
+    for (const auto &binding : bindings) {
+      auto var = binding.first;
+      auto original = var_map_.at(var.get());
+      previous[var.get()] = original;
+      auto type = mlir::cast<mlir::MemRefType>(original.getType());
+      auto space =
+          mlir::cast<mlir::hivm::AddressSpaceAttr>(type.getMemorySpace());
+      ICHECK(space.getAddressSpace() == mlir::hivm::AddressSpace::L1 ||
+             space.getAddressSpace() == mlir::hivm::AddressSpace::L0C ||
+             space.getAddressSpace() == mlir::hivm::AddressSpace::UB)
+          << "Physical views support L1, L0C and UB only";
+      auto address = MakeValue(tir::Cast(DataType::Int(64), binding.second));
+      var_map_[var.get()] = builder
+                                .create<mlir::hivm::PointerCastOp>(
+                                    builder.getUnknownLoc(), type, address)
+                                .getResult();
+    }
+    prim_expr_map.clear();
+    VisitStmt(op->body);
+    for (const auto &binding : previous)
+      var_map_[binding.first] = binding.second;
+    prim_expr_map.clear();
+    return;
+  } else if (op->attr_key == "thread_extent") {
     IterVar iv = Downcast<IterVar>(op->node);
     if (iv->thread_tag == "blockIdx.x" && iv->var->name_hint != "_") {
       mlir::Value indexOp = GetAndCastIndexOp<mlir::hivm::GetBlockIdxOp>(iv);
@@ -2818,6 +3287,18 @@ mlir::Value CodeGenTileLangNPUIRAPI::GetAndCastIndexOp(const IterVar iv) {
 void CodeGenTileLangNPUIRAPI::VisitStmt_(const AllocateNode *op) {
   ICHECK(!is_zero(op->condition));
   std::string scope = GetPtrStorageScope(op->buffer_var);
+  if (scope == "local.var" || scope == "local") {
+    // Mutable scalar state belongs to the executing core. It must not be
+    // dropped by the Cube/Vector storage filter: that leaves null operands in
+    // subsequent memref.load/store operations. LLVM promotes these small
+    // stack allocations to scalar SSA values after control-flow lowering.
+    auto type = mlir::MemRefType::get(GetShape(op->extents),
+                                      DTypetoMLIRType(op->dtype));
+    var_map_[op->buffer_var.get()] =
+        builder.create<mlir::memref::AllocaOp>(builder.getUnknownLoc(), type);
+    this->VisitStmt(op->body);
+    return;
+  }
   std::map<std::string, NPU_CORETYPE> scope_coretype_map{
       {"shared", NPU_CORETYPE::AIV},
       {"shared.dyn", NPU_CORETYPE::AIC},
@@ -3155,6 +3636,65 @@ mlir::Value CodeGenTileLangNPUIRAPI::GetVarValue(const VarNode *v) const {
   return it->second;
 }
 
+mlir::Value CodeGenTileLangNPUIRAPI::GetBufferValue(const Buffer &buffer) {
+  auto value = GetVarValue(buffer->data.get());
+  ICHECK(value) << "Missing NPUIR buffer: " << buffer->name;
+  auto type = value.getType().cast<mlir::MemRefType>();
+  auto element = DTypetoMLIRType(buffer->dtype);
+  if (type.getElementType() != element) {
+    ICHECK(type.getElementType().getIntOrFloatBitWidth() ==
+           element.getIntOrFloatBitWidth())
+        << "NPUIR typed views currently require equal-width element types";
+    auto viewType = mlir::MemRefType::get(
+        type.getShape(), element, type.getLayout(), type.getMemorySpace());
+    value = builder.create<mlir::hivm::BitcastOp>(builder.getUnknownLoc(),
+                                                  viewType, value);
+  }
+  auto requestedShape = GetShape(buffer->shape);
+  if (type.getShape() != llvm::ArrayRef<int64_t>(requestedShape)) {
+    int64_t oldCount = 1, newCount = 1;
+    for (auto dim : type.getShape()) {
+      ICHECK(dim >= 0) << "NPUIR reshape views require static extents";
+      oldCount *= dim;
+    }
+    for (auto dim : requestedShape) {
+      ICHECK(dim >= 0) << "NPUIR reshape views require static extents";
+      newCount *= dim;
+    }
+    ICHECK(oldCount == newCount) << "NPUIR view must preserve storage size";
+    llvm::SmallVector<int64_t> oldStrides;
+    int64_t offset;
+    ICHECK(
+        mlir::succeeded(mlir::getStridesAndOffset(type, oldStrides, offset)));
+    int64_t contiguousStride = 1;
+    for (int dim = type.getRank() - 1; dim >= 0; --dim) {
+      ICHECK(type.getDimSize(dim) == 1 || oldStrides[dim] == contiguousStride)
+          << "NPUIR reshape view requires contiguous storage";
+      contiguousStride *= type.getDimSize(dim);
+    }
+    auto strides = GetStrideFromShapeAPI(buffer->shape);
+    auto resultType = mlir::MemRefType::get(
+        requestedShape, element,
+        mlir::StridedLayoutAttr::get(builder.getContext(), offset, strides),
+        type.getMemorySpace());
+    llvm::SmallVector<mlir::OpFoldResult> sizes, strideValues;
+    for (auto dim : requestedShape)
+      sizes.push_back(builder.getIndexAttr(dim));
+    for (auto stride : strides)
+      strideValues.push_back(builder.getIndexAttr(stride));
+    auto metadata = builder.create<mlir::memref::ExtractStridedMetadataOp>(
+        builder.getUnknownLoc(), value);
+    mlir::OpFoldResult offsetValue =
+        mlir::ShapedType::isDynamic(offset)
+            ? mlir::OpFoldResult(metadata.getOffset())
+            : mlir::OpFoldResult(builder.getIndexAttr(offset));
+    value = builder.create<mlir::memref::ReinterpretCastOp>(
+        builder.getUnknownLoc(), resultType, value, offsetValue, sizes,
+        strideValues);
+  }
+  return value;
+}
+
 mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const VarNode *op) {
   return GetVarValue(op);
 }
@@ -3220,7 +3760,8 @@ mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const BufferLoadNode *op) {
   }
 
   // Convert buffer from Buffer in TIR 2 memref in MLIR
-  auto mem = var_map_[buffer->data.get()];
+  auto mem = GetBufferValue(buffer);
+  ICHECK(mem) << "Missing NPUIR storage for scalar load: " << buffer->name;
 
   // Convert index from PrimExpr in TIR 2 index type in MLIR
   SmallVector<mlir::Value> convert_inds;
@@ -3261,7 +3802,8 @@ void CodeGenTileLangNPUIRAPI::VisitStmt_(const BufferStoreNode *op) {
     LOG(FATAL) << "The store type and buffer element type do not match";
   }
 
-  auto mem = var_map_[buffer->data.get()];
+  auto mem = GetBufferValue(buffer);
+  ICHECK(mem) << "Missing NPUIR storage for scalar store: " << buffer->name;
 
   auto mlir_value = MakeValue(value);
 
@@ -3273,6 +3815,9 @@ void CodeGenTileLangNPUIRAPI::VisitStmt_(const BufferStoreNode *op) {
 
   builder.create<mlir::memref::StoreOp>(builder.getUnknownLoc(), mlir_value,
                                         mem, convert_inds);
+  // Cached TIR expressions may contain loads of the state just modified.
+  // MLIR CSE can safely recover reuse later, once dependencies are explicit.
+  prim_expr_map.clear();
 }
 
 void CodeGenTileLangNPUIRAPI::VisitStmt_(const WhileNode *op) {

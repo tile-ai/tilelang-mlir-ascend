@@ -25,6 +25,8 @@ namespace tl {
 using namespace tir;
 
 Copy::Copy(Array<PrimExpr> args, BufferMap vmap) : args_(args) {
+  ICHECK(args.size() == 2 || args.size() == 3)
+      << "T.copy jump is only supported by the NPUIR Expert backend";
   Array<Range> rgs[2];
   Buffer bf[2];
   for (int i = 0; i < 2; i++) {
@@ -470,7 +472,7 @@ Stmt Fill::Lower(const LowerArgs &T, arith::Analyzer *analyzer) const {
 }
 
 TIR_REGISTER_TL_OP(Copy, copy)
-    .set_num_inputs(3)
+    .set_num_inputs(-1)
     .set_attr<TCallEffectKind>("TCallEffectKind",
                                Integer(CallEffectKind::kOpaque));
 

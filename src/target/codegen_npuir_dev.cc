@@ -746,7 +746,10 @@ mlir::Value CodeGenTileLangNPUIRDEV::VisitExpr_(const FloorDivNode *op) {
   // FIXME: The floor div in python is not the same as arith.divsi in negative
   // scenarios.
   mlir::Value mlirVal;
-  if (op->dtype.is_int() || op->dtype.is_uint()) {
+  if (op->dtype.is_uint()) {
+    mlirVal = BinaryOpCodegen<mlir::arith::DivUIOp, std::nullptr_t>(op, nullptr,
+                                                                    lhs, rhs);
+  } else if (op->dtype.is_int()) {
     mlirVal = BinaryOpCodegen<mlir::arith::DivSIOp, std::nullptr_t>(op, nullptr,
                                                                     lhs, rhs);
   } else if (op->dtype.is_float()) {
@@ -760,7 +763,10 @@ mlir::Value CodeGenTileLangNPUIRDEV::VisitExpr_(const FloorModNode *op) {
   auto lhs = MakeValue(op->a);
   auto rhs = MakeValue(op->b);
   mlir::Value mlirVal;
-  if (op->dtype.is_int() || op->dtype.is_uint()) {
+  if (op->dtype.is_uint()) {
+    mlirVal = BinaryOpCodegen<mlir::arith::RemUIOp, std::nullptr_t>(op, nullptr,
+                                                                    lhs, rhs);
+  } else if (op->dtype.is_int()) {
     mlirVal = BinaryOpCodegen<mlir::arith::RemSIOp, std::nullptr_t>(op, nullptr,
                                                                     lhs, rhs);
   } else if (op->dtype.is_float()) {
@@ -889,22 +895,22 @@ mlir::Value CodeGenTileLangNPUIRDEV::VisitExpr_(const CastNode *op) {
   } else if (srcIsUInt && targetIsFloat) {
     return builder.create<mlir::arith::UIToFPOp>(
         mlir::UnknownLoc::get(&context), targetType, val);
-  } else if (targetIsInt) {
-    if (op->dtype.bits() > op->value->dtype.bits()) {
-      return builder.create<mlir::arith::ExtSIOp>(
-          mlir::UnknownLoc::get(&context), targetType, val);
-    } else {
+  } else if (targetIsInt || targetIsUInt) {
+    // MLIR integers are signless: a same-width signedness cast is a no-op.
+    // Widening is determined by the source type, not the destination type.
+    if (op->dtype.bits() == op->value->dtype.bits()) {
+      return val;
+    }
+    if (op->dtype.bits() < op->value->dtype.bits()) {
       return builder.create<mlir::arith::TruncIOp>(
           mlir::UnknownLoc::get(&context), targetType, val);
     }
-  } else if (targetIsUInt) {
-    if (op->dtype.bits() > op->value->dtype.bits()) {
+    if (srcIsUInt) {
       return builder.create<mlir::arith::ExtUIOp>(
           mlir::UnknownLoc::get(&context), targetType, val);
-    } else {
-      return builder.create<mlir::arith::TruncIOp>(
-          mlir::UnknownLoc::get(&context), targetType, val);
     }
+    return builder.create<mlir::arith::ExtSIOp>(mlir::UnknownLoc::get(&context),
+                                                targetType, val);
   } else if (targetIsFloat) {
     if (op->dtype.bits() > op->value->dtype.bits()) {
       return builder.create<mlir::arith::ExtFOp>(
@@ -1959,6 +1965,8 @@ void CodeGenTileLangNPUIRDEV::EmitCopyTensorToTensor(
  */
 void CodeGenTileLangNPUIRDEV::AscendCopyCodegen(const CallNode *op) {
   tvm::tl::AscendCopy npuirop(op->args, this->vmap);
+  ICHECK(!npuirop.has_jump)
+      << "T.copy jump currently requires NPUIR Expert on a non-A5 device";
 
   mlir::Value src = GetVarValue(npuirop.src);
   mlir::Value dst = GetVarValue(npuirop.dst);
@@ -2216,6 +2224,8 @@ void CodeGenTileLangNPUIRDEV::VselectCodegen(const CallNode *op) {
   ///  tensor<32xf16>
 
   tvm::tl::NpuirSelect npuirop(op->args, this->vmap);
+  ICHECK(npuirop.src0.defined() && npuirop.src1.defined())
+      << "Scalar T.vselect requires the Expert API backend";
 
   mlir::Value cond_data_name = GetVarValue(npuirop.cond);
   mlir::Value src0_data_name = GetVarValue(npuirop.src0);
@@ -2670,6 +2680,8 @@ void CodeGenTileLangNPUIRDEV::Nz2NdCodegen(const CallNode *op) {
 void CodeGenTileLangNPUIRDEV::FixpipeCodegen(const CallNode *op) {
   // Generate hivm.hir.fixpipe for tl.npuir_store_fixpipe.
   tvm::tl::NpuirFixpipe npuirop(op->args, this->vmap);
+  ICHECK(npuirop.unit_flag == -1)
+      << "Fixpipe unit_flag requires the A2/A3 Expert API backend";
   // gen memref.subview
   mlir::Value src = GenSubviewFromRegion(npuirop.src, npuirop.src_range);
   mlir::Value dst = GenSubviewFromRegion(npuirop.dst, npuirop.dst_range);
@@ -2705,9 +2717,8 @@ void CodeGenTileLangNPUIRDEV::FixpipeCodegen(const CallNode *op) {
       mlir::hivm::FixpipePreReluModeAttr::get(builder.getContext(),
                                               pre_relu_mode);
   mlir::BoolAttr channel_split = builder.getBoolAttr(npuirop.channel_split);
-  builder.create<mlir::hivm::FixpipeOp>(unknown_loc, result, src, dst,
-                                        enable_nz2nd, pre_quant, pre_relu,
-                                        channel_split);
+  CreateFixpipeCompat(builder, unknown_loc, result, src, dst, enable_nz2nd,
+                      pre_quant, pre_relu, channel_split);
 }
 
 /// Generate hivm.hir.mmadL1 for tl.npuir_dot.
@@ -2723,6 +2734,9 @@ void CodeGenTileLangNPUIRDEV::FixpipeCodegen(const CallNode *op) {
 ///                         ->  tensor<128x64xf32>
 void CodeGenTileLangNPUIRDEV::DotCodegen(const CallNode *op) {
   tvm::tl::NpuirDot npuirop(op->args, this->vmap);
+  ICHECK(!npuirop.HasManualControls())
+      << "GEMM manual L0/unit-flag controls require the A2/A3 Expert API "
+         "backend";
   Array<PrimExpr> a_region_shape, b_region_shape;
   for (int i = 0; i < npuirop.src0_range.size(); i++) {
     a_region_shape.push_back(npuirop.src0_range[i].get()->extent);
@@ -3746,6 +3760,8 @@ mlir::Value CodeGenTileLangNPUIRDEV::VisitExpr_(const CallNode *op) {
     VreduceCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_sigmoid"))) {
     VsigmoidCodegen(op);
+  } else if (op->op.same_as(Op::Get("tl.npuir_set_atomic"))) {
+    EmitSetAtomic(builder, op, this->vmap);
   } else if (op->op.same_as(Op::Get("tl.npuir_atomic_add"))) {
     VAtomicAddCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_cumsum"))) {

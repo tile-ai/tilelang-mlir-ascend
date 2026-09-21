@@ -1751,6 +1751,17 @@ class compiler_npu:
             # bishengir-compile --enable-triton-kernel-compile=true make sure the way.
 
             _compile_option_list = []
+            if "hivm.hir.vmrgsort" in linalg or "hivm.hir.vsort32" in linalg:
+                packed_library = (
+                    Path(npu_compiler_path).resolve().parent.parent
+                    / "lib"
+                    / "bishengir_mrgsort.aiv.bc"
+                )
+                if not packed_library.is_file():
+                    raise RuntimeError(
+                        f"Native packed-sort library missing: {packed_library}; build AscendNPU-IR with BISHENGIR_BUILD_MRGSORT_TEMPLATE=ON"
+                    )
+                _compile_option_list.append(f"--link-aicore-bitcode={packed_library}")
             pass_configs = getattr(self, "pass_configs", {})
 
             if _is_a5_device():

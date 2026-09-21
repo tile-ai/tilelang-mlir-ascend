@@ -361,6 +361,50 @@ NpuirSort::NpuirSort(Array<PrimExpr> args, BufferMap vmap) {
   sort_axis = args[4].as<IntImmNode>()->value;
 }
 
+NpuirMrgSort::NpuirMrgSort(Array<PrimExpr> args, BufferMap vmap) {
+  ICHECK_EQ(args.size(), 12);
+  for (int i = 0; i < 5; ++i) {
+    const auto *call = args[i].as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    buffers[i] = region.GetBuffer();
+    ranges[i] = region.GetRanges();
+  }
+  for (int i = 0; i < 4; ++i) {
+    ICHECK(args[i + 5].as<IntImmNode>());
+    lengths[i] = args[i + 5].as<IntImmNode>()->value;
+  }
+  ICHECK(args[9].as<IntImmNode>());
+  ICHECK(args[10].as<IntImmNode>());
+  valid = args[9].as<IntImmNode>()->value;
+  repeats = args[10].as<IntImmNode>()->value;
+  suspended = args[11].as<Bool>().value();
+}
+
+NpuirSort32::NpuirSort32(Array<PrimExpr> args, BufferMap vmap) {
+  ICHECK_EQ(args.size(), 4);
+  for (int i = 0; i < 3; ++i) {
+    const auto *call = args[i].as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    buffers[i] = region.GetBuffer();
+    ranges[i] = region.GetRanges();
+  }
+  ICHECK(args[3].as<IntImmNode>());
+  repeats = args[3].as<IntImmNode>()->value;
+}
+
+NpuirExtractPairs::NpuirExtractPairs(Array<PrimExpr> args, BufferMap vmap) {
+  ICHECK_EQ(args.size(), 3);
+  for (int i = 0; i < 3; ++i) {
+    const auto *call = args[i].as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    buffers[i] = region.GetBuffer();
+    ranges[i] = region.GetRanges();
+  }
+}
+
 NpuirAtomicAdd::NpuirAtomicAdd(Array<PrimExpr> args, BufferMap vmap) {
   Array<Range> rgs[2];
   Buffer bf[2];
@@ -799,6 +843,21 @@ TIR_REGISTER_TL_OP(NpuirCumsum, npuir_cumsum)
 
 TIR_REGISTER_TL_OP(NpuirSort, npuir_sort)
     .set_num_inputs(5)
+    .set_attr<TCallEffectKind>("TCallEffectKind",
+                               Integer(CallEffectKind::kOpaque));
+
+TIR_REGISTER_TL_OP(NpuirMrgSort, vmrgsort)
+    .set_num_inputs(12)
+    .set_attr<TCallEffectKind>("TCallEffectKind",
+                               Integer(CallEffectKind::kOpaque));
+
+TIR_REGISTER_TL_OP(NpuirSort32, vsort32)
+    .set_num_inputs(4)
+    .set_attr<TCallEffectKind>("TCallEffectKind",
+                               Integer(CallEffectKind::kOpaque));
+
+TIR_REGISTER_TL_OP(NpuirExtractPairs, vextract_pairs)
+    .set_num_inputs(3)
     .set_attr<TCallEffectKind>("TCallEffectKind",
                                Integer(CallEffectKind::kOpaque));
 

@@ -362,6 +362,33 @@ public:
   Array<Range> src_range, dst_value_range, dst_index_range;
 };
 
+class NpuirMrgSort : public Operator {
+public:
+  NpuirMrgSort(Array<PrimExpr> args, BufferMap vmap);
+  static const Op &Get();
+  Buffer buffers[5];
+  Array<Range> ranges[5];
+  int64_t lengths[4], valid, repeats;
+  bool suspended;
+};
+
+class NpuirSort32 : public Operator {
+public:
+  NpuirSort32(Array<PrimExpr> args, BufferMap vmap);
+  static const Op &Get();
+  Buffer buffers[3];
+  Array<Range> ranges[3];
+  int64_t repeats;
+};
+
+class NpuirExtractPairs : public Operator {
+public:
+  NpuirExtractPairs(Array<PrimExpr> args, BufferMap vmap);
+  static const Op &Get();
+  Buffer buffers[3];
+  Array<Range> ranges[3];
+};
+
 class NpuirAtomicAdd : public Operator {
 public:
   NpuirAtomicAdd(Array<PrimExpr> args, BufferMap vmap);

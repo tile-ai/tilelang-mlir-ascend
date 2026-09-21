@@ -678,7 +678,11 @@ def npuir_brc(src, dst):
         src (Union[tir.Buffer, tir.BufferLoad, tir.BufferRegion, tir.PrimExpr]): Source vector or scalar
         dst (Union[tir.Buffer, tir.BufferLoad]): Destination vector
     """
-    src_extent = _get_extent(src)
+    # A fully indexed load is a scalar, not a rank-preserving tensor slice.
+    scalar_load = isinstance(src, tir.BufferLoad) and all(
+        not isinstance(index, tir.Ramp) for index in src.indices
+    )
+    src_extent = [] if scalar_load else _get_extent(src)
     dst_extent = _get_extent(dst)
 
     if not isinstance(src, tir.PrimExpr):
@@ -1080,6 +1084,87 @@ def npuir_cumsum(
         dst_tmp,
         str(dim),
         reverse,
+    )
+
+
+def vmrgsort(
+    src0,
+    src1,
+    src2,
+    src3,
+    dst,
+    element_lengths,
+    valid_bit=15,
+    repeat_times=1,
+    exhausted_suspension=False,
+):
+    """Expert/A2: merge 2–4 descending packed score/index queues in UB.
+
+    Lengths count eight-byte records, not tensor elements. FP32 records are
+    [score, opaque uint32 index bits]. All buffers are rank-one and contiguous;
+    output must not overlap any input. Full output capacity is required even
+    with suspension; only the prefix up to first exhaustion is then defined.
+    Repeat > 1 requires four equal-length contiguous queues in one allocation.
+    Requires the native AscendNPU-IR vmrgsort operation and its device library.
+    """
+    if len(element_lengths) != 4:
+        raise ValueError("vmrgsort requires four compile-time lengths")
+    if any(not isinstance(n, int) or not 0 <= n <= 4095 for n in element_lengths):
+        raise ValueError("vmrgsort lengths must be integers in [0, 4095]")
+    if valid_bit not in (3, 7, 15):
+        raise ValueError("vmrgsort valid_bit must be 3, 7 or 15")
+    if not isinstance(repeat_times, int) or not 1 <= repeat_times <= 255:
+        raise ValueError("vmrgsort repeat_times must be in [1, 255]")
+    if repeat_times > 1 and (
+        valid_bit != 15 or exhausted_suspension or len(set(element_lengths)) != 1
+    ):
+        raise ValueError("repeated vmrgsort needs four equal queues without suspension")
+    regions = [_to_region(x, "r", _get_extent(x)) for x in (src0, src1, src2, src3)]
+    regions.append(_to_region(dst, "w", _get_extent(dst)))
+    return tir.call_intrin(
+        "handle",
+        tir.op.Op.get("tl.vmrgsort"),
+        *regions,
+        *element_lengths,
+        valid_bit,
+        repeat_times,
+        exhausted_suspension,
+    )
+
+
+def vsort32(src, indices, dst, repeat_times=1):
+    """Expert/A2: sort independent 32-score groups into packed UB records.
+
+    FP32 scores and int32 indices are input separately; indices retain their
+    original bits. Output is FP32 storage with 64 elements per group. Does not
+    merge groups. Source/index buffers need 32 * repeats elements; destination
+    needs 64 * repeats. Buffers must not overlap and must be 32-byte aligned.
+    """
+    if not isinstance(repeat_times, int) or not 1 <= repeat_times <= 255:
+        raise ValueError("vsort32 repeat_times must be in [1, 255]")
+    return tir.call_intrin(
+        "handle",
+        tir.op.Op.get("tl.vsort32"),
+        _to_region(src, "r", _get_extent(src)),
+        _to_region(indices, "r", _get_extent(indices)),
+        _to_region(dst, "w", _get_extent(dst)),
+        repeat_times,
+    )
+
+
+def vextract_pairs(src, values, indices):
+    """Unpack FP32 score/u32-bit records into FP32 values and int32 indices.
+
+    Rank-one UB buffers, source length twice each output length. Index bits
+    are reinterpreted, never numerically cast. Lowers to existing native
+    deinterleave plus bitcast operations, without a temporary packed copy.
+    """
+    return tir.call_intrin(
+        "handle",
+        tir.op.Op.get("tl.vextract_pairs"),
+        _to_region(src, "r", _get_extent(src)),
+        _to_region(values, "w", _get_extent(values)),
+        _to_region(indices, "w", _get_extent(indices)),
     )
 
 

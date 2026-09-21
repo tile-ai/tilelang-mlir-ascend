@@ -15,6 +15,7 @@ import uuid
 import logging
 from hashlib import sha256
 from tilelang import env
+from .npu_toolchain import find_npuir_tool
 from typing import Union
 
 import pybind11
@@ -354,24 +355,13 @@ def get_cxx_precompiled(header_path):
 @functools.lru_cache()
 def get_npucompiler_path():
     """Get bishengir-compile"""
-    npu_compiler_path = shutil.which("bishengir-compile")
-    if npu_compiler_path is None:
-        npu_compiler_root = os.getenv("TILELANG_NPU_COMPILER_PATH", "")
-        if npu_compiler_root == "":
-            raise EnvironmentError(
-                "Couldn't find executable bishengir-compile or TILELANG_NPU_COMPILER_PATH."
-            )
-        npu_compiler_path = os.path.join(npu_compiler_root, "npuc")
-    return npu_compiler_path
+    return find_npuir_tool("bishengir-compile")
 
 
 @functools.lru_cache()
 def get_npucompiler_opt_path():
     """Get bishengir-opt"""
-    npu_compiler_opt_path = shutil.which("bishengir-opt")
-    if npu_compiler_opt_path is None:
-        raise EnvironmentError("Couldn't find executable bishengir-opt.")
-    return npu_compiler_opt_path
+    return find_npuir_tool("bishengir-opt")
 
 
 @functools.lru_cache()

@@ -121,7 +121,9 @@ elif [[ -f "${ROOT}/run-clang-tidy.py" ]]; then
     RUN_CLANG_TIDY_CMD=(python3 "${ROOT}/run-clang-tidy.py")
 fi
 
-if [[ ${#RUN_CLANG_TIDY_CMD[@]} -gt 0 ]]; then
+if [[ ! -d "${ROOT}/build" ]]; then
+    echo "Build directory not found. Skipping clang-tidy checks."
+elif [[ ${#RUN_CLANG_TIDY_CMD[@]} -gt 0 ]]; then
     # Check if clang-tidy is available
     if [[ ! -x "$(command -v clang-tidy)" ]]; then
         python3 -m pip install --upgrade -r "${ROOT}/requirements-lint.txt" --user

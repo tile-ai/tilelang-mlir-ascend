@@ -468,16 +468,18 @@ class TileLangBuilPydCommand(build_py):
                     break
 
             if source_lib_file:
-                patch_libs(source_lib_file)
                 target_dir_release = os.path.join(self.build_lib, PACKAGE_NAME, "lib")
                 target_dir_develop = os.path.join(PACKAGE_NAME, "lib")
                 os.makedirs(target_dir_release, exist_ok=True)
                 os.makedirs(target_dir_develop, exist_ok=True)
                 shutil.copy2(source_lib_file, target_dir_release)
+                # Prebuilt libraries may belong to another build. Patch only
+                # the staged copy, and keep the original available for reuse.
+                staged_lib = os.path.join(target_dir_release, item)
+                patch_libs(staged_lib)
                 logger.info(f"Copied {source_lib_file} to {target_dir_release}")
-                shutil.copy2(source_lib_file, target_dir_develop)
+                shutil.copy2(staged_lib, target_dir_develop)
                 logger.info(f"Copied {source_lib_file} to {target_dir_develop}")
-                os.remove(source_lib_file)
             else:
                 logger.info(f"WARNING: {item} not found in any expected directories!")
 
@@ -486,14 +488,42 @@ class TileLangBuilPydCommand(build_py):
             self.build_lib, PACKAGE_NAME, "lib", "npuir_python"
         )
         bundle_src = None
-        if os.path.isdir(os.path.join(ROOT_DIR, "build", "tilelangir", "mlir_core")):
+        toolchain_install = os.environ.get("TILELANG_BUNDLE_NPUIR_INSTALL")
+        if toolchain_install:
+            toolchain_source = os.environ.get("TILELANG_BUNDLE_NPUIR_SOURCE")
+            if not toolchain_source:
+                raise SystemExit(
+                    "TILELANG_BUNDLE_NPUIR_SOURCE is required for license notices"
+                )
+            subprocess.run(
+                [
+                    sys.executable,
+                    os.path.join(ROOT_DIR, "tools", "bundle_npuir.py"),
+                    "--install",
+                    toolchain_install,
+                    "--source",
+                    toolchain_source,
+                    "--destination",
+                    os.path.join(self.build_lib, PACKAGE_NAME),
+                ],
+                check=True,
+            )
+        elif os.path.isdir(os.path.join(ROOT_DIR, "build", "tilelangir", "mlir_core")):
             bundle_src = os.path.join(ROOT_DIR, "build", "tilelangir")
-        if not bundle_src and os.environ.get("BISHENGIR_ROOT_PATH"):
+        if (
+            not toolchain_install
+            and not bundle_src
+            and os.environ.get("BISHENGIR_ROOT_PATH")
+        ):
             pp = os.path.join(os.environ["BISHENGIR_ROOT_PATH"], "python_packages")
             if os.path.isdir(os.path.join(pp, "mlir_core")):
                 bundle_src = pp
         # fallback: BISHENGIR_PATH (used by build_wheel.sh)
-        if not bundle_src and os.environ.get("BISHENGIR_PATH"):
+        if (
+            not toolchain_install
+            and not bundle_src
+            and os.environ.get("BISHENGIR_PATH")
+        ):
             pp = os.path.join(os.environ["BISHENGIR_PATH"], "python_packages")
             if os.path.isdir(os.path.join(pp, "mlir_core")):
                 bundle_src = pp
@@ -510,6 +540,25 @@ class TileLangBuilPydCommand(build_py):
                 self.mkpath(dst)
                 distutils.dir_util.copy_tree(src, dst)
                 logger.info(f"Bundled NPUIR Python: {src} -> {dst}")
+
+        zstd_library = os.environ.get("TILELANG_BUNDLE_ZSTD_LIBRARY")
+        if zstd_library:
+            zstd_license = os.environ.get("TILELANG_BUNDLE_ZSTD_LICENSE")
+            if not zstd_license:
+                raise SystemExit("TILELANG_BUNDLE_ZSTD_LICENSE is required")
+            subprocess.run(
+                [
+                    sys.executable,
+                    os.path.join(ROOT_DIR, "tools", "isolate_wheel_zstd.py"),
+                    "--package",
+                    os.path.join(self.build_lib, PACKAGE_NAME),
+                    "--library",
+                    zstd_library,
+                    "--license",
+                    zstd_license,
+                ],
+                check=True,
+            )
 
         TVM_CONFIG_ITEMS = [
             f"{build_temp_dir}/config.cmake",

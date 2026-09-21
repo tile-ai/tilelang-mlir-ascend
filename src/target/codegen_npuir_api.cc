@@ -9,6 +9,7 @@
 #include "../op/ascend.h"
 #include "../op/builtin.h"
 #include "arith/pattern_match.h"
+#include "npuir_fixpipe_compat.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -1411,9 +1412,9 @@ void CodeGenTileLangNPUIRAPI::AscendCopyCodegen(const CallNode *op) {
         mlir::hivm::FixpipePreReluModeAttr::get(builder.getContext(),
                                                 pre_relu_mode);
     mlir::BoolAttr channel_split = builder.getBoolAttr(false);
-    builder.create<mlir::hivm::FixpipeOp>(
-        builder.getUnknownLoc(), mlir::TypeRange{}, src, dst, enable_nz2nd,
-        pre_quant, pre_relu, channel_split);
+    CreateFixpipeCompat(builder, builder.getUnknownLoc(), mlir::TypeRange{},
+                        src, dst, enable_nz2nd, pre_quant, pre_relu,
+                        channel_split);
     return;
   }
 
@@ -1593,6 +1594,66 @@ void CodeGenTileLangNPUIRAPI::VcumsumCodegen(const CallNode *op) {
   builder.create<mlir::hivm::VCumsumOp>(
       loc, TypeRange{}, src, dst,
       builder.getDenseI64ArrayAttr(npuirop.cum_dims));
+}
+
+void CodeGenTileLangNPUIRAPI::PackedSortCodegen(const CallNode *op,
+                                                bool merge) {
+  // Use the registered native operation by name so builds against older IR
+  // headers remain possible. Older IR fails here with an actionable message.
+  const char *name = merge ? "hivm.hir.vmrgsort" : "hivm.hir.vsort32";
+  ICHECK(mlir::RegisteredOperationName::lookup(name, builder.getContext()))
+      << name << " requires AscendNPU-IR packed-sort support";
+  mlir::OperationState state(builder.getUnknownLoc(), name);
+  if (merge) {
+    tvm::tl::NpuirMrgSort operation(op->args, this->vmap);
+    for (int i = 0; i < 5; ++i)
+      state.addOperands(GenRankReducedSubviewFromRegion(
+          operation.buffers[i], operation.ranges[i], 1));
+    state.addAttribute("element_lengths",
+                       builder.getDenseI64ArrayAttr(operation.lengths));
+    state.addAttribute("valid_bit", builder.getI64IntegerAttr(operation.valid));
+    state.addAttribute("repeat_times",
+                       builder.getI64IntegerAttr(operation.repeats));
+    state.addAttribute("exhausted_suspension",
+                       builder.getBoolAttr(operation.suspended));
+  } else {
+    tvm::tl::NpuirSort32 operation(op->args, this->vmap);
+    for (int i = 0; i < 3; ++i)
+      state.addOperands(GenRankReducedSubviewFromRegion(
+          operation.buffers[i], operation.ranges[i], 1));
+    state.addAttribute("repeat_times",
+                       builder.getI64IntegerAttr(operation.repeats));
+  }
+  builder.create(state);
+}
+
+void CodeGenTileLangNPUIRAPI::ExtractPairsCodegen(const CallNode *op) {
+  tvm::tl::NpuirExtractPairs operation(op->args, this->vmap);
+  Value src = GenRankReducedSubviewFromRegion(operation.buffers[0],
+                                              operation.ranges[0], 1);
+  Value values = GenRankReducedSubviewFromRegion(operation.buffers[1],
+                                                 operation.ranges[1], 1);
+  Value indices = GenRankReducedSubviewFromRegion(operation.buffers[2],
+                                                  operation.ranges[2], 1);
+  auto type = mlir::cast<mlir::MemRefType>(src.getType());
+  ICHECK(type.getElementType().isF32()) << "packed source must be f32 storage";
+  ICHECK(
+      mlir::cast<mlir::MemRefType>(values.getType()).getElementType().isF32());
+  ICHECK(mlir::cast<mlir::MemRefType>(indices.getType())
+             .getElementType()
+             .isInteger(32));
+  auto loc = builder.getUnknownLoc();
+  builder.create<mlir::hivm::VDeinterleaveOp>(
+      loc, TypeRange{}, src, ValueRange{values}, builder.getI64IntegerAttr(2),
+      mlir::hivm::DeinterleaveModeAttr::get(
+          &context, NPUIR_STR_DEINTERLEAVEMODE["CHANNEL_0"]));
+  auto intType = mlir::MemRefType::get(type.getShape(), builder.getI32Type(),
+                                       type.getLayout(), type.getMemorySpace());
+  Value bits = builder.create<mlir::hivm::BitcastOp>(loc, intType, src);
+  builder.create<mlir::hivm::VDeinterleaveOp>(
+      loc, TypeRange{}, bits, ValueRange{indices}, builder.getI64IntegerAttr(2),
+      mlir::hivm::DeinterleaveModeAttr::get(
+          &context, NPUIR_STR_DEINTERLEAVEMODE["CHANNEL_1"]));
 }
 
 void CodeGenTileLangNPUIRAPI::VsortCodegen(const CallNode *op) {
@@ -1861,9 +1922,8 @@ void CodeGenTileLangNPUIRAPI::FixpipeCodegen(const CallNode *op) {
       mlir::hivm::FixpipePreReluModeAttr::get(builder.getContext(),
                                               pre_relu_mode);
   mlir::BoolAttr channel_split = builder.getBoolAttr(npuirop.channel_split);
-  builder.create<mlir::hivm::FixpipeOp>(unknown_loc, result, src, dst,
-                                        enable_nz2nd, pre_quant, pre_relu,
-                                        channel_split);
+  CreateFixpipeCompat(builder, unknown_loc, result, src, dst, enable_nz2nd,
+                      pre_quant, pre_relu, channel_split);
 }
 
 void CodeGenTileLangNPUIRAPI::DotCodegen(const CallNode *op) {
@@ -2596,7 +2656,24 @@ void CodeGenTileLangNPUIRAPI::VtanhCodegen(const CallNode *op) {
 }
 
 mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const CallNode *op) {
-  if (op->op.same_as(Op::Get("tl.npuir_pipe_barrier"))) {
+  if (op->op.same_as(builtin::if_then_else())) {
+    ICHECK_EQ(op->args.size(), 3);
+    auto loc = builder.getUnknownLoc();
+    auto condition = MakeValue(op->args[0]);
+    auto resultType = DTypetoMLIRType(op->dtype);
+    auto ifOp = builder.create<mlir::scf::IfOp>(
+        loc, mlir::TypeRange{resultType}, condition, true, true);
+    {
+      OpBuilder::InsertionGuard guard(builder);
+      builder.setInsertionPointToStart(&ifOp.getThenRegion().front());
+      auto value = MakeValue(op->args[1]);
+      builder.create<mlir::scf::YieldOp>(loc, mlir::ValueRange{value});
+      builder.setInsertionPointToStart(&ifOp.getElseRegion().front());
+      value = MakeValue(op->args[2]);
+      builder.create<mlir::scf::YieldOp>(loc, mlir::ValueRange{value});
+    }
+    return ifOp.getResult(0);
+  } else if (op->op.same_as(Op::Get("tl.npuir_pipe_barrier"))) {
     BarrierCodegen(op);
   } else if (op->op.same_as(builtin::call_extern())) {
     CallExternCodegen(op);
@@ -2681,6 +2758,12 @@ mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const CallNode *op) {
     VcumsumCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_sort"))) {
     VsortCodegen(op);
+  } else if (op->op.same_as(Op::Get("tl.vmrgsort"))) {
+    PackedSortCodegen(op, true);
+  } else if (op->op.same_as(Op::Get("tl.vsort32"))) {
+    PackedSortCodegen(op, false);
+  } else if (op->op.same_as(Op::Get("tl.vextract_pairs"))) {
+    ExtractPairsCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_atomic_add"))) {
     VAtomicAddCodegen(op);
   } else if (op->op.same_as(Op::Get("tl.npuir_gather"))) {
@@ -2713,7 +2796,8 @@ mlir::Value CodeGenTileLangNPUIRAPI::VisitExpr_(const CallNode *op) {
   } else if (op->op.same_as(Op::Get("tl.npuir_reshape"))) {
     ReshapeCodegen(op);
   } else {
-    VisitExpr_(op);
+    LOG(FATAL) << "Unsupported call in Expert NPUIR code generation: "
+               << op->op;
   }
   return mlir::Value();
 }

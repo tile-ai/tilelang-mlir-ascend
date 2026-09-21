@@ -9,6 +9,7 @@
 #include "../op/ascend.h"
 #include "../op/builtin.h"
 #include "arith/pattern_match.h"
+#include "npuir_fixpipe_compat.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -2705,9 +2706,8 @@ void CodeGenTileLangNPUIRDEV::FixpipeCodegen(const CallNode *op) {
       mlir::hivm::FixpipePreReluModeAttr::get(builder.getContext(),
                                               pre_relu_mode);
   mlir::BoolAttr channel_split = builder.getBoolAttr(npuirop.channel_split);
-  builder.create<mlir::hivm::FixpipeOp>(unknown_loc, result, src, dst,
-                                        enable_nz2nd, pre_quant, pre_relu,
-                                        channel_split);
+  CreateFixpipeCompat(builder, unknown_loc, result, src, dst, enable_nz2nd,
+                      pre_quant, pre_relu, channel_split);
 }
 
 /// Generate hivm.hir.mmadL1 for tl.npuir_dot.

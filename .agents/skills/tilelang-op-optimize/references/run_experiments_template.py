@@ -46,7 +46,12 @@ import sys
 OP = "my_op"  # ADAPT: operator name (file stem)
 KERNEL_ID = "path/to/kernel.py::factory::main"  # ADAPT: unique implementation identity
 KERNEL_NAME = "main"  # ADAPT: target kernel name for msprof
-DIRECT_CMD = [sys.executable, "{impl}", "--case", "{workload_id}"]  # ADAPT: direct kernel argv; never the Stage 5 wrapper benchmark
+DIRECT_CMD = [
+    sys.executable,
+    "{impl}",
+    "--case",
+    "{workload_id}",
+]  # ADAPT: direct kernel argv; never the Stage 5 wrapper benchmark
 LAUNCH_COUNT = 15
 WARM_UP = 5
 TIMEOUT_S = 900
@@ -72,7 +77,9 @@ EXPERIMENTS = [
 # ------------------------------------------------------------------ /EXPERIMENTS
 
 
-def build_bench_cmd(impl_path: str, workload_id: str) -> list[str]:  # ADAPT if direct kernel entry needs more args
+def build_bench_cmd(
+    impl_path: str, workload_id: str
+) -> list[str]:  # ADAPT if direct kernel entry needs more args
     return [part.format(impl=impl_path, workload_id=workload_id) for part in DIRECT_CMD]
 
 
@@ -97,18 +104,22 @@ def run_msprof(branch_file: str, workload_id: str, out_dir: str) -> dict:
     if os.name == "posix":
         os.chmod(out_dir, 0o700)
     cmd = [
-        "msprof", "op", f"--kernel-name={KERNEL_NAME}", f"--output={out_dir}",
-        f"--launch-count={LAUNCH_COUNT}", f"--warm-up={WARM_UP}", "--dump=off",
-        f"--aic-metrics={MSPROF_METRICS}", *build_bench_cmd(branch_file, workload_id),
+        "msprof",
+        "op",
+        f"--kernel-name={KERNEL_NAME}",
+        f"--output={out_dir}",
+        f"--launch-count={LAUNCH_COUNT}",
+        f"--warm-up={WARM_UP}",
+        "--dump=off",
+        f"--aic-metrics={MSPROF_METRICS}",
+        *build_bench_cmd(branch_file, workload_id),
     ]
     log = os.path.join("logs", safe_component(out_dir) + ".log")
     os.makedirs("logs", exist_ok=True)
     with open(log, "w") as f:
         f.write(f"# {shlex.join(cmd)}\n")
         f.flush()
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=TIMEOUT_S
-        )
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT_S)
         f.write(proc.stdout + proc.stderr)
     if proc.returncode != 0:
         return {"error": f"msprof rc={proc.returncode}", "log": log}
@@ -145,10 +156,13 @@ def file_sha256(path: str) -> str:
 def tune_workload_ids() -> list[str]:
     with open(WORKLOAD_INVENTORY, encoding="utf-8") as handle:
         inventory = json.load(handle)
-    if not isinstance(inventory, dict) or not isinstance(inventory.get("workloads"), list):
+    if not isinstance(inventory, dict) or not isinstance(
+        inventory.get("workloads"), list
+    ):
         raise ValueError("workload_inventory.json must contain a workloads array")
     return [
-        item["workload_id"] for item in inventory["workloads"]
+        item["workload_id"]
+        for item in inventory["workloads"]
         if item.get("kernel_id") == KERNEL_ID and item.get("kind") == "tune"
     ]
 
@@ -158,8 +172,16 @@ def main() -> int:
     ap.add_argument("--round", type=int)
     ap.add_argument("--only", help="run a single opt_id")
     ap.add_argument("--workload", help="one non-smoke benchmark workload ID")
-    ap.add_argument("--all", action="store_true", help="measure every tune workload (baseline/final/merged)")
-    ap.add_argument("--phase", choices=("baseline", "candidate", "merged", "final"), default="candidate")
+    ap.add_argument(
+        "--all",
+        action="store_true",
+        help="measure every tune workload (baseline/final/merged)",
+    )
+    ap.add_argument(
+        "--phase",
+        choices=("baseline", "candidate", "merged", "final"),
+        default="candidate",
+    )
     args = ap.parse_args()
 
     if args.round is None:
@@ -184,7 +206,9 @@ def main() -> int:
         return 2
 
     if args.phase in ("baseline", "merged", "final") and len(todo) != 1:
-        ap.error("baseline/merged/final measurements must use exactly one candidate per kernel")
+        ap.error(
+            "baseline/merged/final measurements must use exactly one candidate per kernel"
+        )
     results = []
     for exp in todo:
         branch = exp["file"]
@@ -198,11 +222,25 @@ def main() -> int:
             continue
         for workload_id in selected:
             prof = run_msprof(
-                branch, workload_id,
-                os.path.join("profiles", args.phase, f"round{args.round}", safe_component(exp["opt_id"]), safe_component(workload_id)),
+                branch,
+                workload_id,
+                os.path.join(
+                    "profiles",
+                    args.phase,
+                    f"round{args.round}",
+                    safe_component(exp["opt_id"]),
+                    safe_component(workload_id),
+                ),
             )
             if "error" in prof:
-                results.append({**exp, "workload_id": workload_id, "status": "msprof_fail", "l0_pass": True})
+                results.append(
+                    {
+                        **exp,
+                        "workload_id": workload_id,
+                        "status": "msprof_fail",
+                        "l0_pass": True,
+                    }
+                )
                 print(f"  {workload_id}: msprof FAILED: {prof['error']}")
                 continue
             append_record(
@@ -224,9 +262,17 @@ def main() -> int:
                 }
             )
             results.append(
-                {**exp, "workload_id": workload_id, "status": "ok", "l0_pass": True, "duration_us": prof["duration_us"]}
+                {
+                    **exp,
+                    "workload_id": workload_id,
+                    "status": "ok",
+                    "l0_pass": True,
+                    "duration_us": prof["duration_us"],
+                }
             )
-            print(f"  {workload_id}: L0 pass, median Task Duration = {prof['duration_us']} us")
+            print(
+                f"  {workload_id}: L0 pass, median Task Duration = {prof['duration_us']} us"
+            )
 
     # summary table: candidates vs current best (B2 structured backflow)
     bases = {}
@@ -234,9 +280,14 @@ def main() -> int:
         with open(PERF_RECORDS) as f:
             rows = [json.loads(line) for line in f if line.strip()]
         for r in rows:
-            if r.get("kernel_id") == KERNEL_ID and r.get("candidate_id") == CURRENT_BEST_ID:
+            if (
+                r.get("kernel_id") == KERNEL_ID
+                and r.get("candidate_id") == CURRENT_BEST_ID
+            ):
                 bases[r.get("workload_id")] = r["duration_us"]
-    print("\n| branch | workload_id | l0 | Task Duration(us) | vs current best | status |")
+    print(
+        "\n| branch | workload_id | l0 | Task Duration(us) | vs current best | status |"
+    )
     print("|---|---|---|---:|---:|---|")
     for r in results:
         dur = r.get("duration_us")

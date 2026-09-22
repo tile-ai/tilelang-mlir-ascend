@@ -39,7 +39,10 @@ def test_runner_uses_only_inventory_tune_workloads(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "WORKLOAD_INVENTORY", str(path))
     assert runner.tune_workload_ids() == ["large"]
     assert "/" not in runner.safe_component("../smoke;rm -rf")
-    assert runner.build_bench_cmd("kernel.py", "shape with spaces")[-1] == "shape with spaces"
+    assert (
+        runner.build_bench_cmd("kernel.py", "shape with spaces")[-1]
+        == "shape with spaces"
+    )
     monkeypatch.setattr(sys, "argv", ["run_experiments.py", "--workload", "smoke-1m"])
     with pytest.raises(SystemExit) as exc:
         runner.main()
@@ -49,12 +52,21 @@ def test_runner_uses_only_inventory_tune_workloads(tmp_path, monkeypatch):
 def test_candidate_cannot_run_all_workloads(tmp_path, monkeypatch):
     runner = _load_runner()
     path = tmp_path / "workload_inventory.json"
-    path.write_text(json.dumps({"workloads": [
-        {"kernel_id": "k1", "workload_id": "shape-a", "kind": "tune"},
-    ]}), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                "workloads": [
+                    {"kernel_id": "k1", "workload_id": "shape-a", "kind": "tune"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(runner, "KERNEL_ID", "k1")
     monkeypatch.setattr(runner, "WORKLOAD_INVENTORY", str(path))
-    monkeypatch.setattr(sys, "argv", ["run_experiments.py", "--phase", "candidate", "--all"])
+    monkeypatch.setattr(
+        sys, "argv", ["run_experiments.py", "--phase", "candidate", "--all"]
+    )
     with pytest.raises(SystemExit) as exc:
         runner.main()
     assert exc.value.code == 2

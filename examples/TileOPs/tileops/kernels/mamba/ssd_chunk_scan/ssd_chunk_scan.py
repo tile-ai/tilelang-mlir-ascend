@@ -106,9 +106,21 @@ def _ssd_chunk_scan_fwd_wrapped(
     # `threads` (K3/K9); it binds 1:1 once the NPU kernel component
     # rewrites the factory for target="npuir".
     return _ssd_chunk_scan_fwd_kernel(
-        batch, num_chunks, chunk_len, n_heads, d_head, d_state, n_groups, dtype,
+        batch,
+        num_chunks,
+        chunk_len,
+        n_heads,
+        d_head,
+        d_state,
+        n_groups,
+        dtype,
     )(block_l, block_p, block_n, block_s, num_stages)(
-        x, cb, dA_cumsum, C, prev_states, dt,
+        x,
+        cb,
+        dA_cumsum,
+        C,
+        prev_states,
+        dt,
     )
 
 
@@ -136,7 +148,8 @@ def _(
 ) -> torch.Tensor:
     # output: [B, S, H, P]
     return x.new_empty(
-        (batch, num_chunks * chunk_len, n_heads, d_head), dtype=torch.float32,
+        (batch, num_chunks * chunk_len, n_heads, d_head),
+        dtype=torch.float32,
     )
 
 
@@ -199,7 +212,14 @@ class SSDChunkScanFwdKernel(Kernel):
         self.dtype = dtype
         self.device_index = device_index
         self.kernel = _ssd_chunk_scan_fwd_kernel(
-            batch, num_chunks, chunk_len, n_heads, d_head, d_state, n_groups, self.dtype_str,
+            batch,
+            num_chunks,
+            chunk_len,
+            n_heads,
+            d_head,
+            d_state,
+            n_groups,
+            self.dtype_str,
         )
         self.init_config(config)
 
@@ -244,10 +264,23 @@ class SSDChunkScanFwdKernel(Kernel):
         """
         # K9: no `threads` in the dispatch.
         return _ssd_chunk_scan_fwd_wrapped(
-            self.batch, self.num_chunks, self.chunk_len, self.n_heads,
-            self.d_head, self.d_state, self.n_groups, self.dtype_str,
-            self.config["block_l"], self.config["block_p"], self.config["block_n"],
-            self.config["block_s"], self.config["num_stages"],
-            x.contiguous(), cb.contiguous(), dA_cumsum.contiguous(),
-            C.contiguous(), prev_states.contiguous(), dt.contiguous(),
+            self.batch,
+            self.num_chunks,
+            self.chunk_len,
+            self.n_heads,
+            self.d_head,
+            self.d_state,
+            self.n_groups,
+            self.dtype_str,
+            self.config["block_l"],
+            self.config["block_p"],
+            self.config["block_n"],
+            self.config["block_s"],
+            self.config["num_stages"],
+            x.contiguous(),
+            cb.contiguous(),
+            dA_cumsum.contiguous(),
+            C.contiguous(),
+            prev_states.contiguous(),
+            dt.contiguous(),
         )

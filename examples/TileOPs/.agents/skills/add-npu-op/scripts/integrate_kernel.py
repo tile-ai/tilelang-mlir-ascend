@@ -117,12 +117,16 @@ def kernel_ascend_mode(kernel_src: Path) -> str:
     declared: list[str] = []
     defaults: list[str] = []
     for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "ASCEND_MODE"
-            for target in node.targets
+        if (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "ASCEND_MODE"
+                for target in node.targets
+            )
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
         ):
-            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                declared.append(node.value.value)
+            declared.append(node.value.value)
         if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
             continue
         call = node.value
@@ -172,7 +176,9 @@ def sync_wrapper_ascend_mode(wrapper_path: Path, kernel_class: str | None, mode:
         node
         for node in cls.body
         if isinstance(node, ast.Assign)
-        and any(isinstance(target, ast.Name) and target.id == "ascend_mode" for target in node.targets)
+        and any(
+            isinstance(target, ast.Name) and target.id == "ascend_mode" for target in node.targets
+        )
     ]
     if len(assignments) > 1:
         raise SystemExit(f"[error] {wrapper_path}: duplicate ascend_mode in {cls.name}")

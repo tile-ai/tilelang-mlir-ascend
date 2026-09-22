@@ -761,8 +761,17 @@ SPEEDUP_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:x|×|倍)")
 # perf_records.jsonl required fields (schema canonical:
 # _shared/standards/signal-registry.md §5).
 PERF_RECORD_WORKLOAD_FIELDS = (
-    "round", "candidate_id", "parent_id", "kernel_id",
-    "workload_id", "phase", "artifact_path", "artifact_sha256", "duration_us", "l0_pass", "msprof_raw_path",
+    "round",
+    "candidate_id",
+    "parent_id",
+    "kernel_id",
+    "workload_id",
+    "phase",
+    "artifact_path",
+    "artifact_sha256",
+    "duration_us",
+    "l0_pass",
+    "msprof_raw_path",
     "timestamp",
 )
 CURRENT_BEST_RE = re.compile(r"current[- ]best", re.I)
@@ -771,7 +780,12 @@ CURRENT_BEST_RE = re.compile(r"current[- ]best", re.I)
 RECON_TOLERANCE = 0.01
 
 
-def _perf_records_workload_lint(records_path: str, opt_log_path: str, inventory_path: str, final_artifact_path: str | None):
+def _perf_records_workload_lint(
+    records_path: str,
+    opt_log_path: str,
+    inventory_path: str,
+    final_artifact_path: str | None,
+):
     """Check benchmark-derived workload coverage and one final version per kernel."""
     failures, warnings = [], []
 
@@ -782,52 +796,123 @@ def _perf_records_workload_lint(records_path: str, opt_log_path: str, inventory_
         with open(inventory_path, encoding="utf-8") as handle:
             inventory = json.load(handle)
     except (OSError, json.JSONDecodeError) as exc:
-        fail("S4-WORKLOAD-INVENTORY", inventory_path, f"无法读取 workload inventory：{exc}")
+        fail(
+            "S4-WORKLOAD-INVENTORY",
+            inventory_path,
+            f"无法读取 workload inventory：{exc}",
+        )
         return failures, warnings
-    if not isinstance(inventory, dict) or not isinstance(inventory.get("workloads"), list):
-        fail("S4-WORKLOAD-INVENTORY", inventory_path, "inventory 必须包含 workloads 数组")
+    if not isinstance(inventory, dict) or not isinstance(
+        inventory.get("workloads"), list
+    ):
+        fail(
+            "S4-WORKLOAD-INVENTORY", inventory_path, "inventory 必须包含 workloads 数组"
+        )
         return failures, warnings
 
     expected = {}
     for index, item in enumerate(inventory["workloads"], 1):
         if not isinstance(item, dict):
-            fail("S4-WORKLOAD-INVENTORY", inventory_path, f"workloads[{index}] 不是对象")
+            fail(
+                "S4-WORKLOAD-INVENTORY", inventory_path, f"workloads[{index}] 不是对象"
+            )
             continue
-        required = ("benchmark_source", "kernel_id", "workload_id", "label", "marks", "shape", "dtype", "params", "kind", "reason")
+        required = (
+            "benchmark_source",
+            "kernel_id",
+            "workload_id",
+            "label",
+            "marks",
+            "shape",
+            "dtype",
+            "params",
+            "kind",
+            "reason",
+        )
         missing = [name for name in required if name not in item]
         if missing:
-            fail("S4-WORKLOAD-INVENTORY", inventory_path, f"workloads[{index}] 缺少 {', '.join(missing)}")
+            fail(
+                "S4-WORKLOAD-INVENTORY",
+                inventory_path,
+                f"workloads[{index}] 缺少 {', '.join(missing)}",
+            )
             continue
         key = (item["kernel_id"], item["workload_id"])
-        if any(not isinstance(value, str) or not value for value in key) or key in expected:
-            fail("S4-WORKLOAD-INVENTORY", inventory_path, f"workloads[{index}] kernel_id/workload_id 无效或重复")
+        if (
+            any(not isinstance(value, str) or not value for value in key)
+            or key in expected
+        ):
+            fail(
+                "S4-WORKLOAD-INVENTORY",
+                inventory_path,
+                f"workloads[{index}] kernel_id/workload_id 无效或重复",
+            )
             continue
-        if (not isinstance(item["benchmark_source"], str) or not item["benchmark_source"]
-                or not isinstance(item["label"], str) or not isinstance(item["marks"], list)
-                or not all(isinstance(mark, str) for mark in item["marks"])
-                or not isinstance(item["shape"], (list, dict)) or not isinstance(item["dtype"], str)
-                or not isinstance(item["params"], dict) or not isinstance(item["reason"], str)
-                or item["kind"] not in ("tune", "smoke", "skipped")):
-            fail("S4-WORKLOAD-INVENTORY", inventory_path, f"workloads[{index}] 字段类型或 kind 无效")
+        if (
+            not isinstance(item["benchmark_source"], str)
+            or not item["benchmark_source"]
+            or not isinstance(item["label"], str)
+            or not isinstance(item["marks"], list)
+            or not all(isinstance(mark, str) for mark in item["marks"])
+            or not isinstance(item["shape"], (list, dict))
+            or not isinstance(item["dtype"], str)
+            or not isinstance(item["params"], dict)
+            or not isinstance(item["reason"], str)
+            or item["kind"] not in ("tune", "smoke", "skipped")
+        ):
+            fail(
+                "S4-WORKLOAD-INVENTORY",
+                inventory_path,
+                f"workloads[{index}] 字段类型或 kind 无效",
+            )
             continue
         marks = {mark.lower() for mark in item["marks"]}
         has_smoke_token = any(
             re.search(r"(?:^|[^A-Za-z0-9])smoke(?:$|[^A-Za-z0-9])", value, re.I)
             for value in (item["workload_id"], item["label"])
         )
-        expected_kind = "skipped" if "skip" in marks else (
-            "smoke" if "smoke" in marks or has_smoke_token else "tune"
+        expected_kind = (
+            "skipped"
+            if "skip" in marks
+            else ("smoke" if "smoke" in marks or has_smoke_token else "tune")
         )
         if item["kind"] != expected_kind:
-            fail("S4-WORKLOAD-INVENTORY", inventory_path, f"{key} 分类应为 {expected_kind}，实际为 {item['kind']}")
-        if item["kind"] == "tune" and item.get("tuning_status") not in ("winner_merged", "no_gain", "merge_blocked"):
-            fail("S4-WORKLOAD-INVENTORY", inventory_path, f"{key} 缺已完成的 tuning_status")
-        if item.get("tuning_status") in ("no_gain", "merge_blocked") and not item["reason"]:
-            fail("S4-WORKLOAD-INVENTORY", inventory_path, f"{key} 的无收益/合并受阻结论缺少原因")
+            fail(
+                "S4-WORKLOAD-INVENTORY",
+                inventory_path,
+                f"{key} 分类应为 {expected_kind}，实际为 {item['kind']}",
+            )
+        if item["kind"] == "tune" and item.get("tuning_status") not in (
+            "winner_merged",
+            "no_gain",
+            "merge_blocked",
+        ):
+            fail(
+                "S4-WORKLOAD-INVENTORY",
+                inventory_path,
+                f"{key} 缺已完成的 tuning_status",
+            )
+        if (
+            item.get("tuning_status") in ("no_gain", "merge_blocked")
+            and not item["reason"]
+        ):
+            fail(
+                "S4-WORKLOAD-INVENTORY",
+                inventory_path,
+                f"{key} 的无收益/合并受阻结论缺少原因",
+            )
         if item["kind"] == "smoke" and item.get("precision_pass") is not True:
-            fail("S4-WORKLOAD-INVENTORY", inventory_path, f"smoke {key} 缺最终精度通过记录")
+            fail(
+                "S4-WORKLOAD-INVENTORY",
+                inventory_path,
+                f"smoke {key} 缺最终精度通过记录",
+            )
         if item["kind"] == "smoke" and "full" in marks and not item["reason"]:
-            fail("S4-WORKLOAD-INVENTORY", inventory_path, f"smoke {key} 与 full 标记冲突时须记录原因")
+            fail(
+                "S4-WORKLOAD-INVENTORY",
+                inventory_path,
+                f"smoke {key} 与 full 标记冲突时须记录原因",
+            )
         if item["kind"] == "skipped" and not item["reason"]:
             fail("S4-WORKLOAD-INVENTORY", inventory_path, f"skipped {key} 缺跳过原因")
         expected[key] = item["kind"]
@@ -845,33 +930,60 @@ def _perf_records_workload_lint(records_path: str, opt_log_path: str, inventory_
         try:
             rec = json.loads(line)
         except json.JSONDecodeError as exc:
-            fail("S4-PERF-RECORDS-SCHEMA", records_path, f"第 {line_no} 行非法 JSON：{exc}")
+            fail(
+                "S4-PERF-RECORDS-SCHEMA",
+                records_path,
+                f"第 {line_no} 行非法 JSON：{exc}",
+            )
             continue
         if not isinstance(rec, dict):
             fail("S4-PERF-RECORDS-SCHEMA", records_path, f"第 {line_no} 行不是对象")
             continue
         missing = [field for field in PERF_RECORD_WORKLOAD_FIELDS if field not in rec]
         if missing:
-            fail("S4-PERF-RECORDS-SCHEMA", records_path, f"第 {line_no} 行缺少 {', '.join(missing)}")
+            fail(
+                "S4-PERF-RECORDS-SCHEMA",
+                records_path,
+                f"第 {line_no} 行缺少 {', '.join(missing)}",
+            )
             continue
-        if not isinstance(rec["kernel_id"], str) or not isinstance(rec["workload_id"], str):
-            fail("S4-PERF-RECORDS-SCHEMA", records_path, f"第 {line_no} 行 kernel_id/workload_id 须为字符串")
+        if not isinstance(rec["kernel_id"], str) or not isinstance(
+            rec["workload_id"], str
+        ):
+            fail(
+                "S4-PERF-RECORDS-SCHEMA",
+                records_path,
+                f"第 {line_no} 行 kernel_id/workload_id 须为字符串",
+            )
             continue
         key = (rec["kernel_id"], rec["workload_id"])
         if expected.get(key) != "tune":
-            fail("S4-PERF-RECORDS-COVERAGE", records_path, f"第 {line_no} 行不是 inventory 中的 tune workload：{key}")
+            fail(
+                "S4-PERF-RECORDS-COVERAGE",
+                records_path,
+                f"第 {line_no} 行不是 inventory 中的 tune workload：{key}",
+            )
             continue
-        if (not isinstance(rec["round"], int) or isinstance(rec["round"], bool)
-                or not isinstance(rec["candidate_id"], str) or not rec["candidate_id"]
-                or (rec["parent_id"] is not None and not isinstance(rec["parent_id"], str))
-                or rec["phase"] not in ("baseline", "candidate", "merged", "final")
-                or not isinstance(rec["duration_us"], (int, float)) or isinstance(rec["duration_us"], bool)
-                or not 0 < rec["duration_us"] < float("inf")
-                or rec["l0_pass"] is not True
-                or not isinstance(rec["msprof_raw_path"], str) or not rec["msprof_raw_path"]
-                or not isinstance(rec["artifact_path"], str) or not rec["artifact_path"]
-                or not isinstance(rec["artifact_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", rec["artifact_sha256"])
-                or not isinstance(rec["timestamp"], str) or not rec["timestamp"]):
+        if (
+            not isinstance(rec["round"], int)
+            or isinstance(rec["round"], bool)
+            or not isinstance(rec["candidate_id"], str)
+            or not rec["candidate_id"]
+            or (rec["parent_id"] is not None and not isinstance(rec["parent_id"], str))
+            or rec["phase"] not in ("baseline", "candidate", "merged", "final")
+            or not isinstance(rec["duration_us"], (int, float))
+            or isinstance(rec["duration_us"], bool)
+            or not 0 < rec["duration_us"] < float("inf")
+            or rec["l0_pass"] is not True
+            or not isinstance(rec["msprof_raw_path"], str)
+            or not rec["msprof_raw_path"]
+            or not isinstance(rec["artifact_path"], str)
+            or not rec["artifact_path"]
+            or not isinstance(rec["artifact_sha256"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", rec["artifact_sha256"])
+            or not isinstance(rec["timestamp"], str)
+            or not rec["timestamp"]
+        ):
             fail("S4-PERF-RECORDS-SCHEMA", records_path, f"第 {line_no} 行字段值无效")
             continue
         measurements.setdefault(key, {}).setdefault(rec["phase"], []).append(rec)
@@ -880,51 +992,95 @@ def _perf_records_workload_lint(records_path: str, opt_log_path: str, inventory_
             if final_artifact_path:
                 recorded_path = rec["artifact_path"]
                 if not os.path.isabs(recorded_path):
-                    recorded_path = os.path.join(os.path.dirname(records_path), recorded_path)
-                if os.path.normcase(os.path.abspath(recorded_path)) != os.path.normcase(os.path.abspath(final_artifact_path)):
-                    fail("S4-PERF-RECORDS-RECON", records_path, f"{key} final 未测最终 perf_opt 文件")
+                    recorded_path = os.path.join(
+                        os.path.dirname(records_path), recorded_path
+                    )
+                if os.path.normcase(os.path.abspath(recorded_path)) != os.path.normcase(
+                    os.path.abspath(final_artifact_path)
+                ):
+                    fail(
+                        "S4-PERF-RECORDS-RECON",
+                        records_path,
+                        f"{key} final 未测最终 perf_opt 文件",
+                    )
                 elif os.path.isfile(final_artifact_path):
                     with open(final_artifact_path, "rb") as handle:
                         actual_hash = hashlib.sha256(handle.read()).hexdigest()
                     if rec["artifact_sha256"] != actual_hash:
-                        fail("S4-PERF-RECORDS-RECON", records_path, f"{key} final 文件哈希与采集时不一致")
+                        fail(
+                            "S4-PERF-RECORDS-RECON",
+                            records_path,
+                            f"{key} final 文件哈希与采集时不一致",
+                        )
 
     for key, kind in expected.items():
         if kind != "tune":
             continue
         phases = measurements.get(key, {})
         if not phases.get("baseline") or not phases.get("final"):
-            fail("S4-PERF-RECORDS-COVERAGE", records_path, f"{key} 缺 baseline 或 final 记录")
+            fail(
+                "S4-PERF-RECORDS-COVERAGE",
+                records_path,
+                f"{key} 缺 baseline 或 final 记录",
+            )
         if len(phases.get("final", [])) != 1:
-            fail("S4-PERF-RECORDS-RECON", records_path, f"{key} 必须恰有一条当前最终版本的 final 记录")
+            fail(
+                "S4-PERF-RECORDS-RECON",
+                records_path,
+                f"{key} 必须恰有一条当前最终版本的 final 记录",
+            )
     for kernel_id, versions in final_versions.items():
         if len(versions) != 1:
-            fail("S4-PERF-RECORDS-RECON", records_path, f"{kernel_id} 的 final 来自多个候选：{sorted(versions)}")
+            fail(
+                "S4-PERF-RECORDS-RECON",
+                records_path,
+                f"{kernel_id} 的 final 来自多个候选：{sorted(versions)}",
+            )
 
     log = _read_text(opt_log_path) or ""
     if measurements and ("Task Duration" not in log or not CURRENT_BEST_RE.search(log)):
-        fail("S4-OPTLOG-COMPTABLE", opt_log_path, "缺少候选 vs current best 的 Task Duration 对比表")
+        fail(
+            "S4-OPTLOG-COMPTABLE",
+            opt_log_path,
+            "缺少候选 vs current best 的 Task Duration 对比表",
+        )
     if any(kind == "tune" for kind in expected.values()):
         marker = re.search(r"^#{2,3} Final Performance Test Data\s*$", log, re.M)
         if marker is None:
-            fail("S4-PERF-RECORDS-RECON", opt_log_path, "缺少 Final Performance Test Data 表")
+            fail(
+                "S4-PERF-RECORDS-RECON",
+                opt_log_path,
+                "缺少 Final Performance Test Data 表",
+            )
         else:
             claims = {}
-            for line in log[marker.end():].splitlines():
+            for line in log[marker.end() :].splitlines():
                 if line.startswith("## ") or line.startswith("### "):
                     break
                 if not line.strip().startswith("|"):
                     continue
                 cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-                if len(cells) != 5 or cells[0] in ("kernel_id", "---") or all(set(cell) <= set("-: ") for cell in cells):
+                if (
+                    len(cells) != 5
+                    or cells[0] in ("kernel_id", "---")
+                    or all(set(cell) <= set("-: ") for cell in cells)
+                ):
                     continue
                 try:
                     claim_key = (cells[0], cells[1])
                     if claim_key in claims:
-                        fail("S4-PERF-RECORDS-RECON", opt_log_path, f"Final 表重复 {claim_key}")
+                        fail(
+                            "S4-PERF-RECORDS-RECON",
+                            opt_log_path,
+                            f"Final 表重复 {claim_key}",
+                        )
                     claims[claim_key] = (float(cells[2]), float(cells[3]), cells[4])
                 except ValueError:
-                    fail("S4-PERF-RECORDS-RECON", opt_log_path, f"Final 表非法数值：{line}")
+                    fail(
+                        "S4-PERF-RECORDS-RECON",
+                        opt_log_path,
+                        f"Final 表非法数值：{line}",
+                    )
             for key, kind in expected.items():
                 if kind != "tune":
                     continue
@@ -935,14 +1091,30 @@ def _perf_records_workload_lint(records_path: str, opt_log_path: str, inventory_
                     continue
                 for phase, value in (("baseline", claim[0]), ("final", claim[1])):
                     records = phases.get(phase, [])
-                    if records and not any(abs(rec["duration_us"] - value) <= max(RECON_TOLERANCE * value, 1e-9) for rec in records):
-                        fail("S4-PERF-RECORDS-RECON", opt_log_path, f"{key} 的 {phase} 时延与记录不符")
+                    if records and not any(
+                        abs(rec["duration_us"] - value)
+                        <= max(RECON_TOLERANCE * value, 1e-9)
+                        for rec in records
+                    ):
+                        fail(
+                            "S4-PERF-RECORDS-RECON",
+                            opt_log_path,
+                            f"{key} 的 {phase} 时延与记录不符",
+                        )
                 finals = phases.get("final", [])
                 if len(finals) == 1 and claim[2] != finals[0]["candidate_id"]:
-                    fail("S4-PERF-RECORDS-RECON", opt_log_path, f"{key} 的最终候选与记录不符")
+                    fail(
+                        "S4-PERF-RECORDS-RECON",
+                        opt_log_path,
+                        f"{key} 的最终候选与记录不符",
+                    )
             for key in claims:
                 if expected.get(key) != "tune":
-                    fail("S4-PERF-RECORDS-RECON", opt_log_path, f"Final 表包含非 tune workload：{key}")
+                    fail(
+                        "S4-PERF-RECORDS-RECON",
+                        opt_log_path,
+                        f"Final 表包含非 tune workload：{key}",
+                    )
     return failures, warnings
 
 
@@ -1070,12 +1242,20 @@ def perf_records_lint(
     final_artifact_path: str,
 ):
     """Check inventory coverage, measured workloads, and the final kernel."""
-    inventory_path = os.path.join(os.path.dirname(records_path), "workload_inventory.json")
+    inventory_path = os.path.join(
+        os.path.dirname(records_path), "workload_inventory.json"
+    )
     if not os.path.isfile(inventory_path):
         return [
-            _fail("S4-WORKLOAD-INVENTORY", inventory_path, "Stage 4 缺少 workload_inventory.json")
+            _fail(
+                "S4-WORKLOAD-INVENTORY",
+                inventory_path,
+                "Stage 4 缺少 workload_inventory.json",
+            )
         ], []
-    return _perf_records_workload_lint(records_path, opt_log_path, inventory_path, final_artifact_path)
+    return _perf_records_workload_lint(
+        records_path, opt_log_path, inventory_path, final_artifact_path
+    )
 
 
 def perf_lint(
@@ -1192,12 +1372,16 @@ def _literal_ascend_mode(source: str) -> str | None:
         return None
     declared, defaults = [], []
     for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "ASCEND_MODE"
-            for target in node.targets
+        if (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "ASCEND_MODE"
+                for target in node.targets
+            )
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
         ):
-            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                declared.append(node.value.value)
+            declared.append(node.value.value)
         if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
             continue
         call = node.value
@@ -1268,13 +1452,21 @@ def integration_lint(migration_state: dict, repo_root: str):
         mode = _literal_ascend_mode(kernel_text)
         if mode is None:
             failures.append(
-                _fail("S5-ASCEND-MODE", kernel_path, "kernel 缺少明确且一致的 Developer/Expert 模式声明")
+                _fail(
+                    "S5-ASCEND-MODE",
+                    kernel_path,
+                    "kernel 缺少明确且一致的 Developer/Expert 模式声明",
+                )
             )
         else:
             source_modes.add(mode)
     if len(source_modes) > 1:
         failures.append(
-            _fail("S5-ASCEND-MODE", pkg_dir, "同一 Kernel class 集成了不同编程模式，需逐调用限定模式")
+            _fail(
+                "S5-ASCEND-MODE",
+                pkg_dir,
+                "同一 Kernel class 集成了不同编程模式，需逐调用限定模式",
+            )
         )
     if wtext is None:
         failures.append(_fail("S5-WRAPPER", wrapper, "wrapper 文件不存在或不可读"))
@@ -1282,9 +1474,13 @@ def integration_lint(migration_state: dict, repo_root: str):
         try:
             wrapper_tree = ast.parse(wtext)
             classes = [
-                node for node in wrapper_tree.body
+                node
+                for node in wrapper_tree.body
                 if isinstance(node, ast.ClassDef)
-                and any(isinstance(base, ast.Name) and base.id == "Kernel" for base in node.bases)
+                and any(
+                    isinstance(base, ast.Name) and base.id == "Kernel"
+                    for base in node.bases
+                )
             ]
             class_modes = [
                 stmt.value.value
@@ -1297,12 +1493,26 @@ def integration_lint(migration_state: dict, repo_root: str):
                 )
                 and isinstance(stmt.value, ast.Constant)
             ]
-            if len(classes) != 1 or len(class_modes) != 1 or set(class_modes) != source_modes:
+            if (
+                len(classes) != 1
+                or len(class_modes) != 1
+                or set(class_modes) != source_modes
+            ):
                 failures.append(
-                    _fail("S5-ASCEND-MODE", wrapper, "wrapper 的 Kernel.ascend_mode 与集成 kernel 模式不一致")
+                    _fail(
+                        "S5-ASCEND-MODE",
+                        wrapper,
+                        "wrapper 的 Kernel.ascend_mode 与集成 kernel 模式不一致",
+                    )
                 )
         except SyntaxError:
-            failures.append(_fail("S5-ASCEND-MODE", wrapper, "wrapper Python 语法错误，无法检查编程模式"))
+            failures.append(
+                _fail(
+                    "S5-ASCEND-MODE",
+                    wrapper,
+                    "wrapper Python 语法错误，无法检查编程模式",
+                )
+            )
         if "perf_opt" not in wtext:
             failures.append(
                 _fail(
@@ -1326,22 +1536,33 @@ def integration_lint(migration_state: dict, repo_root: str):
     try:
         report_ref = json.loads(report_ref_text)
     except json.JSONDecodeError as exc:
-        failures.append(_fail("S5-REPORT-REF", report_ref_path, f"报告引用不是合法 JSON：{exc}"))
+        failures.append(
+            _fail("S5-REPORT-REF", report_ref_path, f"报告引用不是合法 JSON：{exc}")
+        )
         return failures, warnings
     run_rel = report_ref.get("run_json") if isinstance(report_ref, dict) else None
     if not isinstance(run_rel, str) or not run_rel.endswith("/run.json"):
         failures.append(
-            _fail("S5-REPORT-REF", report_ref_path, "run_json 必须是仓库相对的报告 run.json 路径")
+            _fail(
+                "S5-REPORT-REF",
+                report_ref_path,
+                "run_json 必须是仓库相对的报告 run.json 路径",
+            )
         )
         return failures, warnings
     report_root = os.path.realpath(
         os.path.join(repo_root, "examples", "TileOPs", "reports", "tileops")
     )
     run_path = os.path.realpath(os.path.join(repo_root, run_rel))
-    if not run_rel.startswith("examples/TileOPs/reports/tileops/") or os.path.commonpath(
-        (report_root, run_path)
-    ) != report_root:
-        failures.append(_fail("S5-REPORT-REF", report_ref_path, "run_json 路径不在 TileOPs 报告目录内"))
+    if (
+        not run_rel.startswith("examples/TileOPs/reports/tileops/")
+        or os.path.commonpath((report_root, run_path)) != report_root
+    ):
+        failures.append(
+            _fail(
+                "S5-REPORT-REF", report_ref_path, "run_json 路径不在 TileOPs 报告目录内"
+            )
+        )
         return failures, warnings
     run_text = _read_text(run_path)
     if run_text is None:
@@ -1350,7 +1571,9 @@ def integration_lint(migration_state: dict, repo_root: str):
     try:
         run = json.loads(run_text)
     except json.JSONDecodeError as exc:
-        failures.append(_fail("S5-REPORT", run_path, f"报告 run.json 不是合法 JSON：{exc}"))
+        failures.append(
+            _fail("S5-REPORT", run_path, f"报告 run.json 不是合法 JSON：{exc}")
+        )
         return failures, warnings
     if not isinstance(run, dict):
         failures.append(_fail("S5-REPORT", run_path, "报告 run.json 顶层必须为对象"))
@@ -1366,16 +1589,22 @@ def integration_lint(migration_state: dict, repo_root: str):
     except (json.JSONDecodeError, TypeError):
         meta = None
     if not isinstance(meta, dict) or not meta.get("op_name"):
-        failures.append(_fail("S5-REPORT-META", meta_file, "迁移元数据缺少 manifest 算子名 op_name"))
+        failures.append(
+            _fail("S5-REPORT-META", meta_file, "迁移元数据缺少 manifest 算子名 op_name")
+        )
         return failures, warnings
     if run.get("operator") != meta["op_name"]:
-        failures.append(_fail("S5-REPORT-OP", run_path, "报告算子与迁移元数据 op_name 不一致"))
+        failures.append(
+            _fail("S5-REPORT-OP", run_path, "报告算子与迁移元数据 op_name 不一致")
+        )
     metadata = run.get("metadata")
     summary = run.get("summary")
     if not isinstance(metadata, dict) or not isinstance(summary, dict):
         failures.append(_fail("S5-REPORT", run_path, "报告缺少 metadata/summary 对象"))
         return failures, warnings
-    expected_test = meta.get("test_path") or f"tests/ops/test_{meta.get('test_slug')}.py"
+    expected_test = (
+        meta.get("test_path") or f"tests/ops/test_{meta.get('test_slug')}.py"
+    )
     expected_bench = (
         meta.get("bench_path") or f"benchmarks/ops/bench_{meta.get('bench_slug')}.py"
     )
@@ -1384,7 +1613,11 @@ def integration_lint(migration_state: dict, repo_root: str):
         or metadata.get("benchmark_file") != expected_bench
     ):
         failures.append(
-            _fail("S5-REPORT-TARGET", run_path, "报告 test/benchmark 目标与迁移元数据不一致")
+            _fail(
+                "S5-REPORT-TARGET",
+                run_path,
+                "报告 test/benchmark 目标与迁移元数据不一致",
+            )
         )
     if metadata.get("prof_mode_requested") != "msprof":
         failures.append(_fail("S5-REPORT-PROF", run_path, "报告未请求 msprof 模式"))
@@ -1399,14 +1632,22 @@ def integration_lint(migration_state: dict, repo_root: str):
         or isinstance(correctness_tests, bool)
         or correctness_tests < 1
     ):
-        failures.append(_fail("S5-REPORT-TEST", run_path, "报告缺少通过的全量正确性用例"))
+        failures.append(
+            _fail("S5-REPORT-TEST", run_path, "报告缺少通过的全量正确性用例")
+        )
     if not benchmark_requested:
         failures.append(_fail("S5-REPORT-BENCH", run_path, "报告未实际运行 benchmark"))
     if status not in ("passed", "partial") or (status == "passed") != benchmark_passed:
-        failures.append(_fail("S5-REPORT-STATUS", run_path, "报告状态与 benchmark 结论不一致"))
+        failures.append(
+            _fail("S5-REPORT-STATUS", run_path, "报告状态与 benchmark 结论不一致")
+        )
     if status == "partial" and correctness_passed and benchmark_requested:
         warnings.append(
-            _warn("S5-REPORT-BENCH", run_path, "正确性通过，但 benchmark 未得到有效结果；仅记录，不阻断集成")
+            _warn(
+                "S5-REPORT-BENCH",
+                run_path,
+                "正确性通过，但 benchmark 未得到有效结果；仅记录，不阻断集成",
+            )
         )
     for name in ("report.md", "report.html"):
         path = os.path.join(os.path.dirname(run_path), name)
@@ -1414,13 +1655,18 @@ def integration_lint(migration_state: dict, repo_root: str):
             failures.append(_fail("S5-REPORT-FILE", path, f"缺少 {name}"))
     sources = [wrapper, os.path.join(pkg_dir, "__init__.py")]
     sources.extend(
-        os.path.join(pkg_dir, f"{func}.py") for func in migration_state.get("functions") or {}
+        os.path.join(pkg_dir, f"{func}.py")
+        for func in migration_state.get("functions") or {}
     )
-    if all(os.path.isfile(path) for path in sources) and os.path.getmtime(run_path) < max(
-        os.path.getmtime(path) for path in sources
-    ):
+    if all(os.path.isfile(path) for path in sources) and os.path.getmtime(
+        run_path
+    ) < max(os.path.getmtime(path) for path in sources):
         failures.append(
-            _fail("S5-REPORT-STALE", run_path, "报告早于当前 wrapper/kernel 集成文件，需重新运行")
+            _fail(
+                "S5-REPORT-STALE",
+                run_path,
+                "报告早于当前 wrapper/kernel 集成文件，需重新运行",
+            )
         )
     return failures, warnings
 

@@ -13,7 +13,9 @@ SCRIPT = (
 )
 
 
-def _run(tmp_path: Path, mode: str) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
+def _run(
+    tmp_path: Path, mode: str
+) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
     tileops_root = tmp_path / "TileOPs"
     wrapper = tileops_root / "tileops/kernels/reduction/mop/mop.py"
     wrapper.parent.mkdir(parents=True, exist_ok=True)
@@ -27,18 +29,27 @@ def _run(tmp_path: Path, mode: str) -> tuple[subprocess.CompletedProcess[str], P
         )
     source = tmp_path / "examples/mop/f/f.py"
     source.parent.mkdir(parents=True, exist_ok=True)
-    source.write_text(f'ASCEND_MODE = "{mode}"\n\ndef f():\n    pass\n', encoding="utf-8")
+    source.write_text(
+        f'ASCEND_MODE = "{mode}"\n\ndef f():\n    pass\n', encoding="utf-8"
+    )
     result = subprocess.run(
         [
             sys.executable,
             str(SCRIPT),
-            "--op-slug", "mop",
-            "--family", "reduction",
-            "--functions", "f",
-            "--extracted-module", "_f",
-            "--wrapper", str(wrapper),
-            "--tileops-root", str(tileops_root),
-            "--examples-root", str(tmp_path / "examples"),
+            "--op-slug",
+            "mop",
+            "--family",
+            "reduction",
+            "--functions",
+            "f",
+            "--extracted-module",
+            "_f",
+            "--wrapper",
+            str(wrapper),
+            "--tileops-root",
+            str(tileops_root),
+            "--examples-root",
+            str(tmp_path / "examples"),
             "--skip-smoke",
         ],
         capture_output=True,
@@ -100,13 +111,20 @@ def _run_with_existing_source(tmp_path: Path, wrapper: Path):
         [
             sys.executable,
             str(SCRIPT),
-            "--op-slug", "mop",
-            "--family", "reduction",
-            "--functions", "f",
-            "--extracted-module", "_f",
-            "--wrapper", str(wrapper),
-            "--tileops-root", str(tmp_path / "TileOPs"),
-            "--examples-root", str(tmp_path / "examples"),
+            "--op-slug",
+            "mop",
+            "--family",
+            "reduction",
+            "--functions",
+            "f",
+            "--extracted-module",
+            "_f",
+            "--wrapper",
+            str(wrapper),
+            "--tileops-root",
+            str(tmp_path / "TileOPs"),
+            "--examples-root",
+            str(tmp_path / "examples"),
             "--skip-smoke",
         ],
         capture_output=True,

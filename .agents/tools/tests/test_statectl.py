@@ -1325,7 +1325,9 @@ def test_gate5_integration_lint(tmp_path):
     (pkg / "__init__.py").write_text("", encoding="utf-8")
     (pkg / "integration_log.md").write_text("ok\n", encoding="utf-8")
     for f in ("funcA", "funcB"):
-        (pkg / f"{f}.py").write_text('ASCEND_MODE = "Developer"\n' + KERNEL_PY, encoding="utf-8")
+        (pkg / f"{f}.py").write_text(
+            'ASCEND_MODE = "Developer"\n' + KERNEL_PY, encoding="utf-8"
+        )
         (pkg / f"{f}_DESIGN.md").write_text(DESIGN_MD, encoding="utf-8")
     wrapper = (
         repo
@@ -1343,7 +1345,7 @@ def test_gate5_integration_lint(tmp_path):
         "# from .mop_kernel.perf_opt import funcA  # perf_opt\n"
         "from tileops.kernels.kernel_base import Kernel\n"
         "class MopKernel(Kernel):\n"
-        "    ascend_mode = \"Developer\"\n",
+        '    ascend_mode = "Developer"\n',
         encoding="utf-8",
     )
     rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
@@ -1357,20 +1359,38 @@ def test_gate5_integration_lint(tmp_path):
 def _ready_stage5_gate(tmp_path):
     repo, slug_dir, meta_path = _make_harness_repo(tmp_path)
     rc, out = sc(
-        "migration", "init", "--dir", str(slug_dir), "--op-slug", "mop",
-        "--family", "reduction", "--meta-path", str(meta_path),
-        "--functions", "funcA", "funcB",
+        "migration",
+        "init",
+        "--dir",
+        str(slug_dir),
+        "--op-slug",
+        "mop",
+        "--family",
+        "reduction",
+        "--meta-path",
+        str(meta_path),
+        "--functions",
+        "funcA",
+        "funcB",
     )
     assert rc == 0, out
     pkg = (
-        repo / "examples" / "TileOPs" / "tileops" / "kernels"
-        / "reduction" / "mop" / "mop_kernel"
+        repo
+        / "examples"
+        / "TileOPs"
+        / "tileops"
+        / "kernels"
+        / "reduction"
+        / "mop"
+        / "mop_kernel"
     )
     pkg.mkdir(parents=True)
     (pkg / "__init__.py").write_text("", encoding="utf-8")
     (pkg / "integration_log.md").write_text("ok\n", encoding="utf-8")
     for func in ("funcA", "funcB"):
-        (pkg / f"{func}.py").write_text('ASCEND_MODE = "Developer"\n' + KERNEL_PY, encoding="utf-8")
+        (pkg / f"{func}.py").write_text(
+            'ASCEND_MODE = "Developer"\n' + KERNEL_PY, encoding="utf-8"
+        )
         (pkg / f"{func}_DESIGN.md").write_text(DESIGN_MD, encoding="utf-8")
     wrapper = pkg.parent / "mop.py"
     wrapper.write_text(
@@ -1378,7 +1398,7 @@ def _ready_stage5_gate(tmp_path):
         "# from .mop_kernel.perf_opt import funcA  # perf_opt\n"
         "from tileops.kernels.kernel_base import Kernel\n"
         "class MopKernel(Kernel):\n"
-        "    ascend_mode = \"Developer\"\n",
+        '    ascend_mode = "Developer"\n',
         encoding="utf-8",
     )
     return repo, slug_dir, pkg, wrapper
@@ -1387,15 +1407,21 @@ def _ready_stage5_gate(tmp_path):
 def test_gate5_rejects_missing_or_mismatched_ascend_mode(tmp_path):
     repo, slug_dir, pkg, wrapper = _ready_stage5_gate(tmp_path)
     _write_stage5_report(repo, pkg)
-    wrapper.write_text(wrapper.read_text(encoding="utf-8").replace(
-        'ascend_mode = "Developer"', 'ascend_mode = "Expert"'
-    ), encoding="utf-8")
+    wrapper.write_text(
+        wrapper.read_text(encoding="utf-8").replace(
+            'ascend_mode = "Developer"', 'ascend_mode = "Expert"'
+        ),
+        encoding="utf-8",
+    )
     rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
     assert rc == 1
     assert "S5-ASCEND-MODE" in {f["rule_id"] for f in out["failures"]}
-    wrapper.write_text(wrapper.read_text(encoding="utf-8").replace(
-        'ascend_mode = "Expert"', 'ascend_mode = "Developer"'
-    ), encoding="utf-8")
+    wrapper.write_text(
+        wrapper.read_text(encoding="utf-8").replace(
+            'ascend_mode = "Expert"', 'ascend_mode = "Developer"'
+        ),
+        encoding="utf-8",
+    )
     (pkg / "funcA.py").write_text(KERNEL_PY, encoding="utf-8")
     rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
     assert rc == 1
@@ -1417,7 +1443,10 @@ def test_gate5_rejects_failed_and_stale_report(tmp_path):
     assert rc == 1
     assert "S5-REPORT-TEST" in {f["rule_id"] for f in out["failures"]}
     report_dir = _write_stage5_report(repo, pkg)
-    os.utime(wrapper, (os.path.getatime(wrapper), os.path.getmtime(report_dir / "run.json") + 5))
+    os.utime(
+        wrapper,
+        (os.path.getatime(wrapper), os.path.getmtime(report_dir / "run.json") + 5),
+    )
     rc, out = sc("gate", "5", "--dir", str(slug_dir), "--migration-dir", str(slug_dir))
     assert rc == 1
     assert "S5-REPORT-STALE" in {f["rule_id"] for f in out["failures"]}
@@ -1596,7 +1625,8 @@ def write_perf_records(d: Path, text: str):
 def _single_workload_artifacts(d: Path):
     stage4_artifacts(
         d,
-        OPT_LOG_RECORDS_MD + """
+        OPT_LOG_RECORDS_MD
+        + """
 ## Final Performance Test Data
 
 | kernel_id | workload_id | baseline_us | final_us | final_candidate_id |
@@ -1604,23 +1634,45 @@ def _single_workload_artifacts(d: Path):
 | t.py::main | w1 | 120.5 | 100.0 | merged-best |
 """,
     )
-    inventory = {"workloads": [
-        {"benchmark_source": "explicit_target", "kernel_id": "t.py::main",
-         "workload_id": "w1", "label": "w1", "marks": [], "shape": [1024],
-         "dtype": "float16", "params": {}, "kind": "tune", "reason": "",
-         "tuning_status": "winner_merged"},
-    ]}
-    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    inventory = {
+        "workloads": [
+            {
+                "benchmark_source": "explicit_target",
+                "kernel_id": "t.py::main",
+                "workload_id": "w1",
+                "label": "w1",
+                "marks": [],
+                "shape": [1024],
+                "dtype": "float16",
+                "params": {},
+                "kind": "tune",
+                "reason": "",
+                "tuning_status": "winner_merged",
+            },
+        ]
+    }
+    (d / "perf_opt" / "workload_inventory.json").write_text(
+        json.dumps(inventory), encoding="utf-8"
+    )
     artifact_hash = hashlib.sha256((d / "perf_opt" / "t.py").read_bytes()).hexdigest()
     rows = [
-        {"round": 0 if phase == "baseline" else 1,
-         "candidate_id": candidate_id, "parent_id": None if phase == "baseline" else "baseline",
-         "kernel_id": "t.py::main", "workload_id": "w1", "phase": phase,
-         "artifact_path": "t.py", "artifact_sha256": artifact_hash,
-         "duration_us": duration, "l0_pass": True,
-         "msprof_raw_path": f"profiles/{phase}/w1", "timestamp": "2026-09-06T00:00:00Z"}
+        {
+            "round": 0 if phase == "baseline" else 1,
+            "candidate_id": candidate_id,
+            "parent_id": None if phase == "baseline" else "baseline",
+            "kernel_id": "t.py::main",
+            "workload_id": "w1",
+            "phase": phase,
+            "artifact_path": "t.py",
+            "artifact_sha256": artifact_hash,
+            "duration_us": duration,
+            "l0_pass": True,
+            "msprof_raw_path": f"profiles/{phase}/w1",
+            "timestamp": "2026-09-06T00:00:00Z",
+        }
         for phase, candidate_id, duration in (
-            ("baseline", "baseline", 120.5), ("final", "merged-best", 100.0)
+            ("baseline", "baseline", 120.5),
+            ("final", "merged-best", 100.0),
         )
     ]
     write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows))
@@ -1659,12 +1711,16 @@ def test_gate4_perf_records_recon_mismatch(tmp_path):
     _single_workload_artifacts(d)
     log_path = d / "perf_opt" / "opt_log.md"
     log = log_path.read_text(encoding="utf-8")
-    log_path.write_text(log.replace("| w1 | 120.5 | 100.0 |", "| w1 | 120.5 | 50.0 |"), encoding="utf-8")
+    log_path.write_text(
+        log.replace("| w1 | 120.5 | 100.0 |", "| w1 | 120.5 | 50.0 |"), encoding="utf-8"
+    )
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     assert "S4-PERF-RECORDS-RECON" in {f["rule_id"] for f in out["failures"]}
     # 缺逐 workload 最终表也不可对账。
-    log_path.write_text(log.replace("## Final Performance Test Data", "## Results"), encoding="utf-8")
+    log_path.write_text(
+        log.replace("## Final Performance Test Data", "## Results"), encoding="utf-8"
+    )
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     assert "S4-PERF-RECORDS-RECON" in {f["rule_id"] for f in out["failures"]}
@@ -1709,7 +1765,8 @@ def _stage4_workload_artifacts(d: Path):
     """Two tuned benchmark cases, one smoke and one skipped case."""
     stage4_artifacts(
         d,
-        OPT_LOG_RECORDS_MD + """
+        OPT_LOG_RECORDS_MD
+        + """
 ## Final Performance Test Data
 
 | kernel_id | workload_id | baseline_us | final_us | final_candidate_id |
@@ -1720,31 +1777,73 @@ def _stage4_workload_artifacts(d: Path):
     )
     inventory = {
         "workloads": [
-            {"benchmark_source": "bench_mish.py", "kernel_id": "kernels/mish.py::main", "workload_id": wid,
-             "label": wid, "marks": marks, "shape": shape, "dtype": "float16", "params": {},
-             "kind": kind, "reason": reason,
-             **({"tuning_status": "winner_merged"} if kind == "tune" else {}), **extra}
+            {
+                "benchmark_source": "bench_mish.py",
+                "kernel_id": "kernels/mish.py::main",
+                "workload_id": wid,
+                "label": wid,
+                "marks": marks,
+                "shape": shape,
+                "dtype": "float16",
+                "params": {},
+                "kind": kind,
+                "reason": reason,
+                **({"tuning_status": "winner_merged"} if kind == "tune" else {}),
+                **extra,
+            }
             for wid, marks, shape, kind, reason, extra in (
                 ("yolo-p3-f16", [], [16, 256, 80, 80], "tune", "", {}),
                 ("yolo-p4-f16", [], [16, 512, 40, 40], "tune", "", {}),
-                ("smoke-1m-f16", ["full"], [1048576], "smoke", "smoke label overrides full mark", {"precision_pass": True}),
-                ("warmup-f16", ["smoke"], [128], "smoke", "pytest smoke mark", {"precision_pass": True}),
+                (
+                    "smoke-1m-f16",
+                    ["full"],
+                    [1048576],
+                    "smoke",
+                    "smoke label overrides full mark",
+                    {"precision_pass": True},
+                ),
+                (
+                    "warmup-f16",
+                    ["smoke"],
+                    [128],
+                    "smoke",
+                    "pytest smoke mark",
+                    {"precision_pass": True},
+                ),
                 ("unsupported-f16", ["skip"], [1], "skipped", "benchmark skip", {}),
             )
         ],
     }
-    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    (d / "perf_opt" / "workload_inventory.json").write_text(
+        json.dumps(inventory), encoding="utf-8"
+    )
     rows = []
-    for wid, baseline, final in (("yolo-p3-f16", 120.0, 90.0), ("yolo-p4-f16", 60.0, 48.0)):
-        for phase, cid, duration in (("baseline", "baseline", baseline), ("final", "merged-best", final)):
-            rows.append({
-                "round": 0 if phase == "baseline" else 2,
-                "candidate_id": cid, "parent_id": None if phase == "baseline" else "baseline",
-                "kernel_id": "kernels/mish.py::main", "workload_id": wid, "phase": phase,
-                "artifact_path": "t.py", "artifact_sha256": hashlib.sha256((d / "perf_opt" / "t.py").read_bytes()).hexdigest(),
-                "duration_us": duration, "l0_pass": True,
-                "msprof_raw_path": f"profiles/{phase}/{wid}", "timestamp": "2026-09-20T00:00:00Z",
-            })
+    for wid, baseline, final in (
+        ("yolo-p3-f16", 120.0, 90.0),
+        ("yolo-p4-f16", 60.0, 48.0),
+    ):
+        for phase, cid, duration in (
+            ("baseline", "baseline", baseline),
+            ("final", "merged-best", final),
+        ):
+            rows.append(
+                {
+                    "round": 0 if phase == "baseline" else 2,
+                    "candidate_id": cid,
+                    "parent_id": None if phase == "baseline" else "baseline",
+                    "kernel_id": "kernels/mish.py::main",
+                    "workload_id": wid,
+                    "phase": phase,
+                    "artifact_path": "t.py",
+                    "artifact_sha256": hashlib.sha256(
+                        (d / "perf_opt" / "t.py").read_bytes()
+                    ).hexdigest(),
+                    "duration_us": duration,
+                    "l0_pass": True,
+                    "msprof_raw_path": f"profiles/{phase}/{wid}",
+                    "timestamp": "2026-09-20T00:00:00Z",
+                }
+            )
     write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows))
     return inventory, rows
 
@@ -1774,7 +1873,14 @@ def test_gate4_rejects_missing_case_and_mixed_final_candidate(tmp_path):
     d = op_dir(repo)
     assert init_new_op(d)[0] == 0
     _, rows = _stage4_workload_artifacts(d)
-    write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows if not (row["workload_id"] == "yolo-p4-f16" and row["phase"] == "final")))
+    write_perf_records(
+        d,
+        "".join(
+            json.dumps(row) + "\n"
+            for row in rows
+            if not (row["workload_id"] == "yolo-p4-f16" and row["phase"] == "final")
+        ),
+    )
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     assert "S4-PERF-RECORDS-COVERAGE" in {f["rule_id"] for f in out["failures"]}
@@ -1791,12 +1897,16 @@ def test_gate4_smoke_excluded_and_precision_checked(tmp_path):
     assert init_new_op(d)[0] == 0
     inventory, rows = _stage4_workload_artifacts(d)
     inventory["workloads"][2]["precision_pass"] = False
-    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    (d / "perf_opt" / "workload_inventory.json").write_text(
+        json.dumps(inventory), encoding="utf-8"
+    )
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     assert "S4-WORKLOAD-INVENTORY" in {f["rule_id"] for f in out["failures"]}
     inventory["workloads"][2]["precision_pass"] = True
-    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    (d / "perf_opt" / "workload_inventory.json").write_text(
+        json.dumps(inventory), encoding="utf-8"
+    )
     rows.append({**rows[0], "workload_id": "smoke-1m-f16"})
     write_perf_records(d, "".join(json.dumps(row) + "\n" for row in rows))
     rc, out = sc("gate", "4", "--dir", str(d))
@@ -1810,13 +1920,19 @@ def test_gate4_rejects_smoke_as_tune_and_stale_final_file(tmp_path):
     assert init_new_op(d)[0] == 0
     inventory, _ = _stage4_workload_artifacts(d)
     inventory["workloads"][2]["kind"] = "tune"
-    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    (d / "perf_opt" / "workload_inventory.json").write_text(
+        json.dumps(inventory), encoding="utf-8"
+    )
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     assert "S4-WORKLOAD-INVENTORY" in {f["rule_id"] for f in out["failures"]}
     inventory["workloads"][2]["kind"] = "smoke"
-    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
-    (d / "perf_opt" / "t.py").write_text(KERNEL_PY + "\n# changed after profiling\n", encoding="utf-8")
+    (d / "perf_opt" / "workload_inventory.json").write_text(
+        json.dumps(inventory), encoding="utf-8"
+    )
+    (d / "perf_opt" / "t.py").write_text(
+        KERNEL_PY + "\n# changed after profiling\n", encoding="utf-8"
+    )
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     assert "S4-PERF-RECORDS-RECON" in {f["rule_id"] for f in out["failures"]}
@@ -1828,16 +1944,21 @@ def test_gate4_rejects_unfinished_and_smoke_in_final_table(tmp_path):
     assert init_new_op(d)[0] == 0
     inventory, _ = _stage4_workload_artifacts(d)
     del inventory["workloads"][0]["tuning_status"]
-    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    (d / "perf_opt" / "workload_inventory.json").write_text(
+        json.dumps(inventory), encoding="utf-8"
+    )
     rc, out = sc("gate", "4", "--dir", str(d))
     assert rc == 1
     assert "S4-WORKLOAD-INVENTORY" in {f["rule_id"] for f in out["failures"]}
 
     inventory["workloads"][0]["tuning_status"] = "winner_merged"
-    (d / "perf_opt" / "workload_inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    (d / "perf_opt" / "workload_inventory.json").write_text(
+        json.dumps(inventory), encoding="utf-8"
+    )
     log_path = d / "perf_opt" / "opt_log.md"
     log_path.write_text(
-        log_path.read_text(encoding="utf-8") + "| kernels/mish.py::main | smoke-1m-f16 | 1.0 | 1.0 | merged-best |\n",
+        log_path.read_text(encoding="utf-8")
+        + "| kernels/mish.py::main | smoke-1m-f16 | 1.0 | 1.0 | merged-best |\n",
         encoding="utf-8",
     )
     rc, out = sc("gate", "4", "--dir", str(d))

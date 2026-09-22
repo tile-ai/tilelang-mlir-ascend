@@ -294,8 +294,3 @@ smoke 集：空。model-scale 双独立测量全部同向正向；唯一负值 b
 | **kb_stale_check docs-only 假阳性**：125 stale 全因知识库 commit（源码零改动）——stamp diff 应过滤非源码路径，区分编译器变更/知识库变更 | R | opt_log.md 复盘表 #2；`git diff --stat 15ad002..96f287e` | none（git 命令即复现） | 同上 | .agents/tools/kb_stale_check.py（proposal，evolver 路由） |
 | **perf_opt 未提交产物不可恢复**：上会话 14 分支 + 64 行 records 永久丢失；建议 DONE 前产物快照 | R | opt_log.md 任务背景 + 重建全程 | none | 同上 | conductor/statectl（proposal） |
 | **本会话案例索引**（重建型 Stage 4：断裂修复 + 增量调优 + 三胜出重推导，model-scale 几何 +9.7%） | C | opt_log.md 全文 + perf_records.jsonl（102 行） | — | 同上 | pattern-library/cases.md（CASE-ssd-chunkscan-migration 追记候选，evolver 蒸馏时定） |
-
-
-
-
-

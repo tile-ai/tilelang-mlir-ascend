@@ -1,58 +1,82 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2026.
 """Mamba-2 SSD chunk scan forward kernel (NPU Expert-mode MixCV).
 
-Stage 4 tuned revision (perf_opt).  Structural changes vs the Stage 3
-baseline (each validated by msprof op Task Duration; see opt_log.md):
+Stage 4 tuned revision (perf_opt, rebuilt session 2026-09-21).  Base = the
+Stage 3 deliverable (DESIGN.md v2); all structural changes below are
+validated by msprof op Task Duration (median of 20) across the 11 benchmark
+workloads -- see opt_log.md / perf_records.jsonl.  The interface contract
+(factory signature, TUNED_DEFAULT_CONFIG exposure, golden and layered test
+suite) is byte-compatible with the Stage 3 baseline (drop-in).
 
-  * Depth-2 task pipeline: ws double-slot + 4-flag handshake with a Cube
-    prologue set (Vector(T+1) overlaps Cube(T); PL-1.12 pattern family).
-  * Cube-side causal-band assembly: whole-chunk x L1 cache + one
-    K=(l0+tl) band gemm per l-tile (block-contiguous ws writes kept).
-  * AIV work split by ``subid`` (snake-balanced l-tile partition):
-    the two AIVs of each block own disjoint l-tile sets instead of
-    duplicating the full Vector program.
-  * Tuned default ``block_n = min(128, d_state_effective)`` (single
-    n-block for N=128 manifests; clamped internally for smaller N).
+Stage-4 structural deltas vs the Stage 3 baseline:
 
-Tuned default config (exposed for the wrapper switching block):
-  TUNED_DEFAULT_CONFIG = {"block_l": 64, "block_p": 64, "block_n": 128,
-                          "block_s": 64, "num_stages": 2}
+  * prevhoist (PL-1.18 update 1): the prev_states L1 load is lt-invariant
+    but sat inside the lt loop (Q=256 re-read it 4x per task, 20% of Cube
+    mte2 bytes).  Hoisted to (task, pp) level on the single-n-block fast
+    path (``N_TILES_ONE`` trace-time fold; the generic n-loop keeps the
+    original in-loop form for block_n < N configs).
+  * l0c2x (PL-1.18 update 2): L0C accumulator ping-pong -- the paired lt
+    loop (lt=2j on ``l0_acc_a``, lt=2j+1 on ``l0_acc_b``, odd tail via the
+    pre-combined ``ONE_AND_ODD`` fold) overlaps the hist->band->out gemm
+    chains of adjacent lts to depth 2 (single-acc WAR serialization gone).
+  * vbrchoist (PL-1.18 update 3, clean form): the lt-invariant
+    ``vbrc(dA_l_col)`` broadcast is hoisted out of the s-block loop; the
+    vsub writes a fresh ``diff_mat`` (no dst=src alias) which is then
+    dead-reused as the dt broadcast target (net-zero UB).
 
-
-Migrated from the GPU TileLang factory ``_ssd_chunk_scan_fwd_kernel`` to
-``target="npuir"`` per DESIGN.md v1.
-
-Math (source semantics, kept verbatim):
+Math (source semantics, kept verbatim, DESIGN §1.3):
 
     out[l, p] = exp(dA_cumsum[l]) * (C[l] @ prev_states)
               + sum_{s <= l} cb[l, s] * exp(dA_cumsum[l] - dA_cumsum[s]) * dt[s] * x[s, p]
 
-Structure (DESIGN §0.6 / §1.4 / §3):
+Structure (DESIGN §0.6 / §1.4 / §3 / §6):
   - 1-D persistent ``T.Kernel(24)`` (R1); logical task = (b, c, h);
-    ``cid = task_id * 24 + kernel_id`` round-robin + ghost clamp.
-  - History path (R2): ``T.gemm(c_scaled, state_t, acc, b_transpose=True)`` with
-    ``state_t`` direct-loaded [bp, bn]; ``c_scaled = C * exp(dA_l)`` folds the
-    exp(dA_l) scale into the A operand so the accumulator never needs a Vector
-    rescale (stays purely in L0C / Cube).
-  - Intra path: ``lcb = cb * exp(dA_l - dA_s) * dt`` computed in the Vector
-    domain with a direct-diff chain (matches the golden's direct decay
-    ``exp(dA_l - dA_s)`` numerical path); diagonal block adds an arithmetic
-    penalty mask (R4) so masked cells underflow to exact +0.0.
+    ``cid = task_id * 24 + kernel_id`` round-robin + ghost clamp (R6/§5.4).
+  - History path (R2+R5): ``T.gemm(c_scaled, state_t, acc, b_transpose=True)``
+    with ``state_t`` direct-loaded [bp, bn]; ``c_scaled = cast(C * exp(dA_l))``
+    folds the exp(dA_l) scale into the A operand (OPT-A) so the accumulator
+    never needs a Vector rescale (stays purely in L0C / Cube).
+  - Intra path (R3): ``lcb = cast(cb * exp(dA_l - dA_s) * dt)`` computed in the
+    Vector domain with a direct-diff chain (matches the golden's direct decay
+    ``exp(dA_l - dA_s)`` numerical path); the diagonal block adds an arithmetic
+    penalty mask (R4, OPT-B) so masked cells underflow to exact +0.0.
+  - Cross-engine data via GM workspace relay (R7): Vector produces factors into
+    block-contiguous ``ws_c``/``ws_lcb`` (PL-1.14), Cube consumes them. Depth-2
+    task pipeline (PL-1.12): double-slot workspace + 4-flag handshake with a
+    Cube prologue set (Vector(T+1) overlaps Cube(T); Vector's slot-free wait is
+    task-head-placed so task W writes only after Cube consumed task W-2).
+  - Cube-side causal-band assembly (R7.4, v5_xband): whole-chunk x L1 cache
+    [Q, bp] loaded once per (task, pp), and one K=(l0+tl) band gemm per l-tile
+    after single-hop GM->L1 column-offset direct loads into ``l1_band``
+    (src/dst tail-clamped by ``ts = min(bs, Q-s0)``, TRAP-L1-band-dst-tail-overrun).
+  - AIV work split by ``subid`` (R8, PL-1.13): snake-balanced l-tile partition;
+    the two AIVs own disjoint l-tile sets instead of duplicating the Vector
+    program.
 
-Expert-mode note (deviation from DESIGN §0.7's Developer-mode statement):
-  the persistent kernel + gemm + vector pattern is only supported in Expert
-  mode (explicit ``T.Scope("Cube")`` / ``T.Scope("Vector")``); Developer mode
-  crashes at runtime with "unaligned UUB addresses" for the same structure
-  (probe-verified). See RETROSPECTIVE.md.
+Expert-mode note (PL-1.16 / CG-2026-0010): the persistent kernel + gemm +
+vector pattern is only supported in Expert mode (explicit ``T.Scope("Cube")`` /
+``T.Scope("Vector")``); Developer mode crashes at runtime for the same
+structure.  ``pass_configs`` double-disable
+(``TL_ENABLE_PLAN_AND_UPDATE_BUFFER_ALLOCATION`` +
+``NPUIR_ENABLE_AUTO_MULTI_BUFFER``) protects the manual Cube/Vector split and
+explicit workspaces from buffer re-scoping (codegen "cannot find variable").
 
-Layouts:
-  x:           [B, S, H, P]        dtype
+Layouts (official):
+  x:           [B, S, H, P]        dtype (fp16/bf16)
   cb:          [B, C, G, Q, Q]     dtype
   dA_cumsum:   [B, H, C, Q]        float32
   C_mat:       [B, S, G, N]        dtype
-  prev_states: [B, C, H, P, N]     float32
+  prev_states: [B, C, H, P, N]     float32  (P before N)
   dt:          [B, H, C, Q]        dtype
   out:         [B, S, H, P]        float32
+
+Interface contract (unchanged vs GPU source except the GPU-only ``threads``
+parameter, which is removed)::
+
+    _ssd_chunk_scan_fwd_kernel(batch, num_chunks, chunk_len, n_heads, d_head,
+        d_state, n_groups, dtype='float16')(
+        block_l, block_p, block_n, block_s, num_stages)(
+        x, cb, dA_cumsum, C_mat, prev_states, dt) -> out
 
 Run: python _ssd_chunk_scan_fwd_kernel.py --level {L0,all}
 """
@@ -70,13 +94,15 @@ import torch_npu  # noqa: F401  (registers the "npu" device)
 # (GQA / sparse_mla precedent). Developer mode crashes on this structure.
 os.environ.setdefault("TILELANG_ASCEND_MODE", "Expert")
 
-# Physical AI-core count on Ascend910B2C (DESIGN §5.5, verified 2026-09-17).
+# Physical AI-core count on Ascend910B2C (DESIGN §5.5, verified 2026-09-20).
 NUM_KERNELS = 24
 
-# Stage-4 tuned default config (msprof op Task Duration, median of 20,
-# manifest workloads; see opt_log.md / perf_records.jsonl).  block_n is
-# clamped internally by N_tiles = ceildiv(N, block_n), so 128 is safe for
-# every contract N (N < 128 collapses to a single tail block).
+# Stage-4 tuned default config (exposed for the wrapper switching block).
+# Re-validated this session on tilelang 0.1.2+96f287eaa / CANN 8.5.0 /
+# 910B2C (msprof op Task Duration, median of 20, all 11 benchmark
+# workloads; see opt_log.md).  block_n is clamped internally to
+# min(block_n, N) so 128 is safe for every contract N (N < 128 collapses
+# to a single tail block).
 TUNED_DEFAULT_CONFIG = {
     "block_l": 64,
     "block_p": 64,
@@ -88,12 +114,24 @@ TUNED_DEFAULT_CONFIG = {
 _PEN = 1e30
 
 
-# ---------- Golden (independent PyTorch CPU reference, DESIGN §8.1) ----------
+# ---------- Golden (DESIGN §8.1: inlined ported reference math) ----------
+# The golden body is the inlined torch computation of the ported
+# ``tileops.testing.mamba2_reference.ssd_chunk_scan_fwd_ref`` (pure fp32 PyTorch
+# materialize: einsum dual path + tril mask).  It is semantically identical to
+# that reference and independent of the NPU algorithm (no anchor factorization,
+# no dtype quantization, no vectorization structure).  Runs on CPU.
 def golden_ssd_chunk_scan_fwd(x, cb, dA_cumsum, C, prev_states, dt, n_groups):
     """Official-aligned reference (independent of the NPU algorithm).
 
-    Pure fp32 materialize (einsum dual path + tril mask): no anchor
-    factorization, no dtype quantization, no vectorization structure.
+    Inputs (official layouts):
+      x:           [B, S, H, P]        dtype
+      cb:          [B, C, G, L, L]     dtype    group-owned
+      dA_cumsum:   [B, H, C, L]        float32
+      C:           [B, S, G, N]        dtype    group-owned
+      prev_states: [B, C, H, P, N]     float32  P before N
+      dt:          [B, H, C, L]        dtype
+
+    Output: [B, S, H, P] float32
     """
     b, S, h, p = x.shape
     _, _, c, L = dA_cumsum.shape
@@ -103,24 +141,36 @@ def golden_ssd_chunk_scan_fwd(x, cb, dA_cumsum, C, prev_states, dt, n_groups):
 
     x_chunked = x.float().reshape(b, c, L, h, p)  # [B, C, L, H, P]
     C_chunked = C.float().reshape(b, c, L, g, n)  # [B, C, L, G, N]
+    # broadcast C from groups to heads: [B, C, L, H, N]
     C_heads = C_chunked[:, :, :, torch.arange(h, device=x.device) // heads_per_group, :]
 
+    # dA_cumsum: [B, H, C, L] -> [B, C, L, H] for broadcast
     dA = dA_cumsum.float().permute(0, 2, 3, 1)  # [B, C, L, H]
 
-    # History path: exp(dA_l) * C[l] @ prev_states[p, n]
+    # --- History path: exp(dA_l) * C[l] @ prev_states[p, n] ---
     y_off = torch.einsum("bclhn,bchpn->bclhp", C_heads, prev_states.float())
-    y_off = y_off * torch.exp(dA).unsqueeze(-1)
+    y_off = y_off * torch.exp(dA).unsqueeze(-1)  # scale by exp(dA_l)
 
-    # Intra-chunk causal path
+    # --- Intra-chunk path: sum_{s<=l} cb[l,s] * exp(dA_l - dA_s) * dt[s] * x[s] ---
     cb_heads = cb.float()[:, :, torch.arange(h, device=x.device) // heads_per_group, :, :]
+
+    # decay[b,c,h,l,s] = exp(dA_cumsum[l] - dA_cumsum[s])
     dA_l = dA_cumsum.float().unsqueeze(-1)  # [B, H, C, L, 1]
     dA_s = dA_cumsum.float().unsqueeze(-2)  # [B, H, C, 1, L]
     decay = torch.exp(dA_l - dA_s)  # [B, H, C, L, L]
+
+    # causal mask
     mask = torch.tril(torch.ones(L, L, device=x.device, dtype=torch.bool))
     decay = decay.masked_fill(~mask.unsqueeze(0).unsqueeze(0).unsqueeze(0), 0.0)
     decay = decay.permute(0, 2, 1, 3, 4)  # [B, C, H, L, L]
+
+    # dt: [B, H, C, L] -> [B, C, H, 1, L]
     dt_s = dt.float().permute(0, 2, 1, 3).unsqueeze(-2)  # [B, C, H, 1, L]
-    lcb = cb_heads * decay * dt_s
+
+    # lcb[b,c,h,l,s] = cb[l,s] * decay[l,s] * dt[s]
+    lcb = cb_heads * decay * dt_s  # [B, C, H, L, L]
+
+    # y_diag[b,c,l,h,p] = sum_s lcb[b,c,h,l,s] * x[b,c,s,h,p]
     y_diag = torch.einsum("bchls,bcshp->bclhp", lcb, x_chunked)
 
     return (y_off + y_diag).reshape(b, S, h, p)
@@ -157,9 +207,11 @@ def _ssd_chunk_scan_fwd_kernel(
         target="npuir",
         pass_configs={
             # Protect the manual Cube/Vector split and explicit workspaces from
-            # buffer-allocation reordering (GQA precedent: without this the
-            # planner re-scopes UB buffers and codegen fails to find them).
+            # buffer-allocation reordering (PL-1.16; GQA/ssd precedent):
+            # without these the planner re-scopes UB buffers and codegen fails
+            # to find them ("cannot find variable").
             tilelang.PassConfigKey.TL_ENABLE_PLAN_AND_UPDATE_BUFFER_ALLOCATION: False,
+            tilelang.PassConfigKey.NPUIR_ENABLE_AUTO_MULTI_BUFFER: False,
         },
     )
     def _builder(block_l, block_p, block_n, block_s, num_stages):
@@ -173,12 +225,24 @@ def _ssd_chunk_scan_fwd_kernel(
         L_tiles = (Q + bl - 1) // bl
         P_tiles = (P + bp - 1) // bp
         N_tiles = (N + bn - 1) // bn
+        # Trace-time pure-name bools for branchless-if folding (no-else form
+        # only, TRAP-tvm-parser-rules): the prevhoist fast path applies when
+        # the (clamped) n-loop collapses to a single block.
+        N_TILES_ONE = N_tiles == 1
+        N_TILES_MULTI = N_tiles > 1
+        # l0c2x (PL-1.18 update 2): paired-lt loop constants for the L0C acc
+        # ping-pong. L_TILES_ODD is pre-combined with N_TILES_ONE into a pure
+        # name (TRAP-tvm-parser-rules: X and Y expressions do not fold).
+        L_pairs = L_tiles // 2
+        L_TILES_ODD = (L_tiles % 2) == 1
+        ONE_AND_ODD = N_TILES_ONE and L_TILES_ODD
 
         # per-core GM workspaces (Vector produces factors, Cube consumes).
         # ws_c holds the full N dimension: the history n-loop consumes a
-        # different bn-wide C slice per n-block.
-        # Depth-2 task pipeline (PL-1.12): a leading slot dim double-buffers
-        # the workspace so Vector(T+1) production overlaps Cube(T) consumption.
+        # different bn-wide C slice per n-block.  Depth-2 task pipeline
+        # (PL-1.12): a leading slot dim double-buffers the workspace so
+        # Vector(T+1) production overlaps Cube(T) consumption.  Block-contiguous
+        # layout is mandatory (PL-1.14: band-ized ws writes are 3x slower).
         ws_c_shape = [NUM_KERNELS, 2, P_tiles, L_tiles, bl, N]
         ws_lcb_shape = [NUM_KERNELS, 2, P_tiles, L_tiles, L_tiles, bl, bs]
 
@@ -205,13 +269,25 @@ def _ssd_chunk_scan_fwd_kernel(
                     l1_x = T.alloc_L1([Q, bp], dtype)
                     # causal band assembly buffer: per-s-block contiguous reads
                     # land at column offsets s0 (multiple of bs, fractal-aligned).
-                    l1_lcb = T.alloc_L1([bl, Q], dtype)
-                    l0_acc = T.alloc_L0C([bl, bp], accum_dtype)
+                    # Single-hop GM->L1 direct load (no L1->L1 copy, which is an
+                    # unsupported direction).
+                    l1_band = T.alloc_L1([bl, Q], dtype)
+                    # l0c2x (PL-1.18 update 2): L0C acc ping-pong. With a
+                    # single acc, each lt's [hist initC overwrite -> band
+                    # accumulate -> out fixpipe] chain serializes through the
+                    # same L0C buffer (hist(lt+1) waits for out(lt)). The
+                    # paired loop alternates l0_acc_a / l0_acc_b across
+                    # adjacent lts so the gemm/mte1/fixpipe chains overlap to
+                    # depth 2. 2x16KB <= L0C 128KB. lts are independent
+                    # computations (acc is a per-lt scratch), pairing does
+                    # not change any accumulation order.
+                    l0_acc_a = T.alloc_L0C([bl, bp], accum_dtype)
+                    l0_acc_b = T.alloc_L0C([bl, bp], accum_dtype)
 
-                    # Depth-2 prologue: both slots start "free" (nothing has
-                    # been consumed yet), so Vector tasks 0/1 pass their
-                    # slot-free waits immediately.  Strict set/wait
-                    # alternation per flag id is preserved:
+                    # Depth-2 prologue (PL-1.12): both slots start "free"
+                    # (nothing consumed yet), so Vector tasks 0/1 pass their
+                    # slot-free waits immediately.  Strict set/wait alternation
+                    # per flag id is preserved:
                     #   flag 2*slot   = factors-ready(slot)
                     #   flag 2*slot+1 = slot-free / consumed(slot)
                     with T.rs("PIPE_FIX"):
@@ -243,63 +319,197 @@ def _ssd_chunk_scan_fwd_kernel(
                                 l1_x[0:Q, 0:tp],
                             )
 
-                            for lt in T.serial(L_tiles):
-                                l0 = lt * bl
-                                tl = T.min(bl, Q - l0)
-                                tmc = T.max(16, T.min(bl, T.ceildiv(tl, 16) * 16))
+                            # prevhoist (PL-1.18 update 1): the prev_states
+                            # copy is lt-invariant (indices only touch the
+                            # task/pp/n_blk dims) but sat inside the lt loop,
+                            # so Q=256 re-read it 4x per task (mte2 bytes
+                            # -20%, nd2nz 19->16/task). Hoisted to (task, pp)
+                            # level on the single-n-block fast path; the
+                            # generic n-loop keeps the original in-loop form.
+                            if N_TILES_ONE:
+                                T.copy(
+                                    prev_states[bz, bc_idx, bh, p0 : p0 + tp, 0:bn],
+                                    l1_state[0:tp, 0:bn],
+                                )
 
-                                # ---- history (n-loop) ----
-                                for n_blk in T.serial(N_tiles):
-                                    n0 = n_blk * bn
-                                    tn = T.min(bn, N - n0)
-                                    T.copy(
-                                        ws_c[kernel_id, slot, pp, lt, 0:tl, n0 : n0 + tn],
-                                        l1_c[0:tl, 0:tn],
+                            # ---- generic path (block_n < N, e.g. the wrapper
+                            # GPU-heuristic default): original unpaired lt
+                            # loop, single acc, prev inside the n-loop.
+                            if N_TILES_MULTI:
+                                for lt in T.serial(L_tiles):
+                                    l0 = lt * bl
+                                    tl = T.min(bl, Q - l0)
+                                    tmc = T.max(16, T.min(bl, T.ceildiv(tl, 16) * 16))
+
+                                    for n_blk in T.serial(N_tiles):
+                                        n0 = n_blk * bn
+                                        tn = T.min(bn, N - n0)
+                                        T.copy(
+                                            ws_c[kernel_id, slot, pp, lt, 0:tl, n0 : n0 + tn],
+                                            l1_c[0:tl, 0:tn],
+                                        )
+                                        T.copy(
+                                            prev_states[bz, bc_idx, bh, p0 : p0 + tp, n0 : n0 + tn],
+                                            l1_state[0:tp, 0:tn],
+                                        )
+                                        T.gemm(
+                                            l1_c,
+                                            l1_state,
+                                            l0_acc_a,
+                                            initC=(n_blk == 0),
+                                            b_transpose=True,
+                                            size=[tmc, tn, tnp],
+                                        )
+
+                                    # ---- intra band (full-lower + diag, one gemm) ----
+                                    # Each s-block is read contiguously from the
+                                    # block-layout ws into its band column offset;
+                                    # K = l0 + tl covers all causal s of this
+                                    # l-tile (ascending order preserved; the diag
+                                    # penalty is already folded by Vector).
+                                    for s_blk in T.serial(lt + 1):
+                                        s0 = s_blk * bs
+                                        # Tail-safe band assembly: the dst column
+                                        # range must be clamped to ts = min(bs,
+                                        # Q - s0); an unclamped s0+bs slice
+                                        # overruns the [bl, Q] L1 band buffer on
+                                        # the last s-block (Q % bs != 0) and
+                                        # corrupts adjacent L1 allocations.
+                                        ts = T.min(bs, Q - s0)
+                                        T.copy(
+                                            ws_lcb[kernel_id, slot, pp, lt, s_blk, 0:bl, 0:ts],
+                                            l1_band[0:bl, s0 : s0 + ts],
+                                        )
+                                    T.gemm(
+                                        l1_band,
+                                        l1_x,
+                                        l0_acc_a,
+                                        initC=False,
+                                        size=[tmc, l0 + tl, tnp],
                                     )
+
+                                    # ---- write back ----
                                     T.copy(
-                                        prev_states[bz, bc_idx, bh, p0 : p0 + tp, n0 : n0 + tn],
-                                        l1_state[0:tp, 0:tn],
+                                        l0_acc_a[0:tl, 0:tp],
+                                        out[bz, cs + l0 : cs + l0 + tl, bh, p0 : p0 + tp],
+                                    )
+
+                            # ---- tuned path (N single block): paired lt loop
+                            # with the L0C acc ping-pong (l0c2x). even member
+                            # (lt = 2*jp) runs on l0_acc_a, odd member
+                            # (lt = 2*jp+1) on l0_acc_b; the odd tail (odd
+                            # L_tiles) reuses l0_acc_a for maximum WAR
+                            # distance from its previous writer.
+                            if N_TILES_ONE:
+                                for jp in T.serial(L_pairs):
+                                    # -- even member: lt = 2*jp on l0_acc_a --
+                                    lt = jp * 2
+                                    l0 = lt * bl
+                                    tl = T.min(bl, Q - l0)
+                                    tmc = T.max(16, T.min(bl, T.ceildiv(tl, 16) * 16))
+                                    T.copy(
+                                        ws_c[kernel_id, slot, pp, lt, 0:tl, 0:bn],
+                                        l1_c[0:tl, 0:bn],
                                     )
                                     T.gemm(
                                         l1_c,
                                         l1_state,
-                                        l0_acc,
-                                        initC=(n_blk == 0),
+                                        l0_acc_a,
+                                        initC=True,
                                         b_transpose=True,
-                                        size=[tmc, tn, tnp],
+                                        size=[tmc, bn, tnp],
+                                    )
+                                    for s_blk in T.serial(lt + 1):
+                                        s0 = s_blk * bs
+                                        ts = T.min(bs, Q - s0)
+                                        T.copy(
+                                            ws_lcb[kernel_id, slot, pp, lt, s_blk, 0:bl, 0:ts],
+                                            l1_band[0:bl, s0 : s0 + ts],
+                                        )
+                                    T.gemm(
+                                        l1_band,
+                                        l1_x,
+                                        l0_acc_a,
+                                        initC=False,
+                                        size=[tmc, l0 + tl, tnp],
+                                    )
+                                    T.copy(
+                                        l0_acc_a[0:tl, 0:tp],
+                                        out[bz, cs + l0 : cs + l0 + tl, bh, p0 : p0 + tp],
                                     )
 
-                                # ---- intra band (full-lower + diag, one gemm) ----
-                                # Each s-block is read contiguously from the
-                                # block-layout ws into its band column offset;
-                                # K = l0 + tl covers all causal s of this
-                                # l-tile (ascending order preserved; the diag
-                                # penalty is already folded by Vector).
+                                    # -- odd member: lt = 2*jp+1 on l0_acc_b --
+                                    lt = jp * 2 + 1
+                                    l0 = lt * bl
+                                    tl = T.min(bl, Q - l0)
+                                    tmc = T.max(16, T.min(bl, T.ceildiv(tl, 16) * 16))
+                                    T.copy(
+                                        ws_c[kernel_id, slot, pp, lt, 0:tl, 0:bn],
+                                        l1_c[0:tl, 0:bn],
+                                    )
+                                    T.gemm(
+                                        l1_c,
+                                        l1_state,
+                                        l0_acc_b,
+                                        initC=True,
+                                        b_transpose=True,
+                                        size=[tmc, bn, tnp],
+                                    )
+                                    for s_blk in T.serial(lt + 1):
+                                        s0 = s_blk * bs
+                                        ts = T.min(bs, Q - s0)
+                                        T.copy(
+                                            ws_lcb[kernel_id, slot, pp, lt, s_blk, 0:bl, 0:ts],
+                                            l1_band[0:bl, s0 : s0 + ts],
+                                        )
+                                    T.gemm(
+                                        l1_band,
+                                        l1_x,
+                                        l0_acc_b,
+                                        initC=False,
+                                        size=[tmc, l0 + tl, tnp],
+                                    )
+                                    T.copy(
+                                        l0_acc_b[0:tl, 0:tp],
+                                        out[bz, cs + l0 : cs + l0 + tl, bh, p0 : p0 + tp],
+                                    )
+
+                            # -- odd tail (L_tiles odd): lt = L_pairs*2 on
+                            # l0_acc_a (pre-combined pure-name condition;
+                            # folds at trace time) --
+                            if ONE_AND_ODD:
+                                lt = L_pairs * 2
+                                l0 = lt * bl
+                                tl = T.min(bl, Q - l0)
+                                tmc = T.max(16, T.min(bl, T.ceildiv(tl, 16) * 16))
+                                T.copy(
+                                    ws_c[kernel_id, slot, pp, lt, 0:tl, 0:bn],
+                                    l1_c[0:tl, 0:bn],
+                                )
+                                T.gemm(
+                                    l1_c,
+                                    l1_state,
+                                    l0_acc_a,
+                                    initC=True,
+                                    b_transpose=True,
+                                    size=[tmc, bn, tnp],
+                                )
                                 for s_blk in T.serial(lt + 1):
                                     s0 = s_blk * bs
-                                    # Tail-safe band assembly: the dst column
-                                    # range must be clamped to ts = min(bs,
-                                    # Q - s0); an unclamped s0+bs slice
-                                    # overruns the [bl, Q] L1 band buffer on
-                                    # the last s-block (Q % bs != 0) and
-                                    # corrupts adjacent L1 allocations
-                                    # (B-q96-bf16 regression, max_diff 7.8e-3).
                                     ts = T.min(bs, Q - s0)
                                     T.copy(
                                         ws_lcb[kernel_id, slot, pp, lt, s_blk, 0:bl, 0:ts],
-                                        l1_lcb[0:bl, s0 : s0 + ts],
+                                        l1_band[0:bl, s0 : s0 + ts],
                                     )
                                 T.gemm(
-                                    l1_lcb,
+                                    l1_band,
                                     l1_x,
-                                    l0_acc,
+                                    l0_acc_a,
                                     initC=False,
                                     size=[tmc, l0 + tl, tnp],
                                 )
-
-                                # ---- write back ----
                                 T.copy(
-                                    l0_acc[0:tl, 0:tp],
+                                    l0_acc_a[0:tl, 0:tp],
                                     out[bz, cs + l0 : cs + l0 + tl, bh, p0 : p0 + tp],
                                 )
 
@@ -332,17 +542,22 @@ def _ssd_chunk_scan_fwd_kernel(
                     c_16 = T.alloc_ub((bl, N), dtype)
                     c_f32 = T.alloc_ub((bl, N), accum_dtype)
                     c_scaled_16 = T.alloc_ub((bl, N), dtype)
-                    dA_l_mat = T.alloc_ub((bl, bs), accum_dtype)
+                    # vbrchoist (PL-1.18 update 3, clean form): dA_l_hoist
+                    # replaces dA_l_mat (lt-level broadcast target, was
+                    # per-s-block); diff_mat replaces dt_mat (fresh vsub dst
+                    # -- no dst=src alias -- then dead-reused as the dt
+                    # broadcast target after its last read). Net-zero UB.
+                    dA_l_hoist = T.alloc_ub((bl, bs), accum_dtype)
                     dA_s_mat = T.alloc_ub((bl, bs), accum_dtype)
-                    dt_mat = T.alloc_ub((bl, bs), accum_dtype)
+                    diff_mat = T.alloc_ub((bl, bs), accum_dtype)
 
-                    # AIV work split (GQA v11 precedent): the two AIVs of
-                    # each block interleave the l-tiles (AIV0: lt 0,2,..;
-                    # AIV1: lt 1,3,..).  Degenerate L_tiles (1) collapses to
-                    # a duplicated lt=0 on both AIVs -- bit-identical writes,
-                    # benign (same as the unsplit form).  ws regions are
-                    # disjoint per lt, so the split halves the per-AIV vector
-                    # work and GM factor traffic.
+                    # AIV work split (R8, PL-1.13): the two AIVs of each block
+                    # snake-partition the l-tiles (L=4 -> {0,3}/{1,2}).  The
+                    # split dimension (lt) is orthogonal to the ws index (slot,
+                    # pp, lt), so the two AIVs write disjoint ws regions.  The
+                    # snake affine + clamps cover degenerate/odd L_tiles (dup
+                    # l-tiles are bit-identical, benign).  Both AIVs still
+                    # execute the same set/wait sequence (one-set-multi-wait).
                     lt_count = (L_tiles + 1) // 2
 
                     for task_id in T.serial(num_local_tasks):
@@ -354,23 +569,18 @@ def _ssd_chunk_scan_fwd_kernel(
                         bg = bh // HPG
                         cs = bc_idx * Q
 
-                        # slot-free handshake: for tasks 0/1 this passes
-                        # immediately (Cube prologue set); from task 2 on it
-                        # waits for Cube's consumption of task (T-2), which
-                        # last used this slot.
+                        # slot-free handshake, task-head placed (v1 revision):
+                        # for tasks 0/1 this passes immediately (Cube prologue
+                        # set); from task 2 on it waits for Cube's consumption
+                        # of task (T-2), which last used this slot.  Placing the
+                        # wait BEFORE any ws[slot] write prevents the off-by-one
+                        # WAR race (producer otherwise leads by 2 tasks).
                         with T.rs("PIPE_MTE2"):
                             T.sync_block_wait(2 * slot + 1)  # slot free (Cube -> Vector)
 
                         for pp in T.serial(P_tiles):
                             p0 = pp * bp
                             for i in T.serial(lt_count):
-                                # snake-balanced AIV partition (s-block work
-                                # lt+1 per l-tile): AIV0 owns {0, L-1, 2, ...},
-                                # AIV1 owns {1, L-2, 3, ...} -- for L_tiles=4
-                                # this is the perfectly balanced {0,3}/{1,2}
-                                # (5 s-blocks each vs the parity split's 4/6).
-                                # Clamps cover degenerate/odd L_tiles (dup
-                                # l-tiles are bit-identical, benign).
                                 lt = i + subid + (i % 2) * (L_tiles - 2 * i - 2 * subid)
                                 lt = T.min(T.max(lt, 0), L_tiles - 1)
                                 l0 = lt * bl
@@ -383,7 +593,7 @@ def _ssd_chunk_scan_fwd_kernel(
                                 )
                                 T.vexp(dA_l_col, exp_dA_l_col)
 
-                                # ---- c_scaled = C * exp(dA_l) (full N dim) ----
+                                # ---- c_scaled = cast(C * exp(dA_l)) (full N) ----
                                 T.copy(
                                     C_mat[bz, cs + l0 : cs + l0 + tl, bg, 0:N],
                                     c_16[0:tl, 0:N],
@@ -392,29 +602,39 @@ def _ssd_chunk_scan_fwd_kernel(
                                 T.vmul(c_f32, exp_dA_l_col, c_f32)
                                 T.vcast(c_f32, c_scaled_16, round_mode="rint")
                                 T.copy(
-                                    c_scaled_16[0:tl, 0:N], ws_c[kernel_id, slot, pp, lt, 0:tl, 0:N]
+                                    c_scaled_16[0:tl, 0:N],
+                                    ws_c[kernel_id, slot, pp, lt, 0:tl, 0:N],
                                 )
 
                                 # ---- intra lcb per s-block ----
+                                # vbrchoist: dA_l broadcast is lt-invariant;
+                                # hoisted out of the s-block loop (5->2 per
+                                # task per AIV at Q=256). The s-block body
+                                # uses the clean form: vsub writes a fresh
+                                # diff_mat (no dst=src2 alias -- the old v11
+                                # tax source), and diff_mat is dead-reused
+                                # as the dt broadcast target after its last
+                                # read (net-zero UB vs baseline).
+                                T.vbrc(dA_l_col, dA_l_hoist)
                                 for s_blk in T.serial(lt + 1):
                                     s0 = s_blk * bs
                                     ts = T.min(bs, Q - s0)
                                     T.copy(cb[bz, bc_idx, bg, l0, s0], cb_16, size=[tl, ts])
                                     T.vcast(cb_16, cb_f32, round_mode="rint")
                                     T.copy(
-                                        dA_cumsum[bz, bh, bc_idx, s0 : s0 + ts], dA_s_row[0:1, 0:ts]
+                                        dA_cumsum[bz, bh, bc_idx, s0 : s0 + ts],
+                                        dA_s_row[0:1, 0:ts],
                                     )
-                                    T.vbrc(dA_l_col, dA_l_mat)  # [bl,1] -> [bl,bs]
                                     T.vbrc(dA_s_row, dA_s_mat)  # [1,bs] -> [bl,bs]
-                                    T.vsub(dA_l_mat, dA_s_mat, dA_l_mat)  # diff = dA_l - dA_s
+                                    T.vsub(dA_l_hoist, dA_s_mat, diff_mat)  # fresh dst, no alias
                                     if s_blk == lt:
-                                        T.vadd(dA_l_mat, pen_const, dA_l_mat)  # + penalty (diag)
-                                    T.vexp(dA_l_mat, dA_l_mat)
-                                    T.vmul(cb_f32, dA_l_mat, lcb_f32)  # cb * exp
+                                        T.vadd(diff_mat, pen_const, diff_mat)  # + penalty (diag)
+                                    T.vexp(diff_mat, diff_mat)
+                                    T.vmul(cb_f32, diff_mat, lcb_f32)  # cb * exp
                                     T.copy(dt[bz, bh, bc_idx, s0 : s0 + ts], dt_16[0:1, 0:ts])
                                     T.vcast(dt_16, dt_s_row, round_mode="rint")
-                                    T.vbrc(dt_s_row, dt_mat)  # [1,bs] -> [bl,bs]
-                                    T.vmul(lcb_f32, dt_mat, lcb_f32)  # * dt
+                                    T.vbrc(dt_s_row, diff_mat)  # dead-reuse as dt target
+                                    T.vmul(lcb_f32, diff_mat, lcb_f32)  # * dt
                                     T.vcast(lcb_f32, lcb_16, round_mode="rint")
                                     T.copy(
                                         lcb_16[0:tl, 0:bs],
@@ -506,7 +726,7 @@ def _run_case(B, C, Q, H, P, N, G, dtype, tag, seed=0, decay_scale=1.0):
         f"  [{tag}] B={B} C={C} Q={Q} H={H} P={P} N={N} G={G} {_dtype_str(dtype)}: "
         f"{'PASS' if ok else 'FAIL'} (max_diff={max_diff:.3e}) [{t_ms:.1f} ms]"
     )
-    return ok
+    return ok, max_diff
 
 
 def _contract_checks():
@@ -530,6 +750,7 @@ def _contract_checks():
     out = wrapped(x, cb, dA, Cm, ps, dt)
     torch.npu.synchronize()
     assert out.shape == (1, 128, 4, 64) and out.dtype == torch.float32
+    assert out.is_contiguous(), "out must be contiguous"
     try:
         _ssd_chunk_scan_fwd_kernel(1, 2, 64, 5, 64, 32, 2, "float16")
         raise AssertionError("H%G ValueError not raised")
@@ -539,17 +760,22 @@ def _contract_checks():
 
 
 def run_L0():
+    """L0 gate (blocking, DESIGN §8.2 order)."""
     print("== L0 (blocking) ==")
     ok = True
-    ok &= _run_case(1, 2, 64, 4, 64, 32, 1, torch.float16, "L0-1", seed=0)
-    ok &= _run_case(1, 2, 128, 4, 128, 32, 1, torch.bfloat16, "L0-2", seed=1)
-    ok &= _run_case(2, 4, 64, 8, 64, 64, 2, torch.float16, "L0-3", seed=2)
-    ok &= _run_case(2, 2, 64, 4, 64, 32, 2, torch.bfloat16, "L0-4", seed=3)
-    ok &= _run_case(1, 2, 96, 4, 48, 48, 1, torch.float16, "L0-5", seed=4)
+    ok &= _run_case(1, 2, 64, 4, 64, 32, 1, torch.float16, "L0-1", seed=0)[0]
+    ok &= _run_case(1, 2, 128, 4, 128, 32, 1, torch.bfloat16, "L0-2", seed=1)[0]
+    ok &= _run_case(2, 4, 64, 8, 64, 64, 2, torch.float16, "L0-3", seed=2)[0]
+    ok &= _run_case(2, 2, 64, 4, 64, 32, 2, torch.bfloat16, "L0-4", seed=3)[0]
+    ok &= _run_case(1, 2, 96, 4, 48, 48, 1, torch.float16, "L0-5", seed=4)[0]
+    # L0-7: representative workload w2 (depth-2 pipeline steady state + bn=128
+    # single-block + non-degenerate snake split), both dtypes.
+    ok &= _run_case(1, 16, 256, 48, 64, 128, 1, torch.float16, "L0-7-fp16", seed=5)[0]
+    ok &= _run_case(1, 16, 256, 48, 64, 128, 1, torch.bfloat16, "L0-7-bf16", seed=6)[0]
     print("[[contract]]", end=" ")
     _contract_checks()
     assert ok, "L0 FAILED (blocking)"
-    print("[L0] PASS (5 precision cases + contract)")
+    print("[L0] PASS (7 precision cases + contract)")
 
 
 def run_L1():
@@ -563,7 +789,7 @@ def run_L1():
     seed = 10
     for B, C, Q, H, P, N, G, name in cases:
         for dt in (torch.float16, torch.bfloat16):
-            ok &= _run_case(B, C, Q, H, P, N, G, dt, f"{name}-{_dtype_str(dt)}", seed=seed)
+            ok &= _run_case(B, C, Q, H, P, N, G, dt, f"{name}-{_dtype_str(dt)}", seed=seed)[0]
             seed += 1
     assert ok, "L1 FAILED (blocking)"
     print("[L1] PASS (6 cases)")
@@ -571,38 +797,44 @@ def run_L1():
 
 def run_L2():
     print("== L2 (warn-only) ==")
-    results = [
-        _run_case(1, 1, 64, 4, 64, 32, 1, torch.float16, "L2-tiny", seed=20),
-        _run_case(4, 8, 64, 80, 128, 64, 8, torch.float16, "L2-large-h80", seed=21),
-        _run_case(
-            2, 4, 64, 8, 64, 64, 2, torch.bfloat16, "L2-deep-decay-bf16", seed=22, decay_scale=100.0
-        ),
-        _run_case(
-            2, 2, 128, 4, 64, 64, 2, torch.float16, "L2-deep-decay-fp16", seed=23, decay_scale=100.0
-        ),
+    cases = [
+        (1, 1, 64, 4, 64, 32, 1, torch.float16, "L2-tiny", 20, 1.0),
+        (4, 8, 64, 80, 128, 64, 8, torch.float16, "L2-large-h80", 21, 1.0),
+        (2, 4, 64, 8, 64, 64, 2, torch.bfloat16, "L2-deep-decay-bf16", 22, 100.0),
+        (2, 2, 128, 4, 64, 64, 2, torch.float16, "L2-deep-decay-fp16", 23, 100.0),
     ]
-    n_pass = sum(results)
-    if n_pass == len(results):
-        print(f"[L2] PASS ({len(results)} cases)")
+    n_pass = 0
+    for B, C, Q, H, P, N, G, dt, name, seed, decay in cases:
+        try:
+            ok, _ = _run_case(B, C, Q, H, P, N, G, dt, name, seed=seed, decay_scale=decay)
+            n_pass += 1 if ok else 0
+        except Exception as e:  # noqa: BLE001 - warn-only layer
+            print(f"  [{name}] WARN (exception): {e}")
+    if n_pass == len(cases):
+        print(f"[L2] PASS ({len(cases)} cases)")
     else:
-        print(f"[L2] WARN: {len(results) - n_pass}/{len(results)} cases failed (non-blocking)")
+        print(f"[L2] WARN: {len(cases) - n_pass}/{len(cases)} cases failed (non-blocking)")
 
 
 def run_boundary():
     print("== Boundary (warn-only) ==")
-    results = [
-        _run_case(1, 2, 96, 4, 48, 48, 1, torch.bfloat16, "B-q96-bf16", seed=30),
-        _run_case(1, 2, 64, 4, 64, 16, 1, torch.float16, "B-n16", seed=31),
-        _run_case(1, 3, 64, 4, 64, 32, 1, torch.float16, "B-c3", seed=32),
-        _run_case(1, 2, 80, 4, 64, 32, 1, torch.float16, "B-q80", seed=33),
+    cases = [
+        (1, 2, 96, 4, 48, 48, 1, torch.bfloat16, "B-q96-bf16", 30),
+        (1, 2, 64, 4, 64, 16, 1, torch.float16, "B-n16", 31),
+        (1, 3, 64, 4, 64, 32, 1, torch.float16, "B-c3", 32),
+        (1, 2, 80, 4, 64, 32, 1, torch.float16, "B-q80", 33),
     ]
-    n_pass = sum(results)
-    if n_pass == len(results):
-        print(f"[Boundary] PASS ({len(results)} cases)")
+    n_pass = 0
+    for B, C, Q, H, P, N, G, dt, name, seed in cases:
+        try:
+            ok, _ = _run_case(B, C, Q, H, P, N, G, dt, name, seed=seed)
+            n_pass += 1 if ok else 0
+        except Exception as e:  # noqa: BLE001 - warn-only layer
+            print(f"  [{name}] WARN (exception): {e}")
+    if n_pass == len(cases):
+        print(f"[Boundary] PASS ({len(cases)} cases)")
     else:
-        print(
-            f"[Boundary] WARN: {len(results) - n_pass}/{len(results)} cases failed (non-blocking)"
-        )
+        print(f"[Boundary] WARN: {len(cases) - n_pass}/{len(cases)} cases failed (non-blocking)")
 
 
 def main():

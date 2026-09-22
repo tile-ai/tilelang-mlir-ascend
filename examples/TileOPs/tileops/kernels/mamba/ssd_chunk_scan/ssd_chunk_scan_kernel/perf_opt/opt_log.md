@@ -1,331 +1,301 @@
-# opt_log.md — `_ssd_chunk_scan_fwd_kernel` Stage 4 调优日志
+# opt_log.md — _ssd_chunk_scan_fwd_kernel Stage 4 调优日志（重建会话）
 
-> 项目：`ssd_chunk_scan`；算子：`_ssd_chunk_scan_fwd_kernel`（Mamba-2 SSD chunk scan fwd，Expert-mode MixCV）。
-> 工具链：tilelang `0.1.2+1990aa9fe4`（dev root build）/ CANN 8.5.0 / Ascend910B2C（24 AIC + 48 AIV，UB 192KB/AIV，L1 512KB，L0C 128KB）/ npu-smi 26.0.rc1。
-> 主指标：**`msprof op` Task Duration(us)**（launch-count=20 / warm-up=5 / median of 20；`--kernel-name=main` 过滤，captured op = `main_mix_aic`，Block Dim 24 / Mix Block Dim 48）。唯一 kernel 时延口径；不采 NPU event / 端到端时间。
-> 性能目标：**best_effort**（无硬性目标数值；噪声阈值 3%；max_rounds=10、max_experiments=30）。
-> 模式约束：**Expert**（Developer + persistent + gemm 模式级不兼容，Stage 3 实证；本轮全程 Expert）。
+> 任务背景：上一调优会话（task ssd_chunk_scan-...-20260921T003531Z，二轮调优，工具链 0.1.2+15ad002b3d）结束 DONE 后其 `perf_opt/` 目录被外部删除，wrapper 指向 perf_opt 导致算子断裂。本会话（task ssd_chunk_scan-...-20260921T120526Z，mode=full）第一步已将 Stage 3 基准 kernel 复制为 `perf_opt/_ssd_chunk_scan_fwd_kernel.py`（drop-in，factory 签名一致，L0 全绿）修复断裂，随后在其上重新展开调优。
+>
+> 口径纪律：本日志一切时延为 `msprof op Task Duration(us)`（kernel-only，median of 20，launch-count=20 / warm-up=5）；配置一律从被测 kernel 模块的 `TUNED_DEFAULT_CONFIG` 解析（TRAP-BENCH-CONFIG-CALIBRATION，bench.py 实现该纪律）。测量设备 NPU 0（device 1 被外部负载占用）。
 
-## 0. 上下文与首轮必查项（Phase 0）
+## 0. 工具链与知识预注入消费（Phase 0）
 
-- 算子类型：**mix**（Cube 双 GEMM 路径 + Vector 因子链）；结构：persistent 24 核一维 `T.Kernel(24)`，task = (b,c,h)，Vector 产因子写 GM ws（ws_c / ws_lcb）→ task 级双 flag 握手 → Cube 消费（history `T.gemm(b_transpose)` + intra 因果块 gemm）。
-- pattern-library 消费：PL-1.11（算术惩罚掩码，status verified——baseline 已采纳，Expert 形态同门，无需复证）；**PL-1.12**（Cube 深度 2 任务流水 / flag 双槽 / `2×nk_total ≤ 15`——本轮 v1_pipe 的直接蓝本）；CONST-flag-id-budget（≤15/核）；CONST-store-fixpipe-gm-only（L0C 只能回 GM——输出行缩放类方案被此约束封死）；CONST-vector-launch-overhead（~0.5µs/op 串行口径，实测有效摊薄后 ~55-75ns/op，见 §R4）；TRAP-UB-dst-align / v-op 多维切片拒绝（PL-1.9-hardlimits——v3 的 task 级行 buffer 失败与此同族）。
-- kb_stale_check 口径：stale_count=83 系工具链版本戳差异；引用条目前核对 front-matter `status`（本任务引用的 PL-1.11 / PL-1.12 均 `verified`）。
-- 首轮布局重估：核内布局 = 契约直读 + 尾轴向量化（DESIGN §1.6.3 主选），profile 现象（无标量热点、瓶颈在结构串行与指令数）与该决策不矛盾，不触发换轴。
-- **DESIGN §1.6.3 实验裁决执行**（见 §7 裁决记录）：掩码 A/B 由 PL-1.11（Expert verified）直接定局（惩罚主选保留）；bl=128 变体实测 UB 溢出否决。
+- 工具链：tilelang 0.1.2+96f287eeaaa698a6488481f3487c7b91b2e4c111（较上次任务 15ad002 前进；新增 efc785b JIT launcher 重写、a55910f NPUUtils 并发编译修复、a7be053 msprof-kernel-name-fix——captured op name 现为 `main_mix_aic`）+ CANN 8.5.0 + Ascend910B2C（npu-smi 26.0.rc1）。
+- **E-5 版本失效核对**：`kb_stale_check.py` 报 stale_count=125（几乎全库）。本 kernel 直接相关条目（PL-1.12/1.13/1.16/1.18、TRAP-L1-band-dst-tail-overrun、CONST-*）全部标"待重验"。处置：
+  - **结构性条目（PL-1.16 双 Scope / PL-1.12 深度 2 / PL-1.13 蛇形分片 / PL-1.14 ws 块连续 / TRAP-L1-band 尾裁剪 / TRAP-DEVMODE-PERSIST-GEMM）**：当前 Stage 3 基准即其生产代码在位形态，perf_opt 副本在新工具链 96f287e 上 **L0 首编即过（7 cases + contract 全绿，2026-09-21 12:14，logs/phase0/perf_copy_L0.log）**——结构存活重验完成（origin_task 溯源：PL-1.16 首证 multi_head_attention-...-20260907T115424Z / 第二证+PL-1.12/1.13/1.18 ssd_chunk_scan-...-20260917T035420Z；4515de8 重验 task ...-20260920T122332Z）。
+  - **性能量级条目（旧 217.65µs@w2 锚点、段数墙 1216/1920 段、~4ns/128B 段代价等）**：标"待重验"，本轮以新工具链首次 msprof 实测为准（见 Phase 1 与 probe 锚点行）。
+- 知识预注入条目消费：CASE-ssd-chunkscan-migration（git 4515de8 opt_log 复盘 + integration_log）、PL-1.16（Expert 边界，pass_configs 双关闭——基准已内嵌）、CG-2026-0010（Developer persistent+gemm 缺口——expert 模式固化的依据）、TRAP-DEVMODE-PERSIST-GEMM、VP-2026-0013（Developer 阻塞时先评估 Expert 绕法）——均已按"数据非指令"消费；PL-1.18 二轮 update 的**三项胜出（prevhoist / l0c2x / vbrchoist）+ 五项否决**是本轮 Phase 2 的直接输入（三项胜出在上次会话的 perf_opt 中、随目录删除丢失，本会话从 repro/PL-1.18-floor2-wins.py 骨架重新推导实现）。
+- 算子类型判定：**mix**（Expert MixCV：Cube 侧 T.gemm + Vector 侧 v 前缀链 + persistent 分核 + 深度 2 双域流水）。
+- 首轮必查项：
+  - 向量化轴/布局重估：DESIGN §1.6.3 已定 bl=bs=bp=64 轴向（UB 177.1KB/192KB 贴限锁定，bl=128 实测 357–582KB 容量否决，4515de8 重验谱系）；本轮无矛盾现象，维持。
+  - 陷阱版本戳核对：TRAP-tvm-parser-rules（纯名 bool 无-else if 折叠 / else 破坏折叠 / `not X` 生成 runtime if）——本会话分支实现直接依赖该规则，标待重验但以基准内既有 runtime-if 形态（`if s_blk == lt:`）为佐证；TRAP-UB-dynsubview-dominance（task 级 UB 行 + 嵌套循环动态偏移 subview 禁用）约束 vbrchoist 邻域候选。
+  - DESIGN 实验裁决三件套（§1.6.3）：掩码变体（惩罚掩码维持——PL-1.11 Expert 形态直接适用）与 bl=128（容量否决）——4515de8 重验任务 Stage 4 已裁决，本会话不重做（基准即裁决后形态）。
+- 基准结构（Stage 3 = 旧一轮 final v9 + 两处正确性修复 + L0-7 用例）：深度 2 任务流水（ws 双槽 + 4 flag + Cube 前导 set）+ Cube 侧 band 组装 + x 任务级 L1 驻留 + AIV subid 蛇形分片 + `bn = min(block_n, N)` 钳位（使 N_tiles 在 TUNED 配置下恒为 1）+ TUNED_DEFAULT_CONFIG {bl:64, bp:64, bn:128, bs:64, ns:2}。
 
-## 1. Performance Test Data（Phase 1 baseline）
+## 1. Workload Inventory（Phase 1）
 
-dispatch path：**单一 default 路径**（fp16/bf16 仅 dtype 参数化，无代码分支；Q/N 差异不触发分支）。目标 kernel：`main`（captured `main_mix_aic`）。
+来源：`examples/TileOPs/benchmarks/ops/bench_mamba.py::test_ssd_chunk_scan_fwd_bench`（`_SSD_CHUNK_SCAN_FWD_BENCH_PARAMS` 11 个参数化案例，多输入自定义列表）。分类规则（profile-collection.md §1）：无显式 skip 标记、案例 ID/label 无独立 "smoke" 词 → **11 个全部 tune**（规则明令不得凭 shape 小推断 smoke；4 个 unit-scale 案例 shape 与 L0 用例重合不构成 smoke 依据）。smoke 集 = 空；skipped 集 = 空。完整清单见 `workload_inventory.json`。
 
-| dispatch_path | workload_id | target_kernel | captured_op | task_duration_us (median of 20) | profile_status | raw_profile_dir |
+kernel_id（全部案例唯一目标 kernel）：`tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main`（captured op name `main_mix_aic`，Block Dim 24 / Mix Block Dim 48）。
+
+调优排序（Phase 1 实测后确定，见 Baseline 表）：优先实测时延大、结构收益明显的稳态 workload（longctx-32k 双族 512/853 任务/核 = 稳态取景框；serving 双族），再处理 latency 单批与 unit-scale 瞬态/欠载案例。
+
+## 2. Baseline（round 0，TUNED_DEFAULT_CONFIG，NPU 0）
+
+| kernel_id（缩写 ssd）| workload_id | candidate_id | target/captured | task_duration_us | profile_status | raw_profile_dir |
 |---|---|---|---|---:|---|---|
-| default | smoke (1,2,64,4,64,32,1) fp16 | main | main_mix_aic | 31.11 | valid | `perf_opt/profiles/baseline/smoke/OPPROF_20260917075813_WPXSFTCZMNQEEFQZ` |
-| default | w2-780m-s4k (1,16,256,48,64,128,1) fp16 | main | main_mix_aic | 608.15 | valid | `perf_opt/profiles/baseline/w2-780m-s4k/OPPROF_20260917075909_YTVQFRDXTOCBRDVV` |
-| default | w3-2p7b-s2k (4,8,256,80,64,128,1) bf16 | main | main_mix_aic | 1990.47 | valid | `perf_opt/profiles/baseline/w3-2p7b-s2k/OPPROF_20260917080000_ZKJRGHLPGHZEHTMX` |
-| default | w4-1p3b-s32k (2,128,256,64,64,128,1) fp16 | main | main_mix_aic | 11127.69 | valid | `perf_opt/profiles/baseline/w4-1p3b-s32k/OPPROF_20260917080052_JOSYGBDBMTLELBWS` |
+| ssd | b1-c2-L64-h4-p64-n32-fp16 | baseline | main / main_mix_aic | 31.83 | valid | profiles/baseline/round0/baseline_*/ |
+| ssd | b2-c4-L64-h8-p64-n64-fp16 | baseline | main / main_mix_aic | 36.31 | valid | 同上模式 |
+| ssd | b1-c2-L128-h4-p128-n32-bf16 | baseline | main / main_mix_aic | 36.19 | valid | 同上模式 |
+| ssd | b2-c2-L64-h4-p64-n32-bf16 | baseline | main / main_mix_aic | 32.06 | valid | 同上模式 |
+| ssd | latency-130m-4k | baseline | main / main_mix_aic | 123.23 | valid | 同上模式 |
+| ssd | serving-130m-4k | baseline | main / main_mix_aic | 870.96 | valid | 同上模式 |
+| ssd | longctx-130m-32k | baseline | main / main_mix_aic | 3493.22 | valid | 同上模式 |
+| ssd | latency-2p7b-4k | baseline | main / main_mix_aic | 330.59 | valid | 同上模式 |
+| ssd | serving-2p7b-4k | baseline | main / main_mix_aic | 1275.40 | valid | 同上模式 |
+| ssd | longctx-2p7b-32k | baseline | main / main_mix_aic | 4987.27 | valid | 同上模式 |
+| ssd | throughput-2p7b-2k | baseline | main / main_mix_aic | 638.30 | valid | 同上模式 |
 
-采集命令模板：`msprof op --kernel-name=main --output=perf_opt/profiles/{stage}/{case} --launch-count=20 --warm-up=5 --dump=off --aic-metrics=BasicInfo,PipeUtilization,ArithmeticUtilization,Memory,MemoryUB,MemoryL0,L2Cache,ResourceConflictRatio python perf_opt/bench.py --kernel {file} --case {case} --iters 30`（实验分支同理，`--kernel` 换成分支文件）。
+注：perf_records.jsonl 前三行为启动事故（首次后台 run 被 shell 超时连带杀死前已落 3 行，重启后重测同三案例）产生的重复 baseline 记录，数值同分布（31.82/31.83、36.36/36.31、36.2/36.19），append-only 契约保留；**对账以每 workload 最新一行为准**。
 
-### Baseline 瓶颈画像（w2，block0，~583µs 壁钟）
+**Baseline 汇总与排序**（全部 valid，NPU 0，median of 20）：
 
-- **Cube**：cube(gemm) 5.5%（34µs）/ scalar 11.0%（69µs）/ mte1 9.0% / **mte2 31.2%（196µs）** / fixpipe 6.0%——L2 读命中 94.1%。
-- **Vector（每 AIV）**：vec 35.5%（222µs）/ scalar 21.8%（136µs）/ mte2 32.4%（203µs，active bw 仅 22.4GB/s——小块延迟受限）/ mte3 17.0%（106µs，41.3GB/s）。
-- 诊断：**非 HBM 带宽瓶颈**（聚合 ~0.6TB/s ≪ 1.26TB/s 地板）；**task 级 ping-pong 串行**（Vector(T) 产完 → Cube(T) 消费 → Vector(T+1)……两引擎逐任务交替零重叠）+ 小块搬运指令延迟受限。
-- **设计估算 vs 实测偏差行（D-2 回填）**：DESIGN §1.6.0 估算下界 = max(流量 42–83µs, 发射(重叠后)~数百µs, Cube 20.7µs)。实测 608µs —— 落在「发射/向量链主导」预言区间（DESIGN 判定向量链为第一疑似瓶颈 **被证实**）；偏差项 = task 级 ping-pong 零重叠（设计未建模的握手串行）+ MTE 小块指令延迟（CONST-mte2 退化曲线的指令维度），二者本轮根治/缓解。
+| 序 | workload | baseline_us | 任务/核 | 特征 |
+|---:|---|---:|---:|---|
+| 1 | longctx-2p7b-32k | 4987.27 | 853.3 | 稳态取景框（最长任务串） |
+| 2 | longctx-130m-32k | 3493.22 | 512 | 稳态 |
+| 3 | serving-2p7b-4k | 1275.40 | 213.3 | 稳态 |
+| 4 | serving-130m-4k | 870.96 | 128 | 稳态 |
+| 5 | throughput-2p7b-2k | 638.30 | 106.7 | 稳态 |
+| 6 | latency-2p7b-4k | 330.59 | 53.3 | 瞬态（爬坡） |
+| 7 | latency-130m-4k | 123.23 | 16 | 瞬态（爬坡） |
+| 8-11 | unit-scale ×4 | 31.8–36.3 | 0.4–2.7 | 欠载域（老档案"欠载域平区"复现） |
 
-## 2. Iteration Log
+**排序理由**：结构收益集中在稳态 workload（PL-1.18 方法论：persistent 任务流水的瓶颈诊断以最长任务串画像为取景框——longctx-2p7b-32k 的 baseline 画像：Cube mte2 4313µs / 86.4% 忙比（段数墙）、cube_wait 0.934 / mte1_wait 0.896（数据饥饿）、AIV vec 0.594 非关键——与旧 w4 稳态画像同构）；先处理模型级稳态，再瞬态，最后欠载域。
 
-> 每轮：现象 → 候选优化点 → 实验分支（单一优化点）→ L0 → msprof → 对比表（数据来自 perf_records.jsonl）→ winner/rollback。
+**probe-w2 锚点重验（E-5）**：`probe-w2-780m-s4k`（B1·C16·L256·H48，非 inventory 成员，bench.py probe case）= **217.58µs**（median of 20，profiles/phase1/probe_w2_anchor/）vs 旧一轮 final 217.65µs（round 6）/ 219.23µs（round 7 复测）——**−0.03%，无工具链漂移**；旧 PL-1.18 量级锚点（217µs@w2 / 二轮 final ~204µs）在新工具链 96f287e 上存活，可作为本会话增益目标参照。
 
-### Round 1 — 解除 task 级 ping-pong 串行（+ 搬运/发射两个探针分支）
+**设计估算 vs 实测偏差行（D-2 回填）**：DESIGN §1.6.0 估算下界 ~170–280µs@w2 vs 实测 217.58µs——**落在区间内，偏差 <1.3×，无失准项**（段数+scalar 主导的判断成立；本会话 baseline 画像 mte2 86.4% 忙比与设计段数墙归因一致）。
 
-**现象**：baseline 画像如上——Vector/Cube 逐任务严格交替（壁钟 ≈ Σ(V_task + C_task)），所有管线利用率 <36%。
+**口径对照注**：今晨 tileops 集成报告（20260921_024753，wrapper default bn=min(64,N)/ns=3 口径）latency-2p7b-4k = 476.36µs；本调优口径（TUNED bn=128/ns=2）= 330.59µs——wrapper 默认配置较 tuned 慢 ~44%（H=80 时 N_tiles=2 走多 n-loop 慢路径 + prev 重读），wrapper 切换块成对引用 TUNED_DEFAULT_CONFIG 的对齐收益由 conductor 翻转时兑现，不在本 Stage 口径内。
 
-**候选优化点**：
-1. 深度 2 任务流水（PL-1.12 家族）：ws 加槽维 ×2 + 4 flag（ready/cons × slot0/slot1）+ **Cube 前导 set**（两槽初始"空闲"，使 Vector T=0/1 的 slot-free wait 立即通过，免除运行时分支）——Vector(T+1) 与 Cube(T) 全重叠。
-2. band 搬运合并（v2_band）：x 任务级 L1 驻留 + ws_lcb band 布局 + 每 lt 单条 K=(l0+tl) band gemm。
-3. 向量链发射削减（v3_hoist）：dA_l 广播 per-lt hoist + dA/dt 行任务级装载。
+## 3. Iteration Log
 
-**分支结果**（L0 全过分支方进 msprof；v3 编译失败未测）：
+### Round 1（base = baseline = Stage 3 基准拷贝）
 
-| 候选 vs baseline | smoke | w2 | w3 | w4 | L0 | w2 AICore 利用率（cube gemm / aiv vec） | w2 memory（cube mte2 忙比 / aiv mte2 忙比·active bw） | 备注 |
-|---|---:|---:|---:|---:|---|---|---|---|
-| baseline | 31.11 | 608.15 | 1990.47 | 11127.69 | PASS | 5.5% / 35.5% | 31.2% / 32.4%·22.4GB/s | — |
-| **v1_pipe（深度 2 流水）** | 30.84 | **367.46 (−39.6%)** | **1092.60 (−45.1%)** | **6813.71 (−38.8%)** | PASS | 9.5% / 56.5% | 79.6% / 56.8% | **winner** |
-| v2_band（band 布局） | 31.03 | 622.05 (+2.3%) | 1851.01 (−7.0%) | 11018.40 (−1.0%) | PASS | 4.6% / 35.5% | 25.0% / 42.4%（aiv mte3 0.17→0.35，106→220µs） | rollback：Vector MTE3 跨步写 3×（band 行 stride 512B），抵消 Cube 收益 |
-| v3_hoist（发射削减） | 31.13 | compile FAIL | — | — | PASS | — | — | task 级 [1,Q] 行 buffer 在 s_blk 循环内被动态偏移 subview 消费，auto-multi-buffer pass 产出非支配 IR（"operand #2 does not dominate this use"，Q≥128，首版）；回退为纯 hoist 后 L0 过、smoke 采到 31.13，但 Q=256 编译 UB 溢出 3.2KB（195.1KB > 192KB，实测报错文本）——该 family 双重 blocked |
+#### Diagnostic Context
+- kernel: ssd（上文 kernel_id），全部 11 tune workload 同测（分支全量测量制）
+- base profile（稳态 longctx-2p7b-32k）：Task Duration 4987µs；Cube mte2 4313µs/86.4%（段数墙：ws_lcb band 640 + x 256 + ws_c 128 + prev×4 512 ≈ 1536+…段/任务，PL-1.18 段数记账二轮更正口径 prev lt 循环 ×4 重读）；cube_wait 0.934 / mte1_wait 0.896；AIV vec 0.594 非关键、aiv_mte2_wait 0.617。
+- 已知结论（PL-1.18 二轮 update，重推导依据）：prevhoist（prev 装载 lt 不变却逐 lt 重读，mte2 字节 −20%）/ l0c2x（单 L0C acc 的 gemm 链 WAR 串行）/ vbrchoist（vbrc(dA_l) lt 不变逐 s-block 重做 + alias 税）三胜出；band 增量组装（数学否决）/ 深度 3（L2 劣化）/ x 预取（无间隙）/ L1 双缓冲（端口竞争）/ 运行时 if（调度毒）五否决。
 
-**结论**：v1_pipe 胜出成 current best。v2_band 教训：**ws 写侧必须保持块连续布局**（MTE3 跨步写 ~3× 慢）；v3 家族 blocked（编译器 dominance 缺陷 + UB 容量）。
+#### Current Phenomena
+- P1：Cube mte2 段数墙主导（86.4% 忙比）——prev_states 每 (task,pp) 重读 L_tiles 次（Q=256 → 4×16KB 中 48KB 冗余/任务），对应旧档案 prevhoist 胜出点。
+- P2：单 l0_acc 使相邻 lt 的 hist→band→out gemm 链经同一 L0C buffer 串行（对应旧档案 l0c2x 胜出点）。
+- P3：Vector 侧 vbrc(dA_l_col→[bl,bs]) 每 s-block 重做（对应旧档案 vbrchoist 胜出点）。
 
-### Round 2 — Cube 搬运合并（保留块连续写）+ P-2 广播探针
+#### Candidate Optimization Points
 
-**现象**（v1_pipe, w2, ~350µs 双引擎平衡）：Cube mte2 79.6%（281µs，~29GB/s 有效——16 条/任务 nd2nz 指令延迟受限）；Vector vec 203µs + mte2 204µs + mte3 117µs。
-
-**候选优化点**：
-1. v5_xband：**Cube 侧** band 组装（ws_lcb 仍块布局、逐块连续读入 L1 band 列偏移区）+ x 任务级 [Q,bp] L1 缓存（消 2.5× 跨 lt 重读）+ 每 lt 单条 band gemm（gemm 10→4/任务）——Vector 侧不动。
-2. v4_p2：P-2 探针——`T.vsub` 列广播 `[bl,bs] − [1,bs]`（文档未列形态）+ dA_l hoist（省每块 2 次 vbrc）。
-
-| 候选 vs v1_pipe | smoke | w2 | w3 | w4 | L0 | w2 AICore 利用率（cube gemm / aiv vec） | w2 memory（cube mte2 忙比 / aiv mte2 忙比） | 备注 |
-|---|---:|---:|---:|---:|---|---|---|---|
-| v1_pipe (best) | 30.84 | 367.46 | 1092.60 | 6813.71 | PASS | 9.5% / 56.5% | 79.6% / 56.8% | — |
-| v4_p2（vsub 广播） | 31.93 | 412.45 (+12.2%) | 1267.83 (+16.0%) | 6956.56 (+2.1%) | PASS | — | — | rollback：**未文档化广播形态可编译可算对但有性能税**（w2/w3 显著回退）|
-| **v5_xband（Cube band 组装）** | 31.23 | **360.78 (−1.8%)** | **1068.88 (−2.2%)** | **6518.38 (−4.3%)** | PASS | 8.3% / 67.7% | 69.6% / 54.1% | **winner**（小幅但全域一致；非必测 dispatch 无回退）|
-
-### Round 3 — n-block 配置 + fp16 c 链
-
-**候选优化点**：
-1. v6_bn128：`block_n = 128`（N=128 时 n-loop 单块：Cube 省 4 mte2 + 4 gemm/任务；N<128 由 N_tiles/tn 钳位自然回退——后经 L0-5/B-q96 发现需工厂层 `bn=min(bn,N)` 防分形 stale 带，见 §6 修复记录）。
-2. v7_cf16：c_scaled 链 fp16 化（省 2 次 [64,128] vcast/vmul + 释放 32KB UB）。
-
-| 候选 vs v5_xband | smoke | w2 | w3 | w4 | L0 | w2 AICore 利用率（cube gemm / aiv vec） | w2 memory（cube mte2 忙比 / aiv mte2 忙比） | 备注 |
-|---|---:|---:|---:|---:|---|---|---|---|
-| v5_xband (best) | 31.23 | 360.78 | 1068.88 | 6518.38 | PASS | 8.3% / 67.7% | 69.6% / 54.1% | — |
-| **v6_bn128** | 31.83 | **323.01 (−10.5%)** | **1015.29 (−5.0%)** | **5493.78 (−15.7%)** | PASS | 8.2% / 66.0% | 50.0% / 54.6% | **winner**（配置项） |
-| v7_cf16（fp16 c 链） | 30.87 | 315.26 (−2.4%) | **FAIL(bf16)** | 5572.11 (+1.4%) | PASS | — | — | rollback：`T.vmul` bf16 ×（RETROSPECTIVE 已知约束）需 dtype 分派；且 w2 −2.4% / w4 +1.4% 均 <5% 未过 T-2 协议、收益不稳，弃置 |
-
-### Round 4 — AIV 工作分片（最大单项）
-
-**现象**（v6, w2, ~310µs）：Mix Block Dim 48 = 每 block 2 AIV；两 AIV 子块指标**完全相同**（vec_ratio 均 0.66 而非分摊的 0.33）→ **Vector 程序在 2 个 AIV 上重复执行**（每 AIV 全量算 + 全量写 ws——GQA "dual-producer" 同 flag 语义的副产品）。AIV 产能 2× 浪费。
-
-**候选优化点**：v8_aivsplit——GQA v11 `subid` 边界表达式先例：`for i in T.serial(lt_count): lt = T.min(i*2+subid, L_tiles-1)`（lt 交错分配，退化 L 折叠为重复 lt=0——bit-identical 良性；无 if 解析器风险）。ws 按 lt 天然不相交；双 AIV 仍同 set 同 wait（本 kernel 现行结构已证 set/wait 语义安全）。
-
-| 候选 vs v6_bn128 | smoke | w2 | w3 | w4 | L0 | w2 AICore 利用率（cube gemm / aiv vec） | w2 memory（cube mte2 忙比 / aiv mte2 忙比） | 备注 |
-|---|---:|---:|---:|---:|---|---|---|---|
-| v6_bn128 (best) | 31.83 | 323.01 | 1015.29 | 5493.78 | PASS | 8.2% / 66.0%（双 AIV 重复） | 50.0% / 54.6% | — |
-| **v8_aivsplit** | 31.24 | **211.85 (−34.4%)** | **651.30 (−35.9%)** | **3958.35 (−27.9%)** | PASS | 12.1% / aiv0 39.0%·aiv1 53.2%（分片后不均 4/6） | 71.9% / aiv0 37.0%·aiv1 52.2% | **winner**（w2/w4 bench --check 同 max_diff 通过）|
-
-### Round 5 — AIV 蛇形均衡（tie，按决胜规则采纳）
-
-**现象**（v8, w2, ~212µs）：AIV1（lts {1,3}，6 s-block + 2 c 链）vec 112µs vs AIV0（{0,2}，4+2）82µs——交错分配不均衡；Cube 成第一 critical（mte2 156µs）。
-
-**候选**：v9_snake——蛇形均衡分配 {0,L−1,2,…}/{1,L−2,3,…}，通用仿射式 `lt = i + subid + (i%2)·(L_tiles − 2i − 2·subid)` + 双向 clamp（L=4 时恰为 {0,3}/{1,2}，5+5 s-block 均分；奇/退化 L 折叠为良性重复）。
-
-| 候选 vs v8_aivsplit | smoke | w2 | w3 | w4 | L0 | w2 AICore 利用率（cube gemm / aiv vec） | w2 memory（cube mte2 忙比 / aiv mte2 忙比） | 备注 |
-|---|---:|---:|---:|---:|---|---|---|---|
-| v8_aivsplit (best) | 31.24 | 211.85 | 651.30 | 3958.35 | PASS | 12.1% / aiv0 39.0%·aiv1 53.2% | 71.9% / aiv0 37.0%·aiv1 52.2% | — |
-| v9_snake | 31.15 | 220.58 (+4.1%*) | 635.63 (−2.4%) | 3885.39 (−1.8%) | PASS | （final 复测画像）10.8% / aiv0 43.5%·aiv1 43.5%（**蛇形均衡达成**） | 77.5% / ~52%·~52% | 单次 run 差异落入 run-state 双态区 |
-
-*w2 的 +4.1% 单次差异经 **ab_test.py 交错协议**（3 对 A/B/A/B，launch-count=15）裁决：pair 中位 A 214.64/219.42/220.92 vs B 219.46/213.69/216.11，合并中位 **A 219.42 vs B 216.11，sign test p=1.0 → verdict: tie**（单次 211.85/220.58 差异系双态噪声）。按 skill 决胜规则（打平→负载均衡优先）+ w3/w4 方向一致 + 结构均衡性（7/7 vs 6/8 单元），**采纳 v9_snake**（`profiles/ab_round5_w2/`）。
-
-### Round 6 — 最终收束与回归修复（winner 复测）
-
-最终产物 `perf_opt/_ssd_chunk_scan_fwd_kernel.py` = v9_snake + tuned 默认（`TUNED_DEFAULT_CONFIG` block_n=128）+ 两处正确性修复（见 §6）。全量 `--level all`：**L0 5/5 + contract / L1 6/6 / L2 4/4 / Boundary 4/4 全过**；w2/w3/w4/smoke bench --check 全过（max_diff 与 baseline 同分布）。
-
-| final vs baseline | smoke | w2 | w3 | w4 | L0 | w2 AICore 利用率（cube gemm / aiv vec） | w2 memory（cube mte2 忙比 / aiv mte2 忙比） |
-|---|---:|---:|---:|---:|---|---|---|
-| baseline | 31.11 | 608.15 | 1990.47 | 11127.69 | PASS | 5.5% / 35.5%（双 AIV 重复执行） | 31.2% / 32.4%·22.4GB/s active |
-| **final_v9_tuned** | 32.04 (+3.0%†) | **217.65 (−64.2%)** | **642.28 (−67.7%)** | **3886.86 (−65.1%)** | PASS（level all 全过） | 10.8% / aiv0 43.5%·aiv1 43.5%（均衡分片） | 77.5% / ~52%·~52% |
-
-†smoke（8 任务欠载域，固定开销主导）：跨轮复测摆动 30.84–32.04（±2%），+3.0% 恰在噪声阈内（未超过 3%），非必测回退判据不触发；主判别 workload（w2–w4）全域 −64~−68%。
-
-**跨 dispatch 几何平均加速比**（baseline→final，perf_records 对账）：(608.15/217.65 × 1990.47/642.28 × 11127.69/3886.86)^(1/3) = (2.794 × 3.098 × 2.862)^(1/3) ≈ **2.913×**。
-
-### Round 7 — 取景框轮换：w4/w3 稳态画像（第二轮 full，续跑）
-
-> 本轮为第二轮 full 调优（续跑语义），用户指令：以非主判别 workload（w4/w3/smoke）为瓶颈分析取景框。R7 起的工具链状态：tilelang `0.1.2+1990aa9fe4` / CANN 8.5.0 / 910B2C 不变。
-
-**现象（w4 取景框，current best final profile 深度解析——第一轮从未做过非 w2 画像）**：
-
-- w4（3886.86µs，16384 任务，每核 683 串行——纯稳态）：Cube **mte2 85.0% 忙比**（3318µs，12978 条指令，~256ns/条 = 64 段 × ~4ns/128B，段传输主导）+ scalar 63.5%；**cube_wait 0.919 / mte1_wait 0.878**（Cube 计算与 L1→L0 装载 9 成时间在等数据供应）；GM_to_L1 带宽利用率仅 18%（非带宽墙，段数/指令墙）。AIV：vec 62.2% + scalar 46.5% + mte2 47.7%（wait 0.62）+ mte3 24.7%——**非关键路径**。
-- w4 稳态 mte2 85% vs w2 瞬态 71.9%：w2 的 32 任务/核处于流水爬坡区，**w2 低估了 Cube mte2 的真实占比**。
-- w3（642.28µs，107 任务/核，bf16）：与 w4 高度同构（Cube mte2 81%、scalar 60%；AIV vec 62%）——无 bf16 特有结构瓶颈。
-- 段数核算（每任务 Cube mte2）：ws_lcb band 重组 640 段（Σ(lt+1)=10 块）+ x 256 + ws_c 128 + prev 128 ≈ 1216 段。GQA 读放大（H/G=64/80/48）由 L2 吸收（cube read_hit 91%、AIV 99%）。
-
-**候选优化点**（基于各自 shape 现象，不复用 w2 结论）：
-
-| opt_id | 目标现象 | 优化点 | 判定 |
-|---|---|---|---|
-| OP1 | Cube mte2 85%（band 重组 640 段冗余） | 增量 band 组装：band 嵌套包含 → L1 跨 lt 累积，每 lt 只搬 diag 块（640→256 段） | **invalid（理论错误）**：band 行绑定 l-tile（块 (lt,s_blk) 内容 = lcb[l0+i, s0+j]，不同 lt 行内容不同），band(lt) 与 band(lt−1) 列前缀内容不同、无公共前缀可累积——L_tiles=1 全过 / L_tiles≥2 全挂（L0-2/L0-5 FAIL max_diff 5.9e-3/7.9e-3）证实。v10 分支 |
-| OP2 | AIV vec 62%（dA_l 广播每 s_blk 重做） | dA_l_mat vbrc hoist + vsub 输出重定向 dA_s_mat（原地） | **rollback**：vsub dst=src2 alias 形态税——同口径（bn=64）w2 +19.6% / w3 +17.0% / w4 +2.0%（w2/w3 AIV 接近临界时炸、w4 稳态 AIV 远离临界时轻）。与 R2 v4_p2 广播形态税同族：**Bisheng v-op 非典型形态（广播/alias）可编译可算对但有税**。v11 分支 |
-| OP3 | mte2 85% 忙比 vs 稳态理论 ~95%（~10% 任务间气泡假设） | 深度 3 任务流水（ws 三槽 + 6 flag ≤15） | **config_no_gain**：同口径 w2 +0.1% / w3 −2.7% / w4 +1.4% 平区。副作用发现：3 任务 in-flight 的 ws 工作集 9.2→13.8MB 使 mte2 每条 256→346ns（busy 85%→93% 但更慢）——**mte2 指令时间对内存系统压力敏感，深度 2 是 L2 局部性甜点**。v12 分支 |
-| OP4 | flag wait 期间 mte2 空闲 | x 预取：x 不依赖 ws flag，pp=0 的 x copy 提到 wait 前（pp range 展开） | **config_no_gain**：同口径 w2 −0.7% / w3 −5.2%（单次）——**ab_test 交错协议裁决 tie**（+0.48%，p=0.25；A/B 各 3 run 中位 768.36 vs 772.08，`ab_round7_w3/`）。wait 间隙在稳态下 ≈0（AIV 快于 Cube）。v13 分支 |
-
-**候选 vs current best 对比表（R7，msprof op Task Duration(us)，median of 20；⚠ 本轮四分支为 bn=64 口径——见下方口径断裂记录——对比基准用同 session 同口径的 v9_recheck）**：
-
-| 候选 | smoke | w2 | w3 | w4 | L0 | w4 AICore（cube mte2 / aiv vec） | w4 memory（cube mte2 忙比·每条ns） | 结论 |
-|---|---:|---:|---:|---:|---|---|---|---|
-| v9_recheck（bn=64 基准） | 30.77 | 258.86 | 808.12 | 4695.16 | PASS | 14.5% / 62.2% | 85.0%·256ns | — |
-| v10_incband | — | — | — | — | **FAIL** | — | — | **invalid**（OP1 理论错误） |
-| v11_hoistda | 31.88 | 309.55 (+19.6%) | 945.54 (+17.0%) | 4788.32 (+2.0%) | PASS | 13.2% / ~39%* | 93.6%·339ns（mte2 每条劣化） | **rollback**（alias 税） |
-| v12_pipe3 | 32.17 | 259.18 (+0.1%) | 785.98 (−2.7%) | 4762.92 (+1.4%) | PASS | 13.0% / ~35%* | **93.0%·346ns（L2 压力劣化）** | config_no_gain |
-| v13_xprefetch | 31.96 | 256.99 (−0.7%) | 766.15 (−5.2%*) | 4737.23 (+0.9%) | PASS | ~14% / ~62% | ~85%·~256ns | config_no_gain（*ab_test tie） |
-
-*v11/v12 的 aiv vec 与 w2 非同类项（w4 口径）；v13 w3 的 −5.2% 经 ab_test 交错协议（3 对 A/B/A/B，launch-count=15）裁决为 tie——单次差异是 run 状态摆动。
-
-**⭐ 口径断裂发现与修复（R7 最重要产出）**：本轮续跑走 `run_experiments.py` 默认参数（不传 `--block-n`），bench.py 旧默认回落 `bn=min(64,N)`（=64），而第一轮 R3 起 winner 采集全部**显式传 `--block-n 128`**（opt_log §1 采集命令模板漏记该参数——模板与实际执行不符的文档缺陷）。后果：v9_recheck（bn=64）= 258.86µs vs final 记录（bn=128）= 217.65µs，差 +18.9%——**初判为"设备漂移 ±20%"，实为配置口径断裂**（证据：修复后重测 v9@bn=128 = 219.23µs 与早上记录 217.65µs 同分布 <1%；smoke 两种口径均在 30.75–32.17 平区）。**修复**：bench.py 的 bn 解析改为 `显式 --block-n > kernel 模块 TUNED_DEFAULT_CONFIG["block_n"]（交付配置）> min(64,N)（baseline 兼容）`，杜绝续跑/翻转后口径再断。**量化**（w2，同 session 探针 `profiles/round7_bn_check/`）：bn=64 → 261.55µs，bn=128 → 226.26µs（n-loop 2 块的 2 条 mte2 + 1 gemm/任务代价 −13.5%）。
-
-**R7 校准基准（current best 在交付配置 bn=128 下的当前 session 数据，round 7 追加 4 行 `v9_bn128tuned`）**：
-
-| workload | final 记录（round 6, bn=128） | v9_bn128tuned（round 7, bn=128） | 一致性 |
-|---|---:|---:|---|
-| smoke | 32.04 | 30.75 | 平区摆动 |
-| w2-780m-s4k | 217.65 | 219.23 | +0.7% 同分布 |
-| w3-2p7b-s2k | 642.28 | 631.45 | −1.7% 同分布 |
-| w4-1p3b-s32k | 3886.86 | 3878.39 | −0.2% 同分布 |
-
-**必测 Dispatch 非回退检查**：本轮无 winner——四分支均未通过（1 invalid / 1 rollback / 2 no_gain），current best 保持 v9 结构 + TUNED_DEFAULT_CONFIG 不变。
-
-**R7 结论**：w4/w3 取景框暴露的稳态瓶颈（Cube mte2 段数墙）在四个方向上被实测否决——①band 段数削减被数学事实否决（band 行绑定 lt，无嵌套复用）；②深度 3 被 L2 局部性否决（ws 工作集膨胀劣化每条 mte2）；③AIV 减负无墙钟收益（AIV 非关键路径）且 alias 形态有税；④x 预取无间隙可填（稳态 wait ≈0）。**mte2 剩余 idle（15%）的最后假设成因 = L1 单 buffer 串行依赖（gemm 期间无法预取下一块）→ R8 做软件流水双缓冲验证**。预算：R7 用 4 实验分支（4/20）、1 轮（1/4）。
-
-### Round 8 — L1 双缓冲软件流水（mte2 idle 的最后假设成因）
-
-**现象**（承接 R7）：mte2 剩余 ~15% idle 的最后假设成因 = L1 单 buffer 串行依赖（band copy(lt) → gemm(lt) → copy(lt+1) 顺序执行，gemm 期间 mte2 无法预取）。
-
-**候选优化点（OP5）**：v14_l1dbuf——l1_c/l1_state/l1_lcb 双槽化（_a/_b 独立 buffer，L1 占用 96→160KB < 512KB），lt 循环 Python range 展开（编译期常量）+ prologue 装 lt=0 → 循环内先发射 lt+1 的全部 GM→L1 载入（写另一槽）、后执行 lt 的 history/band gemm（读本槽）——MTE2 与 CUBE 管线在数据流上无依赖，静态顺序允许硬件并行。tuned 配置断言 N_tiles==1（bn≥N 恒成立）。Vector 侧不动。
-
-**候选 vs current best 对比表（R8，msprof op Task Duration(us)，median of 20，bn=128 交付口径）**：
-
-| 候选 | smoke | w2 | w3 | w4 | L0 | w4 AICore（cube / scalar / mte1 / mte2） | w4 memory（mte2 忙比·传输时间） | w4 冲突（mte2_wait） | 结论 |
-|---|---:|---:|---:|---:|---|---|---|---|---|
-| v9_bn128tuned (best) | 30.75 | 219.23 | 631.45 | 3878.39 | PASS | 14.7% / 61.5% / 22.6% / 83.5% | 83.5%·3217µs | 0.864 | — |
-| v14_l1dbuf | 30.46 | 245.31 (+11.9%) | 744.55 (+17.9%) | 4606.02 (+18.8%) | PASS（level all 19/19） | 12.3% / 49.5% / 18.0% / **66.3%** | **66.3%·3056µs（传输确有减少）** | **0.976** | **rollback（family blocked）** |
-
-**机制归因**（v14 vs v9，w4 cube0）：双缓冲确实压缩了 mte2 的纯传输时间（3217→3056µs，idle 被填），但 **mte2_wait 从 0.864 恶化到 0.976、cube_wait cycles +18%**——prefetch 的 MTE2 写（L1 _b 槽）与 gemm 操作数装载的 MTE1 读（L1 _a 槽）**在 L1 端口/带宽层竞争**，两条管线互相拖慢的代价（~+700µs）超过空闲回收收益（~160µs）。**判定：Ascend910B2C 此 BiSheng 调度下 L1 双缓冲软件流水 family blocked（硬件/调度层约束），非代码正确性问题**。
-
-**必测 Dispatch 非回退检查**：v14 在 w2/w3/w4 全部显著回退（+12~19%）→ rollback，current best 不变。
-
-**R8 结论**：L1 串行假设实测否决。**w4/w3 取景框的五个候选方向至此全部实测穷尽**（band 段数削减=数学否决 / 深度 3=L2 否决 / AIV 减负=非关键+alias 税 / x 预取=无间隙 / L1 双缓冲=端口竞争）。**Cube mte2 段数墙（1216 段/任务 × ~4ns/128B ≈ 3217µs @w4，85% 忙比）为当前冻结设计族（Expert 单 kernel 全融合 + Vector→GM ws→Cube 中继 + band 行绑定 lt）的实测地板**。smoke 欠载域复核：24 核 8 任务场景下空核提前退出不拖尾部、深度 2 流水无收益也无害（prologue set 立即通过）、NUM_KERNELS 动态化的 Task Duration 收益 ≈ 0（执行时间由每核 1 任务决定）——按用户指令如实记录、不强行优化。
-
-## 3. Autotune Log
-
-未使用 autotune（结构性优化主导；唯一参数维 block_n 经 v6 分支直接 A/B 实测裁决，bl/bs/bp 受 UB 容量锁定 64——见 §7；R7/R8 附加：深度 3 / x 预取 / L1 双缓冲 / band 增量组装 / vbrc hoist 等结构候选见 §5 清单与 R7/R8 记录）。
-
-## 4. 结构演化链（获胜路径）
-
-```
-baseline (ping-pong 串行, 608µs w2)
-  └─ v1_pipe: 深度2任务流水 (ws双槽+4flag+Cube前导set)      → 367µs  (−39.6%)
-      └─ v5_xband: Cube band 组装 + x 任务级 L1 缓存        → 361µs  (−1.8%)
-          └─ v6_bn128: block_n=128 (n-loop 单块)            → 323µs  (−10.5%)
-              └─ v8_aivsplit: subid 分片 (消 AIV 重复执行)   → 212µs  (−34.4%)
-                  └─ v9_snake: 蛇形均衡分配 (ab_test tie 采纳) → 218µs* (tie)
-                      └─ final_v9_tuned (+tuned默认+尾块修复) → 217.65µs (复测)
-                          └─ R7-R8 二轮调优: 五方向实测穷尽, 结构保持 → 219.23µs (bn128 校准复测)
-```
-*v9 单次 w2 记录 220.58µs；final 复测 217.65µs（同分布）。各轮 winner 均通过必测 dispatch 非回退检查（smoke 全程噪声平区）。
-
-## 5. 残余瓶颈与 blocked 候选清单（Phase 3 天花板证据）
-
-final 画像（w2, ~218µs）：Cube mte2 ~156µs（16 nd2nz 指令/任务，~4ns/128B 段，段数 = ws_lcb 640 + ws_c 256 + x 256 + prev 64 段/任务）为第一项；Cube scalar（地址算术+自旋）~120µs；AIV1 侧 vec+mte2 ~110µs 次临界。
-
-**第二轮（R7/R8，w4/w3 取景框）稳态画像补充**（w4, 3878µs）：Cube mte2 83.5% 忙比（3217µs，1216 段/任务 × ~4ns —— **段数墙**；w2 瞬态 72% 低估了该占比）；cube_wait 0.919 / mte1_wait 0.908（数据供应饥饿）；AIV vec 62% 非关键。已识别但 **blocked** 的候选：
-
-| 候选 | 阻塞点 | 证据 |
-|---|---|---|
-| bl=128 大 l-tile（DESIGN §1.6.3 变体 B） | **UB 容量** | 编译实测：bs=128 需 4,769,792 bits（582KB）、bs=64 需 2,929,664 bits（357KB）vs 192KB 可用（`logs/bl128_probe.log` / `logs/bl128_bs64_probe.log`）——容量否决 |
-| [64,128] 成对向量链（s-block 数减半，同时降 Vector 发射与 Cube ws 读段数） | **UB 容量** | 手工 liveness 峰值 ~199KB > 192KB（cb_16x 16 + cb_f32x 32 + dA_l_src 32 + dA_s_mat 32 + dt_mat 32 + lcb_16 16 + pen_mix 32 + 杂项 ~7）；v3 实测证明 Bisheng UB 记账与手工核算偏差 <2%（+16KB 手工 → 195.1KB 实测报错），无通胀余量 |
-| task 级 dA/dt 行装载（省 12 次 tiny GM 读/任务） | **编译器** | 动态偏移 UB subview 进嵌套循环 → auto-multi-buffer pass 产出非支配 IR（v3 复现，`logs/round1/v3_hoist_L0.log`）|
-| 输出行缩放消 ws_c 中继（L0C→UB→GM 路径） | **硬件/API** | CONST-store-fixpipe-gm-only：L0C 跨引擎仅 GM 往返；中继改道引入等量 GM 流量 + 第三握手相位，净亏 |
-| history M=256 合并 gemm（1 读 1 gemm/任务） | **API** | gemm dst 不支持 L0C region 写（单 [Q,bp] acc 与 per-lt band gemm 的 [64,64] dst 不可共用；两 L0C acc 相加无原语）|
-| vsub/vmul 列广播形态 | **性能税** | v4_p2 实测 w2 +12.2% / w3 +16.0%（可编译可算对但回退）|
-| fp16 c 链（v7） | **dtype 契约** | `T.vmul` bf16 ×；需 trace 分派；且收益 <5% 未过 T-2、w4 方向翻转——弃置 |
-| host 侧因子预折（如 prev·exp(dA[0])） | **口径纪律** | 将 kernel 工作外移到未测量 host 算子（指标 gaming），不采纳 |
-| **band 增量组装**（嵌套包含 → L1 跨 lt 累积，640→256 段）〔R7-v10〕 | **数学事实** | **band 行绑定 l-tile**：块 (lt,s_blk) 内容 = lcb[l0+i, s0+j]，不同 lt 的行内容不同（dA_l 依赖 l），band(lt) 与 band(lt−1) 列前缀无公共可复用内容——L0-2/L0-5 FAIL（max_diff 5.9e-3/7.9e-3），L_tiles=1 全过恰好证实 |
-| **vsub dst=src2 alias 形态**（vbrc hoist 的代价）〔R7-v11〕 | **性能税** | 同口径实测 w2 +19.6% / w3 +17.0% / w4 +2.0%（alias 形态生成次优代码，与 v4_p2 广播税同族：Bisheng v-op 非典型形态可编译可算对但有税） |
-| **深度 3 任务流水**（ws 三槽 + 6 flag）〔R7-v12〕 | **L2 局部性** | 同口径 w2 +0.1% / w3 −2.7% / w4 +1.4% 平区；3 任务 in-flight 的 ws 工作集 9.2→13.8MB 使 mte2 每条 256→346ns（busy 85%→93% 但更慢）——**深度 2 是 L2 局部性甜点** |
-| **x 预取**（x copy 提到 flag wait 前）〔R7-v13〕 | **无间隙可填** | 同口径 w2 −0.7% / w4 +0.9%（ab_test 交错协议裁决 w3 tie：+0.48%, p=0.25）——稳态下 AIV 快于 Cube，wait ≈ 0 |
-| **L1 双缓冲软件流水**（_a/_b 槽 + lt 展开 + prefetch 先行）〔R8-v14〕 | **L1 端口竞争** | 同口径 w2 +11.9% / w3 +17.9% / w4 +18.8%：mte2 纯传输确有减少（3217→3056µs）但 **mte2_wait 0.864→0.976**——prefetch 的 MTE2 写（_b 槽）与 gemm 操作数装载的 MTE1 读（_a 槽）在 L1 端口层互拖，代价 +700µs > 收益 ~160µs |
-
-**判定：剩余候选均因精度/编译/容量/API/数学/性能税/L2·L1 端口/纪律阻塞 → stop_reason = blocked**（两轮累计 budget：15 实验、8 轮均未耗尽；R7/R8 连续 2 轮无 >3% valid 提升，w4/w3/smoke 取景框候选全部实测穷尽——含 band 段数削减的全部数学变体与 mte2 idle 的全部三个假设成因）。
-
-## 6. 最终版本正确性修复记录（收束期发现）
-
-1. **L1 band 组装尾块越界（B-q96-bf16 回归）**：band 组装 copy 的 dst 列区间写 `s0:s0+bs`，Q%bs≠0 时越出 `l1_lcb [bl,Q]` 缓冲（Q=96 末块 [64:128] vs 缓冲 96 列）——越界写污染相邻 L1 分配。fp16 同 shape 靠 L1 布局运气通过（L0-5 PASS），bf16 布局命中关键 buffer（max_diff 7.8e-3）。**修复 = 列宽按 `ts = min(bs, Q−s0)` 裁剪**（src/dst 同步）。该缺陷自 v5_xband 起潜伏；manifest workload 全整除（Q=256/64 % 64 = 0）故全部 perf 数据不受影响；修复后全量 level=all 通过。
-2. **block_n 分形 stale 带（L0-5, N=48/bn=128）**：`l1_c/l1_state` 直接按 bn=128 分配而 K 实宽 48——stale 分形列带泄漏进 gemm（max_diff 7.4e-3）。**修复 = 工厂层 `bn = min(block_n, N)`**（N=128 仍单块快路径；N<128 回退基线行为）。注：首轮修复后因 tilelang **磁盘缓存**命中未重编译（同 max_diff 复现）——清 `~/.tilelang/cache` 后生效（排障留痕）。
-
-## 7. DESIGN §1.6.3 实验裁决记录（Stage 4 必做项）
-
-| 裁决项 | 判定 | 证据 |
-|---|---|---|
-| ① 掩码变体 A/B（惩罚掩码 vs vselect） | **惩罚掩码维持主选** | 裁决计划针对"Developer 模式 vcmp 是否标量化待复证"；本任务为 Expert 模式，PL-1.11 的 4.4–14.2× 实测即为 Expert 形态（GQA），直接适用，无需复证。全程未引入 vcmp/vselect，零标量化税。 |
-| ② bl=128 tiling 变体 | **容量否决（不采纳）** | 编译实测 UB 需求 582KB（bs=128）/ 357KB（bs=64）vs 192KB——Expert 直差分链结构下 bl=128 不可行；DESIGN §1.6.3 的"UB 膨胀系数未定"以实测常数定格（显式 alloc 结构实际 ≈ 手工核算，无 1.7× 通胀）。 |
-| 裁决常数回填 | — | bl=64 链手工峰值 ~179KB（v3 实测反推）≈ 192KB 上限的 93%；`×1.10–1.12` 通胀系数在本显式 alloc 结构不必然成立（与 PL-1.12 r9 结论一致）。 |
-
-## 8. Final Summary
-
-> 含第二轮（R7–R8，w4/w3/smoke 取景框）结果。本轮结构未变（五方向实测穷尽全败），final = 第一轮 v9 结构 + TUNED_DEFAULT_CONFIG；三列对比口径：baseline（Stage 3 原版）/ 第一轮后 v9（round 6 `final_v9_tuned`，bn=128）/ 本轮 final 校准复测（round 7 `v9_bn128tuned`，bn=128，同 session；与 round 6 同分布 <±1.7%）。
-
-- **best 版本**：`perf_opt/_ssd_chunk_scan_fwd_kernel.py`（= v9_snake 结构 + TUNED_DEFAULT_CONFIG(block_l=64, block_p=64, block_n=128, block_s=64, num_stages=2) + §6 两修复）——第二轮未变更。
-- 结构变更四件套（第一轮）：①深度 2 任务流水（ws 双槽 + 4 flag + Cube 前导 set）；②Cube 侧因果 band 组装 + x 任务级 L1 驻留 + 每 lt 单 band gemm（ws 写保持块连续）；③AIV `subid` 蛇形分片（消双 AIV 重复执行）；④tuned block_n=128。第二轮新增：⑤bench 口径修复（bn 解析对齐 TUNED_DEFAULT_CONFIG，防续跑口径断裂）。
-- **三列对比表（全部 msprof op Task Duration(us)，median of 20，perf_records 可对账）**：
-
-| workload | baseline（round 0） | 第一轮后 v9（round 6, bn=128） | 本轮 final（round 7 `v9_bn128tuned`, bn=128） | 本轮 ratio vs baseline | 本轮 vs 第一轮 v9 |
-|---|---:|---:|---:|---:|---:|
-| smoke (1,2,64,4,64,32,1) fp16 | 31.11 | 32.04 | 30.75 | 1.01×（欠载域平区） | −4.0%（噪声摆动 30.75–32.17） |
-| w2-780m-s4k (1,16,256,48,64,128,1) fp16 | 608.15 | 217.65 | **219.23** | **2.77×** | +0.7%（同分布） |
-| w3-2p7b-s2k (4,8,256,80,64,128,1) bf16 | 1990.47 | 642.28 | **631.45** | **3.15×** | −1.7%（同分布） |
-| w4-1p3b-s32k (2,128,256,64,64,128,1) fp16 | 11127.69 | 3886.86 | **3878.39** | **2.87×** | −0.2%（同分布） |
-| **几何平均（3 真实 workload）** | 1.00× | 2.91× | **2.93×** | — | +0.4%（结构未变） |
-
-- final_latency: 219.23 us（主判别 workload w2-780m-s4k 口径，msprof op Task Duration，median of 20，bn=128 交付配置；与 perf_records.jsonl round 7 `v9_bn128tuned` 的 w2 行精确对账，偏差 0%）
-- **final_latency（跨 workload 汇总口径，每 workload 一行 duration + ratio）**：
-  - smoke: 30.75 us（1.01×）
-  - w2-780m-s4k: 219.23 us（2.77×）
-  - w3-2p7b-s2k: 631.45 us（3.15×）
-  - w4-1p3b-s32k: 3878.39 us（2.87×）
-  - **几何平均（3 真实 workload）加速比: 2.93×**；（4 workload 含 smoke 几何平均时长 358.45 us / 几何平均加速比 2.25×，仅作汇总参考——smoke 欠载域拉低均值）
-  - 各 workload 独立可对账 round 7 `v9_bn128tuned` 四行，偏差 0%；主判别 workload 参考（承接第一轮口径）：w2-780m-s4k = 219.23 us（round 6 记录 217.65 us，同分布）
-- 精度：level=all 全过（L0 5 + contract / L1 6 / L2 4 / Boundary 4，v14 分支亦 19/19）；w2/w3/w4 bench --check max_diff 与 baseline 同分布（1.3e-4 / 1.2e-3(bf16) / 1.9e-4 vs atol 1e-3/2e-3）。
-- **中止原因：blocked**——两轮累计：第一轮 §5 清单（UB 容量 / 编译器 dominance / API 硬件 / 广播税 / 口径纪律）+ 第二轮五方向实测穷尽（band 增量组装=数学否决【band 行绑定 lt】、深度 3=L2 局部性劣化、AIV vbrc hoist=alias 税 + AIV 非关键路径、x 预取=稳态无间隙、L1 双缓冲=L1 端口竞争倒贴）。budget 余量充足（两轮累计 8/10+4 轮、15+7/30 实验）。**w4 稳态画像确认 Cube mte2 段数墙（1216 段/任务 × ~4ns/128B，83.5% 忙比）为当前冻结设计族（Expert 单 kernel 全融合 + Vector→GM ws→Cube 中继）的实测地板**——参照结构 diff（T-1）：separable 两-kernel（intra/inter 分离）可减少 ws 中继段数，但属设计层结构变更（推翻 DESIGN 融合决策）且两 kernel 总时延不在单 kernel msprof 口径内可比，作为设计层观察记录、不触发 perf_feedback（结构性加速 >2x 无实证支撑——separable 方案的因子计算仍需 Vector 中继，收益不明确）。
-- **按 shape 分派建议（S4-5 出口）**：单一 trace 全域占优（无分档收益反转），无需 wrapper 层 shape 分派表；bench.py 已修复为读 kernel 的 TUNED_DEFAULT_CONFIG（翻转 wrapper 后测量口径自动对齐交付配置）。
-- **第二轮产出清单**：①bench 口径断裂发现与修复（R7，w2 bn=64 vs 128 实测 +18.9%——续跑/翻转场景的口径风险）；②w4/w3 稳态画像与 mte2 段数墙定量（1216 段/任务、~4ns/128B、L2 91% 命中）；③五个结构候选的实测否决证据（§5 新增五行的机制归因）；④smoke 欠载域无可做优化（如实记录）。
-
-## 9. Skill Retrospective
-
-### 流程观察
-
-1. **「双 AIV 重复执行」是本轮最大单点发现，但发现它花了 4 轮**——前 3 轮我把 vector0/vector1 的相同指标读作"分摊或镜像"而未深究；直到 R4 才用"若分摊则 ratio 应减半"的反证确认重复。**建议**：MixCV 族的 Phase 1 画像步骤增加一条机械检查——`Mix Block Dim = 2×Block Dim` 时核对两 AIV 子块指标是否相同（相同 ⟹ 重复执行 ⟹ subid 分片是头号候选）。〔vp_type: R〕
-2. **L0 分支验证覆盖不足导致 band 尾块越界潜伏 4 轮**：v5 引入的 `s0:s0+bs` 越界仅在 bf16+Q=96（Boundary 用例）触发；分支验证只跑 L0（fp16 Q=96 恰好靠布局运气通过）。**建议**：实验分支的精度回归应至少包含一个 bf16 × 非整除 shape 的组合（或直接跑 Boundary 层）。〔vp_type: R〕
-3. **tilelang 磁盘缓存掩盖修复生效**：同参数同源码路径的修复在缓存命中下不重编译，复现"修复无效"假象。**建议**：分支验证脚本涉及 kernel 源变更时先清 `~/.tilelang/cache`（或 bump cache key）。〔vp_type: R〕
-4. ab_test.py 的 msprof 输出目录权限问题（group-writable 拒采）需要预创建 pair 目录——工具可自行 `chmod 700`。〔vp_type: R〕
-
-### 价值点（vp_type + 证据三件套，供 evolver 蒸馏；D/C 类已任务内回写 pattern-library，见回写位置）
-
-| # | 价值点 | vp_type | evidence | repro | toolchain_stamp | 回写位置 |
+| opt_id | 目标现象 | 优化点 | 判断依据 | 具体改法 | 验证指标 | 状态 |
 |---|---|---|---|---|---|---|
-| 1 | **Mix kernel 双 AIV 默认重复执行 Vector 程序；`subid` 边界表达式分片（GQA v11 形态推广到 l-tile 交错/蛇形）实测 −28~−36%**——AIV 产能 2× 释放 | D | 本 log R4/R5 + perf_records round 4/5；profile 反证（两 AIV ratio 相同 vs 分摊应减半） | `repro/PL-1.13-aiv-dup-subid-split.py` | tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / 910B2C | pattern-library/attention.md PL-1.13 |
-| 2 | **深度 2 任务流水的"消费侧前导 set"技巧**：Cube 循环前 set 双槽 cons flag（表达"初始空闲"），免去 Vector 侧 T<2 运行时分支——4 flag 严格交替、无死锁（比 PL-1.12 的 prologue 重排更轻量的同族形态） | P | 本 log R1；v1_pipe 代码 `perf_opt/_ssd_chunk_scan_fwd_kernel.py` Cube 前导 | 同上 repro | 同上 | pattern-library/attention.md PL-1.13 补充 |
-| 3 | **ws 中继布局铁律（MTE3 侧）**：Vector→Cube 因子中继的 GM ws 必须保持块连续布局；band 化（行 stride 512B）使 AIV MTE3 时间 3×（106→220µs），Vector 侧损失吞掉全部 Cube 侧收益 | D | 本 log R1 v2_band 行；profile 对比 v2_band vs baseline aiv_mte3 | 同上 repro | 同上 | pattern-library/elementwise.md（MTE3 跨步写条目） |
-| 4 | **vsub/vmul 未文档化列广播形态可编译可算对但有 ~12–16% 性能税**（w2/w3 实测）——证伪协议反向案例：合法化不等于可用 | D | 本 log R2 v4_p2 行；perf_records round 2 | `repro/PL-1.13-aiv-dup-subid-split.py`（含 vsub 广播 A/B 微基准段） | 同上 | pattern-library/layout.md（广播形态速查补遗） |
-| 5 | **task 级 UB 行 buffer + 嵌套循环动态偏移 subview → BiSheng auto-multi-buffer 非支配 IR**（"operand does not dominate this use"）——UB→UB 切片消费需避开该形态 | D | 本 log R1 v3 行；`logs/round1/v3_hoist_L0.log` | 同上 repro | 同上 | pattern-library/traps-compiler.md |
-| 6 | **L1 band 组装 dst 列区间必须按尾块裁剪**（`s0:s0+ts` 而非 `s0:s0+bs`）——越界写相邻 L1 的触发依 L1 布局而变（fp16 靠运气通过、bf16 必现），属布局敏感潜伏缺陷 | D | 本 log §6.1；B-q96-bf16 修复前后 | 同上 repro | 同上 | pattern-library/traps-runtime.md |
-| 7 | MTE 指令代价口径：nd2nz GM→L1 ~300ns/指令、~4ns/128B 段（w2 标定）；AIV 重复执行时双 AIV 指标镜像可用于判定执行模式 | D | 本 log §5 段数核算 + 各轮 profile | 同上 repro | 同上 | pattern-library/constants.md |
-| 8 | BN 流程：分支 L0 回归应含 bf16×非整除 shape 组合；tilelang 磁盘缓存与源变更的失效纪律 | R | 本 log §9.2/9.3 | — | 同上 | proposal（不改 skill 文档） |
+| round1_prevhoist | P1 段数墙 | prev_states 装载提升出 lt 循环（N_TILES_ONE 快路径，纯名 bool 无-else if 折叠；N_TILES_MULTI 保原结构） | PL-1.18 update①（mte2 字节 −20%，指令 19→16/任务）；基准代码 prev 拷贝索引只含 task/pp/n_blk 维 | `_ssd_chunk_scan_fwd_kernel_round1_prevhoist.py` | Task Duration / mte2_time / L0 | improved |
+| round1_vbrchoist | P3 AIV 链 | vbrc hoist 干净形态（fresh dst + diff_mat 死后复用，净零 UB） | PL-1.18 update③（−0.3~−3.5%）；repro/PL-1.18-floor2-wins.py 骨架 | `_ssd_chunk_scan_fwd_kernel_round1_vbrchoist.py` | Task Duration / aiv_vec_ratio | **H 族分裂（见结论）** |
 
-### BP proposal
+#### Experiment Branches（候选 vs current best 对比表，B2；数据 = perf_records round 1，median of 20）
 
-- **BP_aiv_duplication_check**（新）：MixCV（Mix Block Dim = 2× Block Dim）画像出现两 AIV 子块指标相同 → 判定 Vector 程序重复执行 → subid 分片为第一候选（本轮 −34% 单点）。证据：本 log R4；建议入 bottleneck-patterns.md。
+| branch | b1c2L64fp16 | b2c4L64fp16 | b1c2L128bf16 | b2c2L64bf16 | lat130m | srv130m | lctx130m | lat2p7b | srv2p7b | lctx2p7b | thr2p7b | L0 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| baseline（current best） | 31.83 | 36.31 | 36.19 | 32.06 | 123.23 | 870.96 | 3493.22 | 330.59 | 1275.40 | 4987.27 | 638.30 | PASS |
+| round1_prevhoist | 31.65 (+0.6%) | 36.10 (+0.6%) | 35.98 (+0.6%) | 31.91 (+0.5%) | 118.90 (+3.5%) | 841.95 (+3.3%) | 3475.19 (+0.5%) | 327.76 (+0.9%) | 1241.09 (+2.7%) | 4876.97 (+2.2%) | 616.06 (+3.5%) | PASS |
+| round1_vbrchoist | 31.76 (+0.2%) | 35.28 (+2.8%) | 37.13 (−2.6%) | 33.09 (−3.2%) | 114.69 (+6.9%) | 814.19 (+6.5%) | 3098.85 (+11.3%) | 344.59 (−4.2%) | 1360.74 (−6.7%) | 4939.26 (+1.0%) | 666.49 (−4.4%) | PASS |
 
-### 第二轮（R7–R8）追加流程观察
+（+% = 相对 baseline 提速；AICore 利用率/内存指标见下述机制分析。）
 
-1. **续跑口径断裂是本轮最大流程风险**：第一轮 opt_log 的采集命令模板漏记 `--block-n 128`（实际执行的显式参数），第二轮续跑走 runner 默认（bn=64）后所有分支数据系统性偏慢 +19~21%，初判为"设备漂移 ±20%"，经对照实验（bn=64/128 同 session A/B）才定位为配置口径断裂。**建议**：①调优日志的采集命令模板必须与实际执行完全一致（含全部显式参数）；②bench harness 的默认配置应从 kernel 模块的 TUNED 常量解析（本轮已修复 bench.py），使"交付配置=测量配置"成为机械保证而非纪律约定；③跨 session/续跑对比前先做 current best 的同 session 重测校准（本轮 v9_recheck/v9_bn128tuned 两组基准行即此用途）。〔vp_type: R〕
-2. **取景框轮换的价值实证**：以 w4（683 任务/核纯稳态）为取景框暴露了 w2（32 任务/核瞬态）不可见的 mte2 83.5% 段数墙与 AIV 非关键事实；但五个候选方向全部实测否决也说明——**稳态画像暴露的"新瓶颈"不必然存在"可打的空间"**（段数是中继结构的物理流量）。结构候选的可行性受数学事实（band 行绑定）、L2 局部性（工作集）、L1 端口（读写竞争）三重硬件/数学约束夹击，逐一实测是唯一裁决方式。〔vp_type: R〕
-3. **v10 教训（L0 抓住理论错误）**："band 嵌套包含"的数学直觉在 L_tiles=1 case 全过、L_tiles≥2 全挂——**结构性改动前的逐 case 数学走查（尤其退化/尾块维度）不可省**；L0 分层用例的形状覆盖（Q=64/96/128/256）恰好构成对 L_tiles 语义的自然枚举。〔vp_type: R〕
+#### 机制分析（vbrchoist H 族分裂）
+- profile diff（vector0+cube0，baseline vs round1_vbrchoist）：
+  - longctx-130m-32k（H=24，获益 +11.3%）：AIV mte2_time 2426→1651µs（−32.0%）、Cube mte2_time 3523→2651µs（−24.8%）、aiv_vec_wait 0.474→0.302；
+  - serving-2p7b-4k（H=80，回退 −6.7%）：AIV mte2_time 644→827µs（+28.4%）、Cube mte2_time 1055→1289µs（+22.2%）。
+- 判读：效应集中在**双引擎 mte2 传输速度（L2 命中敏感）**而非向量发射数——G=1 下 cb 块被 H 个任务复读（H=80 读放大 3.3×于 H=24），vbrchoist 改变 AIV 生产节奏后 L2 局部性在 H=24 族改善、H=80 族劣化。旧任务 w3（=本族 throughput 形状，bf16）当时在 prevhoist+l0c2x 之上测得"不响应"——**累积序可能改变该分支的效应方向**。
+- 决策：prevhoist 立即合入（全域无回退 + 2 workload >3% + 双独立测量同向）；vbrchoist 留待 Round 2 在 prevhoist（+l0c2x）之上复测（复现旧任务累积序），若 H 分裂仍在 → Round 3 评估核内 trace-time H 条件路径。
 
-### 第二轮价值点（vp_type + 证据三件套，供 evolver 蒸馏；D 类已任务内回写 pattern-library，见回写位置）
+#### 合并检查（merged_r1_prevhoist = 最终文件复测，第二独立测量）
 
-| # | 价值点 | vp_type | evidence | repro | toolchain_stamp | 回写位置 |
+| merged_candidate | workload | baseline_us | merged_us(1st) | merged_us(2nd) | precision | status |
+|---|---|---:|---:|---:|---|---|
+| merged_r1_prevhoist | b1-c2-L64-h4-p64-n32-fp16 | 31.83 | 31.65 | 31.65 | L0 PASS | 平区无回退 |
+| merged_r1_prevhoist | b2-c4-L64-h8-p64-n64-fp16 | 36.31 | 36.10 | 36.30 | L0 PASS | 平区无回退 |
+| merged_r1_prevhoist | b1-c2-L128-h4-p128-n32-bf16 | 36.19 | 35.98 | 35.99 | L0 PASS | 平区无回退 |
+| merged_r1_prevhoist | b2-c2-L64-h4-p64-n32-bf16 | 32.06 | 31.91 | 31.95 | L0 PASS | 平区无回退 |
+| merged_r1_prevhoist | latency-130m-4k | 123.23 | 118.90 | 121.16 | L0 PASS | +1.7%（第二测）|
+| merged_r1_prevhoist | serving-130m-4k | 870.96 | 841.95 | 852.87 | L0 PASS | +2.1% |
+| merged_r1_prevhoist | longctx-130m-32k | 3493.22 | 3475.19 | 3410.03 | L0 PASS | +2.4% |
+| merged_r1_prevhoist | latency-2p7b-4k | 330.59 | 327.76 | 326.91 | L0 PASS | +1.1% |
+| merged_r1_prevhoist | serving-2p7b-4k | 1275.40 | 1241.09 | 1246.19 | L0 PASS | +2.3% |
+| merged_r1_prevhoist | longctx-2p7b-32k | 4987.27 | 4876.97 | 4838.21 | L0 PASS | +3.0% |
+| merged_r1_prevhoist | throughput-2p7b-2k | 638.30 | 616.06 | 625.47 | L0 PASS | +2.0% |
+
+smoke 集：空（无 smoke workload）。两次独立测量全部同向（model-scale +0.9~+3.5%），无任何可信回退。
+
+#### Iteration Winner
+- winner: **prevhoist**（合入最终文件 `_ssd_chunk_scan_fwd_kernel.py`，candidate_id=merged_r1_prevhoist）
+- rollback_branches: round1_vbrchoist（暂缓，Round 2 复测）
+- new_current_best: `_ssd_chunk_scan_fwd_kernel.py`（= prevhoist 形态）
+
+### Round 2（base = merged_r1_prevhoist）
+
+#### Diagnostic Context
+- base：merged_r1_prevhoist（prevhoist 已合入）。base 稳态画像（round1 prevhoist 分支 longctx-2p7b-32k）：4877µs，mte2 段数墙仍主导但 prev 重读已消（段/任务 1920→1536）。
+- 本轮候选：l0c2x（Cube 侧剩余串行链：单 l0_acc 使相邻 lt 的 hist initC→band 累加→out fixpipe 经同一 L0C buffer WAR 串行）+ vbrchoist 累积复测（Round 1 的 H 分裂是否在 prevhoist 之上消失）。
+- 已知否决（不重试，无工具链漂移证据）：band 增量组装（数学）、深度 3（L2）、x 预取（无间隙）、L1 双缓冲（端口）、运行时 if（调度毒）。
+
+#### Current Phenomena
+- P1：l0c2x 目标——gemm 链 L0C WAR 串行（对应旧档案 cube_wait 0.897→0.836 的改善空间）。
+- P2：vbrchoist 目标——AIV 链 vbrc 逐 s-block 重做 + alias 税（Round 1 已证单点有效但 H=80 回退；本轮验证累积序假设）。
+
+#### Candidate Optimization Points
+
+| opt_id | 目标现象 | 优化点 | 判断依据 | 具体改法 | 验证指标 | 状态 |
 |---|---|---|---|---|---|---|
-| 9 | **bench 口径断裂实测**：续跑走 runner 默认 bn=64 vs 交付配置 bn=128，w2 同 session 实测 261.55 vs 226.26µs（+15.6%）；修复 = bench 默认从 kernel TUNED_DEFAULT_CONFIG 解析（baseline 无常量时 fallback 兼容） | D | 本 log R7 口径断裂段 + `profiles/round7_bn_check/`；perf_records round 7 v9_recheck（bn=64）vs v9_bn128tuned（bn=128）两组基准行 | repro-missing（双 bn A/B 最小化待回填） | tilelang 0.1.2+1990aa9fe4 / CANN 8.5.0 / 910B2C | pattern-library/traps-runtime.md TRAP-BENCH-CONFIG-CALIBRATION |
-| 10 | **band 行绑定 l-tile 的数学事实**：chunked SSD 因果 band (lt, s_blk) 块内容 = lcb[l0+i, s0+j]（行内容随 lt 变化），band(lt) 与 band(lt−1) 列前缀无公共可复用内容——"嵌套包含增量组装"类优化对该结构数学不可行（L0 实测 L_tiles≥2 全挂） | D | 本 log R7 v10 行；`logs/round7/v10_incband_level_all.log`（L0-2/L0-5 FAIL 5.9e-3/7.9e-3，L_tiles=1 全过） | repro-missing（分支文件 `_opt_v10_incband.py` 为完整对照） | 同上 | pattern-library/attention.md PL-1.18 |
-| 11 | **L1 双缓冲软件流水倒贴**（_a/_b 槽 + prefetch 先行 + lt 展开）：mte2 纯传输 3217→3056µs（idle 确被填）但 mte2_wait 0.864→0.976——prefetch 的 MTE2 写与 gemm 操作数的 MTE1 读在 L1 端口层竞争，+700µs 代价 > ~160µs 收益，w2-w4 全回退 +12~19% | D | 本 log R8 v14 行；`profiles/round8/v14_l1dbuf_w4-1p3b-s32k/`（PipeUtilization + ResourceConflictRatio 对比 v9_bn128tuned） | repro-missing（分支文件 `_opt_v14_l1dbuf.py` 为完整对照） | 同上 | pattern-library/attention.md PL-1.18 |
-| 12 | **深度 3 任务流水的 L2 局部性劣化**：ws 三槽使 in-flight 工作集 9.2→13.8MB，mte2 每条 256→346ns（busy 85%→93% 但总时间更长）——任务流水深度存在 L2 局部性甜点（本结构深度 2 最优） | D | 本 log R7 v12 行；`profiles/round7/v12_pipe3_w4-1p3b-s32k/`（mte2_t 4491µs vs v9 3217µs） | repro-missing（分支文件 `_opt_v12_pipe3.py` 为完整对照） | 同上 | pattern-library/attention.md PL-1.18 |
-| 13 | **vsub dst=src2 alias 形态税**（+17~20% w2/w3）：vbrc hoist 需 vsub 落到 alias 目标——Bisheng v-op 非典型形态（广播/alias）可编译可算对但有税（与 v4_p2 广播税同族，第二实证；税与引擎空闲余量负相关） | D | 本 log R7 v11 行；perf_records round 7（同口径对比 v9_recheck） | repro-missing（并入既有 v-op 形态 A/B 段） | 同上 | pattern-library/layout.md PL-1.15（update 并入） |
-| 14 | **稳态 vs 瞬态画像差异**：persistent 任务流水 kernel 的短任务串（32/核）低估 Cube mte2 占比（72%），长任务串（683/核）暴露真实稳态（83.5%）；跨 workload 诊断须以最长任务串的画像为准 | D | 本 log R7 现象段（w2/w4 PipeUtilization 对比） | —（profile 数据即证据，`profiles/final/` w2 vs w4） | 同上 | pattern-library/attention.md PL-1.18（条目内方法论段） |
-| 15 | BN 流程：续跑/翻转场景的测量口径机械对齐（bench 读 TUNED 常量）；跨 session 对比先做同 session 基准校准 | R | 本 log §9 第二轮观察 1 | — | 同上 | proposal（不改 skill 文档） |
+| round2_l0c2x | P1 L0C WAR 串行 | L0C acc 乒乓配对循环（lt=2j→acc_a / lt=2j+1→acc_b；ONE_AND_ODD 尾块纯名预组合；N_TILES_MULTI 保原结构单 acc） | PL-1.18 update②（−1.7~−4.6%，cube_wait 0.897→0.836） | `_ssd_chunk_scan_fwd_kernel_round2_l0c2x.py` | Task Duration / cube_wait | improved |
+| round2_vbrchoist | P2 AIV 链 | vbrc hoist 干净形态（同 round1 形态，base 换为 prevhoist 合入版） | PL-1.18 update③ + Round 1 累积序假设 | `_ssd_chunk_scan_fwd_kernel_round2_vbrchoist.py` | Task Duration / aiv 指标 | improved（H 分裂消失） |
 
-### 第二轮 BP proposal
+#### Experiment Branches（候选 vs current best 对比表，B2；perf_records round 2，median of 20）
 
-- **BP_bench_config_calibration**（新）：perf_opt 采数 harness 的 block/tile 默认值必须从被测 kernel 模块的 TUNED 常量解析，禁止 harness 侧硬编码 fallback 成为事实默认；续跑轮次的第一步是 current best 的同 session 重测校准（双配置 A/B 探针优先于"设备漂移"假设）。证据：本 log R7（+19~21% 假回退）；建议入 profile-collection.md。
-- **BP_steady_state_frame**（新）：persistent/任务流水 kernel 的瓶颈诊断应取**最长任务串 workload** 的画像为取景框（短串处于流水爬坡瞬态，引擎占比失真）；候选否决证据（L2/L1 端口约束）只在稳态画像下可观测。证据：本 log R7 现象段 + R8 机制归因；建议入 iteration-diagnosis.md。
+| branch | b1c2L64fp16 | b2c4L64fp16 | b1c2L128bf16 | b2c2L64bf16 | lat130m | srv130m | lctx130m | lat2p7b | srv2p7b | lctx2p7b | thr2p7b | L0 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| merged_r1_prevhoist（current best） | 31.65 | 36.30 | 35.99 | 31.95 | 121.16 | 852.87 | 3410.03 | 326.91 | 1246.19 | 4838.21 | 625.47 | PASS |
+| round2_l0c2x | 31.58 (+0.2%) | 36.27 (+0.1%) | 35.72 (+0.8%) | 31.92 (+0.1%) | 119.80 (+1.1%) | 791.30 (+7.2%) | 3173.67 (+6.9%) | 317.93 (+2.7%) | 1195.11 (+4.1%) | 4784.00 (+1.1%) | 604.29 (+3.4%) | PASS |
+| round2_vbrchoist | 31.87 (−0.7%) | 35.14 (+3.2%) | 35.53 (+1.3%) | 33.05 (−3.4%) | 113.08 (+6.7%) | 765.80 (+10.2%) | 3100.19 (+9.1%) | 313.42 (+4.1%) | 1213.97 (+2.6%) | 4732.13 (+2.2%) | 611.01 (+2.3%) | PASS |
 
-## 10. 工件清单
+（+% = 相对 current best 提速。unit-scale 欠载域 ±3% 为平区噪声（老档案同判）；model-scale 全部正向。）
 
-- `perf_opt/_ssd_chunk_scan_fwd_kernel.py`（final，tuned 默认内嵌，两轮共用）
-- `perf_opt/_ssd_chunk_scan_fwd_kernel_opt_v{1..14}_*.py`（实验分支，按轮留档；v10_incband 为 L0 失败的理论错误分支，留档供复盘）
-- `perf_opt/perf_records.jsonl`（append-only，round 0–8，64 行：第一轮 40 行（baseline 4 + v1–v9/final 各分支）+ 第二轮 24 行（round 7：v11/v12/v13 各 4 + v9_recheck 4（bn=64 校准基准）+ v9_bn128tuned 4（bn=128 交付口径基准）；round 8：v14 4；v10 L0 失败未采集无行））
-- `perf_opt/profiles/{baseline,round1..round5,final,round7,round8,round7_bn_check}/`（raw msprof op 数据；round 7 的 v11/v12/v13/v9_recheck 行为 bn=64 口径、v9_bn128tuned 为 bn=128 口径，见 R7 口径断裂记录）
-- `perf_opt/profiles/ab_round5_w2/`、`perf_opt/ab_round7_w3/`（T-2 交错协议原始数据）
-- `perf_opt/logs/`（L0 / level-all / probe / 校准探针 / ab_test 日志，含 `logs/round7/`、`logs/round8/`）
-- `perf_opt/bench.py`（R7 修复：bn 解析 = 显式参数 > TUNED_DEFAULT_CONFIG > min(64,N)）/ `perf_opt/run_experiments.py`（采集与批量 runner）
+#### 结论与机制
+- **累积序假设证实**：vbrchoist 在 prevhoist 之上 H=80 族回退消失（round1: lat2p7b −4.2%/srv2p7b −6.7%/thr2p7b −4.4% → round2: +4.1%/+2.6%/+2.3%）。机制：prevhoist 削减 Cube mte2 压力后 L2/总线交互改变，vbrchoist 的 AIV 生产节奏调整不再与 H=80 的 cb 读放大（G=1 下 H 任务复读同一 cb 块）冲突。**Round 1 的"H 族分裂"是单点叠加顺序的伪象，非 vbrchoist 形态本身的缺陷**——单点验证结论依赖 base 状态（对 skill 的教训：跨引擎耦合结构中，AIV 侧优化的单点效应受 Cube 侧状态调制，见复盘）。
+- 两分支互补（Cube/Vector 各一），model-scale 互有胜负（vbrchoist 5/7 胜，l0c2x 在 srv2p7b/thr2p7b 胜 +1.6%/+1.1%）→ 均为有效单点，进入组合验证（Round 3，两单点均已独立证明有效，符合"组合优化只在单点证明有效后再做"纪律）。
+- bn=64 multi-path 探针（probe_bn64.py，覆盖 l0c2x 重构的 N_TILES_MULTI 区域 + Q=96 尾块 + P=128 双 pp + 双 dtype）：4/4 PASS（wrapper default 配置路径正确性保持）。
+
+#### Iteration Winner
+- winner: round2_vbrchoist 与 round2_l0c2x 并列有效（不同引擎、互补）；组合验证移交 Round 3。
+- new_current_best: 维持 merged_r1_prevhoist（待 Round 3 组合分支非回退检查后一次性更新）。
+
+### Round 3（base = merged_r1_prevhoist；组合分支 = prevhoist + l0c2x + vbrchoist）
+
+#### 依据
+Round 2 两单点（l0c2x：Cube 侧；vbrchoist：Vector 侧）已各自在相同 base 上独立证明有效（model-scale 全正向）——符合"组合优化只在单点证明有效后再做"的前置条件；组合分支只叠加两个已证明点，不引入新优化点。
+
+#### Experiment Branches（候选 vs current best 对比表，B2；perf_records round 3，median of 20）
+
+| branch | b1c2L64fp16 | b2c4L64fp16 | b1c2L128bf16 | b2c2L64bf16 | lat130m | srv130m | lctx130m | lat2p7b | srv2p7b | lctx2p7b | thr2p7b | L0 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| merged_r1_prevhoist（current best） | 31.65 | 36.30 | 35.99 | 31.95 | 121.16 | 852.87 | 3410.03 | 326.91 | 1246.19 | 4838.21 | 625.47 | PASS |
+| round2_l0c2x（亲代1） | 31.58 | 36.27 | 35.72 | 31.92 | 119.80 | 791.30 | 3173.67 | 317.93 | 1195.11 | 4784.00 | 604.29 | PASS |
+| round2_vbrchoist（亲代2） | 31.87 | 35.14 | 35.53 | 33.05 | 113.08 | 765.80 | 3100.19 | 313.42 | 1213.97 | 4732.13 | 611.01 | PASS |
+| **round3_combined** | 31.57 (+0.3%) | 35.22 (+3.0%) | 35.49 (+1.4%) | 32.67 (−2.3%) | 112.74 (+6.9%) | 754.98 (+11.5%) | 2952.64 (+13.4%) | 313.11 (+4.2%) | 1211.48 (+2.8%) | 4666.30 (+3.6%) | 598.36 (+4.3%) | PASS |
+
+（+% = 相对 current best（merged_r1_prevhoist）提速。组合版在全部 7 个 model-scale workload 上同时优于两个单亲分支；b2c2L64bf16 −2.3% 落在欠载域 ±3% 噪声带内（该 case 在 round2_vbrchoist 亦 −3.4%，老档案同判欠载域平区）。）
+
+#### 稳态画像变化（baseline → round3_combined）
+- longctx-2p7b-32k（853 任务/核）：总 4987→4616µs；Cube mte2 4313→3820µs（−11.4%，仍 83% 忙比=段数墙物理流量）；Cube scalar 3104→2594µs（−16.4%）；cube_wait 0.934→0.889 / mte1_wait 0.896→0.844；fixpipe 1356→1411µs（+4.1%，乒乓重叠的合理代价）。
+- longctx-130m-32k（512 任务/核）：总 3896→2864µs（−26.5%）；AIV mte2 2428→1707µs（−29.7%）/ mte3 1100→757µs（−31.2%）；aiv_vec_wait 0.475→0.322——H=24 族获益主因是 AIV 侧等待大幅解除后双引擎 mte2 传输速度（L2 局部性）改善。
+
+#### 合并检查（merged_r3_combined = 最终文件第二独立测量）
+
+（见下方合并复测表——数据落 perf_records phase=merged round 3；probe_bn64 4/4 PASS 在合并前完成。）
+
+#### Iteration Winner
+- winner: **round3_combined**（合入 `_ssd_chunk_scan_fwd_kernel.py`，candidate_id=merged_r3_combined）
+- new_current_best: `_ssd_chunk_scan_fwd_kernel.py`（prevhoist + l0c2x + vbrchoist 全形态）
+
+### Round 4 / 候选穷尽分析（stop 判定）
+
+#### 合并复测（merged_r3_combined = 最终文件第二独立测量，vs baseline）
+
+| merged_candidate | workload | baseline_us | r3_branch(1st) | merged(2nd) | precision | status |
+|---|---|---:|---:|---:|---|---|
+| merged_r3_combined | b1-c2-L64-h4-p64-n32-fp16 | 31.83 | 31.57 | 31.62 | L0 PASS | 平区 |
+| merged_r3_combined | b2-c4-L64-h8-p64-n64-fp16 | 36.31 | 35.22 | 35.11 | L0 PASS | +3.3% |
+| merged_r3_combined | b1-c2-L128-h4-p128-n32-bf16 | 36.19 | 35.49 | 35.44 | L0 PASS | +2.1% |
+| merged_r3_combined | b2-c2-L64-h4-p64-n32-bf16 | 32.06 | 32.67 | 32.63 | L0 PASS | −1.8%（<3% 噪声带，欠载域）|
+| merged_r3_combined | latency-130m-4k | 123.23 | 112.74 | 111.25 | L0 PASS | +9.7% |
+| merged_r3_combined | serving-130m-4k | 870.96 | 754.98 | 731.62 | L0 PASS | +16.0% |
+| merged_r3_combined | longctx-130m-32k | 3493.22 | 2952.64 | 3053.21 | L0 PASS | +12.6%（双测 −12.6/−15.5%）|
+| merged_r3_combined | latency-2p7b-4k | 330.59 | 313.11 | 303.45 | L0 PASS | +8.2% |
+| merged_r3_combined | serving-2p7b-4k | 1275.40 | 1211.48 | 1245.49 | L0 PASS | +2.3%（双测 −2.3/−5.0%，run 间 ±2.8%）|
+| merged_r3_combined | longctx-2p7b-32k | 4987.27 | 4666.30 | 4663.48 | L0 PASS | +6.5%（双测一致）|
+| merged_r3_combined | throughput-2p7b-2k | 638.30 | 598.36 | 597.59 | L0 PASS | +6.4%（双测一致）|
+
+smoke 集：空。model-scale 双独立测量全部同向正向；唯一负值 b2-c2-L64-bf16 −1.8% 稳定但 <3% 噪声阈值（欠载域，老档案同类判例），不构成可信回退。
+
+#### probe-w2 锚点延续性
+`probe-w2-780m-s4k`：baseline 217.58µs → **final 200.18µs（−8.0%）**（profiles/phase1/probe_w2_final/）；旧二轮 final 204.33µs——本会话重推导的三胜出组合**复现并略超**旧增益（旧 −8.6%，本 −8.0%，同分布）。
+
+#### 剩余候选穷尽清单（stop 依据）
+
+**A. 旧档案五否决 carry-over（不重测的依据）**：band 增量组装（数学：band 行绑定 lt）/ 深度 3 任务流水（L2 局部性）/ x 预取（稳态无间隙）/ L1 双缓冲（MTE2 写-MTE1 读端口竞争）/ 运行时 if 进热循环（BiSheng 跨迭代调度毒）。**carry-over 论证**：`git diff --stat 15ad002..96f287e` 显示本会话工具链与旧二轮任务工具链的 delta 仅为 7 个 `.agents/skills` 文档文件（evolution commit），**tilelang 源码零改动**；CANN 8.5.0 / BiSheng / 910B2C 硬件均未变；probe-w2 锚点复现（217.58 vs 217.65，−0.03%） triple 佐证。五否决的机制均绑定硬件常数（L2/L1 端口）或数学事实，与 host 侧 launcher 无关。
+
+**B. 本会话新评估并否决的候选**：
+
+| 候选 | 阻塞点 | 证据/机制 |
+|---|---|---|
+| H-fold / h_tile=2 任务折（削 H=80 cb 读放大） | 机制 + L2 风险 | 2.7B 族的墙在 Cube mte2（ws 段数），不在 AIV cb 流量；ws 工作集 ×2 与深度 3 否决同族 L2 风险；全折任务饥饿为 DESIGN R1 #10 否决 |
+| task 级 dA/dt 行装载（省 ~20 tiny GM 读/任务） | 编译器 | TRAP-UB-dynsubview-dominance（旧 v3 在 pass 关闭下复现）——动态偏移 UB subview 非支配 IR |
+| bl/bs/bp=128 配置邻域 | UB 容量 | 357–582KB > 192KB（4515de8 谱系编译探针） |
+| per-lt 细粒度握手（flag 数 > 任务级 4 个） | flag 预算 + 结构族 | 2×L_tiles×slot + 4 > 15（CONST-flag-id-budget）；与深度 3/L1 双缓冲同属"更深流水"族（已否决） |
+| vbrchoist-lite（fresh dst 去 dead-reuse） | UB 容量 | s_blk 循环活跃集 +16KB（旧 v3：+16KB 手工 → 195.1KB 实测溢出）；全形态已验证有效，无必要 |
+
+**C. 参照结构 diff 检查（T-1 morph ladder 轻量版）**：同族参照 = 旧任务 final（结构与本 current best 一致，无 diff 可打）/ mamba_ssm Triton GPU 源（fragment 流水，GPU 专有形态，非 NPU 可迁移）/ GQA attention Expert（不同算法族）。**族内无可行动结构差异**。
+
+**D. 残余瓶颈归因**：合并后稳态画像（longctx-2p7b）Cube mte2 仍 83% 忙比 = 1152 段/任务（ws_lcb band 640 + x 256 + ws_c 128 + prev 128）——「Vector 产因子 → GM ws 中继 → Cube 消费」DESIGN 冻结结构的物理流量。**[DESIGN_LIMIT] 判定：不触发**——触发条件②不满足（无 >2x 结构性替代实证：separable 两-kernel 收益不明确，与旧任务判定一致；且 baseline 217.58 与 final 200.18 均落在 DESIGN §1.6.0 估算区间 170–280µs 内，无设计假设矛盾）。按 perf-feedback.md §1 两门槛（须同时满足），禁止产出 perf_feedback.md。
+
+**stop_reason = blocked**（剩余候选全部因数学/容量/编译器/flag 预算/机制证据阻塞；11 个 tune workload 全部 winner_merged；best_effort 结构最优已达成，w2 锚点 200.18µs 优于旧 final 204.33µs）。预算余量充足（3 调优轮 + 1 final 轮 / max_rounds~10；5 实验分支 / 30）。
+
+## 4. Autotune Log
+
+未使用 autotune（结构性优化主导）。参数维度现状：block_l/block_p/block_s 由 UB 容量锁定 64（bl/bs=128 需 357–582KB > 192KB，4515de8 谱系编译探针）；block_n=128 经 `min(bn, N)` 钳位后 N_tiles 恒 1（唯一有效值）；num_stages 为遗留形参（深度 2 任务流水硬编码于 slot 结构，深度 3 已实测否决）。无合法搜索空间可扫。
+
+## 5. Final Summary
+
+（数据见下方 Final Performance Test Data 表——phase=final 记录采集自最终文件 `_ssd_chunk_scan_fwd_kernel.py`（sha256 见 perf_records），第三独立测量。）
+
+- **最终候选**：`perf_opt/_ssd_chunk_scan_fwd_kernel.py`（= Stage 3 基准 + prevhoist + l0c2x + vbrchoist；TUNED_DEFAULT_CONFIG {bl:64, bp:64, bn:128, bs:64, ns:2} 模块级常量暴露，供 wrapper 切换块成对引用）
+- 结构变更四件套（相对 Stage 3 基准）：①prevhoist（prev_states 装载提升出 lt 循环，N_TILES_ONE 快路径 + N_TILES_MULTI 原结构保持）；②l0c2x（L0C acc 乒乓配对循环 + ONE_AND_ODD 尾块，N_TILES_MULTI 保持单 acc 原结构）；③vbrchoist（vbrc hoist 干净形态：fresh dst + diff_mat 死后复用，净零 UB）；④docstring/TUNED 注释更新（交付标识）。
+- 正确性：L0 全绿（7 cases + contract）；bn=64 multi-path 探针 4/4（probe_bn64.py，覆盖 wrapper 默认配置路径）；合并后每轮 L0 通过；最终文件 `--level all` 全量回归（见下）。
+
+### Final Performance Test Data
+
+> 数据 = perf_records.jsonl phase=final 行（candidate_id=final，artifact = `perf_opt/_ssd_chunk_scan_fwd_kernel.py`，sha256 一致；median of 20，NPU 0，TUNED_DEFAULT_CONFIG）。**记录清理披露**：final 阶段原有 13 行，其中 2 行（b1-c2-L64-fp16=31.85µs / b2-c4-L64-fp16=35.25µs，sha 5eab56c1）来自一次被手动中止的采集（docstring 修订前误启动，进程组被杀时已落 2 行，其 raw profile 目录已删除、所测文件版本已被取代）——按"被中止会话的孤儿记录"清理，数值在此留痕（与保留值同分布）。另 baseline 阶段前 3 行为首次采集被 shell 超时连带杀死前的重复记录（同分布，见 §2 注），append-only 保留。
+
+| kernel_id | workload_id | baseline_us | final_us | final_candidate_id |
+|---|---|---:|---:|---|
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | b1-c2-L64-h4-p64-n32-fp16 | 31.83 | 31.52 | final |
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | b2-c4-L64-h8-p64-n64-fp16 | 36.31 | 35.21 | final |
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | b1-c2-L128-h4-p128-n32-bf16 | 36.19 | 35.57 | final |
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | b2-c2-L64-h4-p64-n32-bf16 | 32.06 | 32.96 | final |
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | latency-130m-4k | 123.23 | 113.20 | final |
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | serving-130m-4k | 870.96 | 731.05 | final |
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | longctx-130m-32k | 3493.22 | 2961.78 | final |
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | latency-2p7b-4k | 330.59 | 309.26 | final |
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | serving-2p7b-4k | 1275.40 | 1211.05 | final |
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | longctx-2p7b-32k | 4987.27 | 4724.39 | final |
+| tileops/kernels/mamba/ssd_chunk_scan/ssd_chunk_scan_kernel/perf_opt/_ssd_chunk_scan_fwd_kernel.py::_ssd_chunk_scan_fwd_kernel::main | throughput-2p7b-2k | 638.30 | 606.54 | final |
+
+**逐 workload 提升**（正 = 提速）：b1c2L64fp16 **+1.0%** | b2c4L64fp16 **+3.0%** | b1c2L128bf16 **+1.7%** | b2c2L64bf16 **−2.8%**（欠载域 <3% 噪声带，三测稳定 −1.9/−1.8/−2.8%，见 Round 4 注）| latency-130m **+8.1%** | serving-130m **+16.1%** | longctx-130m **+15.2%** | latency-2p7b **+6.5%** | serving-2p7b **+5.1%** | longctx-2p7b **+5.3%** | throughput-2p7b **+5.0%**。
+- **model-scale（7 workload）几何平均提速 +9.7%**；全 11 workload 几何平均 +6.4%。
+- probe 锚点：w2-780m-s4k 217.58 → 200.18µs（−8.0%，vs 旧二轮 final 204.33µs 复现并略超）。
+- smoke/skip 排除：smoke 集空（11 个 benchmark 案例均无 smoke 标记/字样，profile-collection §1 分类规则）；skip 集空。
+- 精度：最终文件 L0 全绿 + probe_bn64 4/4 + `--level all` 全量回归（L0 7 + contract / L1 6 / L2 4 / Boundary 4，见 logs/final_level_all.log）。
+- **总体结论**：best_effort 调优于候选穷尽点收束（stop_reason=blocked，见 Round 4 分析）；全部 11 tune workload winner_merged；无 perf_feedback（[DESIGN_LIMIT] 双门槛之②不满足，见 Round 4-D）。
+
+## 6. Skill Retrospective
+
+### Skill Flow Issues
+
+| area | issue | evidence | suggested_doc_change | vp_type |
+|---|---|---|---|---|
+| Iteration-diagnosis | **跨引擎单点验证的累积序调制**：vbrchoist 单独叠加在无 prevhoist 的 base 上时 H=80 族回退 −4.2~−6.7%（双引擎 mte2 传输 +22~28%，L2 局部性劣化），曾据此考虑 trace-time H 条件路径；prevhoist 合入后复测回退消失（+2.2~+10.2%）——MixCV 中 AIV 侧候选的单点效应受 Cube 侧 base 状态调制，单点"族分裂/方向翻转"与先验矛盾时须先检验累积序假设 | 本 log R1 机制分析 + R2 复测；perf_records round1_vbrchoist vs round2_vbrchoist（同形态不同 base）；profiles/candidate/round1 vs round2 PipeUtilization diff | iteration-diagnosis.md 增补「跨引擎候选的累积序检验」步骤：与先验矛盾的族分裂 → 先合入对侧已验证胜出再复测，再谈 per-shape 条件路径 | P |
+| SKILL / E-5 工具 | **kb_stale_check 对 docs-only commit 产生全库假阳性**：启动时 stale_count=125，实际 `git diff 15ad002..96f287e` 仅 7 个 .agents/skills 文档文件、tilelang 源码零改动——五项结构否决的 carry-over 论证本可直接成立 | 本 log §0 E-5 段 + git diff --stat（7 文件全 .agents/） | kb_stale_check.py 的 stamp diff 过滤非源码路径（tilelang/ 源码树），区分"编译器变更"与"知识库变更"两类 stale | R |
+| logging / 工件持久化 | **工作树未提交的 perf_opt 无恢复途径**：上一会话 14 个实验分支 + 64 行 records 随目录删除永久丢失；本次重建依赖 repro 骨架自包含性（成功，见 D 类价值点 #2） | 本 log 任务背景 + 重建全程 | conductor/statectl 在 DONE 前做 perf_opt 产物快照（或分支文件入 git stash）；SKILL.md Phase 4 增产物快照提醒 | R |
+| Iteration-diagnosis / 分支验证 | **配置路径覆盖缺口**：tuned bn=128 钳位使 kernel 自带 L0/L1 测试永不触达 N_TILES_MULTI，而 tileops wrapper 默认 bn=64 走该路径——分支验证只跑 `--level`（TUNED 配置）不覆盖全部合法配置 | 本 log probe_bn64.py 4/4（双 dtype × 尾块 × 双 pp）；wrapper default_config 分析 | tilelang-op-optimize SKILL.md / tilelang-op-develop 分支验证清单增「配置路径维度」检查（默认/tuned 双配置 × 关键分支形态） | R |
+| profile-collection / 工具 | **后台 runner 被持久 shell 超时连带杀死**：`cd X && nohup ... &` 中 `&` 作用于整个链，工具超时 SIGKILL 进程组；setsid 脱离后稳定（首次 baseline 采集即事故，产生 3 行重复记录） | 本 log §2 注 + logs/phase1_baseline_all.log 首次启动事故 | run_experiments_template.py 的使用说明内置 setsid 后台运行形态 | R |
+| stop_condition | stop_reason=blocked 有充分支撑（候选穷尽清单 §Round 4 A/B/C + 无漂移锚点 + 工具链 docs-only delta 论证），符合"逐项留痕"要求 | 本 log Round 4 全节 | none | - |
+
+### Value Point Proposals（含 BP_xxx）
+
+| title | vp_type | evidence | repro | toolchain_stamp | target_doc |
+|---|---|---|---|---|---|
+| **跨引擎单点验证的累积序调制**（BP_mixcv_cumulative_order）：MixCV kernel 的 Vector 侧候选单点验证出现与先验矛盾的 workload 族分裂（方向翻转）时，强制先做累积序假设检验（合入已验证的 Cube 侧胜出后复测），再评估 per-shape 条件路径——本例避免了无必要的核内 H 分派并挽留一个胜出结构 | P | opt_log.md#round-1 / #round-2；perf_records round1/round2（已回写 attention.md PL-1.18 重建会话 update #2） | repro/PL-1.18-floor2-wins.py（结构形态）+ 本会话 perf_records（效应数据） | tilelang 0.1.2+96f287eeaa / CANN 8.5.0 / Ascend910B2C | iteration-diagnosis.md（BP proposal）+ attention.md（已回写） |
+| **三胜出可仅凭 repro 骨架重推导**（工件全失场景实证）：perf_opt 全失后从 PL-1.18-floor2-wins.py 骨架重实现 prevhoist/l0c2x/vbrchoist，w2 锚点 217.58→200.18µs（−8.0%）vs 旧二轮 −8.6% 同分布；新 workload 集（11 个，H=24/80 双族）model-scale −5.0~−16.0%——ED-A/ED-B 自包含性经住检验 | D | opt_log.md#round-1..#final-summary + profiles/phase1/probe_w2_{anchor,final}（已回写 attention.md PL-1.18 重建会话 update #1） | repro/PL-1.18-floor2-wins.py（被复证的骨架本体） | 同上 | attention.md PL-1.18（已回写） |
+| **配置路径覆盖缺口**：tuned bn 钳位使自带测试永不触达 N_TILES_MULTI 而 wrapper 默认 bn=64 会走——分支验证覆盖 = shape 维 × 配置路径维笛卡尔积（BP_config_path_coverage） | R | opt_log.md 复盘表 #4；probe_bn64.py 4/4 | perf_opt/probe_bn64.py（任务工件，provenance 允许失效；结论自包含于回写条目） | 同上 | attention.md PL-1.18（update #3，已回写）+ iteration-diagnosis.md（BP proposal） |
+| **kb_stale_check docs-only 假阳性**：125 stale 全因知识库 commit（源码零改动）——stamp diff 应过滤非源码路径，区分编译器变更/知识库变更 | R | opt_log.md 复盘表 #2；`git diff --stat 15ad002..96f287e` | none（git 命令即复现） | 同上 | .agents/tools/kb_stale_check.py（proposal，evolver 路由） |
+| **perf_opt 未提交产物不可恢复**：上会话 14 分支 + 64 行 records 永久丢失；建议 DONE 前产物快照 | R | opt_log.md 任务背景 + 重建全程 | none | 同上 | conductor/statectl（proposal） |
+| **本会话案例索引**（重建型 Stage 4：断裂修复 + 增量调优 + 三胜出重推导，model-scale 几何 +9.7%） | C | opt_log.md 全文 + perf_records.jsonl（102 行） | — | 同上 | pattern-library/cases.md（CASE-ssd-chunkscan-migration 追记候选，evolver 蒸馏时定） |
+
+
+
+
+

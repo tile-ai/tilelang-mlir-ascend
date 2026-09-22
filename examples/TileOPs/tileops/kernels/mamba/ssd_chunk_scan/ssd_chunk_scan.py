@@ -1,9 +1,22 @@
-"""Mamba-2 SSD fused chunk output forward kernel (NPU scaffold).
+"""Mamba-2 State-Space Dual (SSD) fused chunk output forward kernel (NPU-adapted).
 
-Implements the fused history (prev_states) + intra-chunk causal decay path:
+History + intra-chunk paths in one pass:
 
-    out[l, p] = exp(dA_cumsum[l]) * (C[l] @ prev_states)
-              + sum_{s <= l} cb[l, s] * exp(dA_cumsum[l] - dA_cumsum[s]) * dt[s] * x[s, p]
+  out[l, p] = exp(dA_cumsum[l]) * (C[l] @ prev_states)
+            + sum_{s <= l} cb[l, s] * exp(dA_cumsum[l] - dA_cumsum[s]) * dt[s] * x[s, p]
+
+Official-aligned interface (matches _chunk_scan_fwd in mamba_ssm):
+
+Inputs:
+  x:           [B, S, H, P]        dtype       seqlen-fused
+  cb:          [B, C, G, L, L]     dtype       group-owned
+  dA_cumsum:   [B, H, C, L]        float32
+  C:           [B, S, G, N]        dtype       seqlen-fused, group-owned
+  prev_states: [B, C, H, P, N]     float32     P before N
+  dt:          [B, H, C, L]        dtype
+
+Output:
+  out:         [B, S, H, P]        float32     seqlen-fused
 
 Adaptation summary (GPU -> NPU):
 
@@ -12,18 +25,26 @@ Adaptation summary (GPU -> NPU):
     extracted from the GPU repo via ``extract_tl_kernel.py`` and imported
     as-is.  It serves as the reference for the NPU kernel component to
     reimplement for ``target="npuir"``.  K1-K4 adaptations (decorator,
-    grid/sync, ``threads`` removal, padding strategy) are handled by the
-    NPU component during re-implementation.
+    grid/sync semantics, ``threads`` removal, padding strategy) are
+    handled by the NPU kernel component during re-implementation.
 
   **Part B -- custom_op wrapper + Kernel class** (fully ported):
     K5: ``supported_archs = None`` (was ``[80, 86, 89, 90]``).
     K7: ``custom_op("npub::ssd_chunk_scan_fwd")`` (was ``"top::..."``).
-    K8: ``autotune_configs`` / ``autotune()`` / ``tune`` param -- removed.
-    K9: ``threads`` removed from ``default_config`` and ``forward`` call.
+    K8: ``autotune_configs`` / ``tune`` param removed; heuristic config
+        selection only (``init_config(config)``).
+    K9: ``threads`` removed from the wrapper signature, ``default_config``
+        and the ``forward`` call.  ``num_stages`` is retained (pipeline
+        depth for ``T.Pipelined``; not a CUDA thread parameter).
 
-    The custom_op wrapper and Kernel class are ported in full; they call the
-    imported GPU factory (extracted in Part A), which will not run on NPU
-    until the NPU component rewrites it for ``target="npuir"``.
+  Pre-Stage-3 note: the imported factory is still the GPU (CUDA target)
+  implementation whose inner callable takes
+  ``(block_l, block_p, block_n, block_s, threads, num_stages)``.  The
+  dispatch below passes the NPU-shaped argument list (no ``threads``);
+  it becomes callable once the NPU kernel component rewrites the factory
+  for ``target="npuir"`` and drops ``threads`` from the callable
+  signature (K3).  Running ``forward`` before that rewrite fails -- this
+  is the expected scaffold state.
 """
 
 from typing import Optional
@@ -32,6 +53,8 @@ import torch
 
 from tileops.kernels.kernel_base import Kernel
 
+# Part A: GPU TileLang kernel factory extracted by extract_tl_kernel.py
+# (pattern B) from {gpu_repo_root}/tileops/kernels/mamba/ssd_chunk_scan.py.
 # ---------------------------------------------------------------------------
 # Kernel source selection: baseline vs perf_opt (Stage 4 tuned)
 #
@@ -52,7 +75,7 @@ __all__ = ["SSDChunkScanFwdKernel"]
 
 
 # ---------------------------------------------------------------------------
-# custom_op wrapper (K7: top:: -> npub::, K9: threads removed)
+# custom_op wrapper (K7: top:: -> npub::; K9: threads removed)
 # ---------------------------------------------------------------------------
 
 
@@ -78,15 +101,15 @@ def _ssd_chunk_scan_fwd_wrapped(
     prev_states: torch.Tensor,
     dt: torch.Tensor,
 ) -> torch.Tensor:
+    # GPU callable signature (pre-Stage-3): (block_l, block_p, block_n,
+    # block_s, threads, num_stages).  The NPU-shaped call below omits
+    # `threads` (K3/K9); it binds 1:1 once the NPU kernel component
+    # rewrites the factory for target="npuir".
     return _ssd_chunk_scan_fwd_kernel(
-        batch, num_chunks, chunk_len, n_heads, d_head, d_state, n_groups, dtype
-    )(
-        block_l,
-        block_p,
-        block_n,
-        block_s,
-        num_stages,
-    )(x, cb, dA_cumsum, C, prev_states, dt)
+        batch, num_chunks, chunk_len, n_heads, d_head, d_state, n_groups, dtype,
+    )(block_l, block_p, block_n, block_s, num_stages)(
+        x, cb, dA_cumsum, C, prev_states, dt,
+    )
 
 
 @_ssd_chunk_scan_fwd_wrapped.register_fake
@@ -113,9 +136,13 @@ def _(
 ) -> torch.Tensor:
     # output: [B, S, H, P]
     return x.new_empty(
-        (batch, num_chunks * chunk_len, n_heads, d_head),
-        dtype=torch.float32,
+        (batch, num_chunks * chunk_len, n_heads, d_head), dtype=torch.float32,
     )
+
+
+# ---------------------------------------------------------------------------
+# Kernel class (K5/K8/K9 adaptations)
+# ---------------------------------------------------------------------------
 
 
 class SSDChunkScanFwdKernel(Kernel):
@@ -134,9 +161,13 @@ class SSDChunkScanFwdKernel(Kernel):
     Output:
       out:         [B, S, H, P]        float32     seqlen-fused
 
-    NPU adaptation (K8): autotune has been removed; the kernel uses
-    heuristic config selection only.  ``init_config(config)`` takes no
-    ``tune`` argument.
+    NPU adaptations:
+      K5: ``supported_archs = None`` (all architectures; GPU pinned CUDA
+          SM ints).
+      K8: autotune removed -- heuristic config selection only;
+          ``init_config(config)`` takes no ``tune`` argument.
+      K9: ``threads`` removed from ``default_config`` and the
+          ``forward`` dispatch (GPU default was ``threads=128``).
     """
 
     ascend_mode = "Expert"
@@ -155,6 +186,7 @@ class SSDChunkScanFwdKernel(Kernel):
         n_groups: int,
         dtype: torch.dtype,
         config: Optional[dict] = None,
+        device_index: int | None = None,
     ) -> None:
         super().__init__()
         self.batch = batch
@@ -165,29 +197,26 @@ class SSDChunkScanFwdKernel(Kernel):
         self.d_state = d_state
         self.n_groups = n_groups
         self.dtype = dtype
+        self.device_index = device_index
         self.kernel = _ssd_chunk_scan_fwd_kernel(
-            batch,
-            num_chunks,
-            chunk_len,
-            n_heads,
-            d_head,
-            d_state,
-            n_groups,
-            self.dtype_str,
+            batch, num_chunks, chunk_len, n_heads, d_head, d_state, n_groups, self.dtype_str,
         )
         self.init_config(config)
 
     @property
     def default_config(self) -> dict:
-        # Tuned defaults matching the active perf_opt source (Stage 4 TUNED_DEFAULT_CONFIG;
-        # see ssd_chunk_scan_kernel/perf_opt/opt_log.md R3/R6): block_n=128 (clamped to
-        # min(bn, N) inside the kernel factory), num_stages=2. If the kernel source
-        # switch block is flipped back to the baseline (Stage 3) source, restore
-        # {"block_n": min(64, self.d_state), "num_stages": 3}.
+        # NPU tuned default, aligned with the kernel `TUNED_DEFAULT_CONFIG`
+        # (integration_log documented intent: block_n=min(128,N)/num_stages=2).
+        # block_n=128 collapses the d_state=128 manifest cases to a single
+        # n-block (DESIGN §5.2, v6_bn128: w2 −10.5% / w3 −5.0% / w4 −15.7%);
+        # the kernel clamps block_n internally to min(block_n, N), so N<128
+        # falls back safely.  num_stages is a factory-signature placeholder:
+        # the NPU Expert kernel hardcodes the depth-2 task pipeline and does
+        # not consume num_stages (kept =2 for source-compatible signatures).
         return {
             "block_l": 64,
             "block_p": 64,
-            "block_n": 128,
+            "block_n": min(128, self.d_state),
             "block_s": 64,
             "num_stages": 2,
         }
@@ -213,24 +242,12 @@ class SSDChunkScanFwdKernel(Kernel):
         Returns:
             out: [B, S, H, P]  float32
         """
+        # K9: no `threads` in the dispatch.
         return _ssd_chunk_scan_fwd_wrapped(
-            self.batch,
-            self.num_chunks,
-            self.chunk_len,
-            self.n_heads,
-            self.d_head,
-            self.d_state,
-            self.n_groups,
-            self.dtype_str,
-            self.config["block_l"],
-            self.config["block_p"],
-            self.config["block_n"],
-            self.config["block_s"],
-            self.config["num_stages"],
-            x.contiguous(),
-            cb.contiguous(),
-            dA_cumsum.contiguous(),
-            C.contiguous(),
-            prev_states.contiguous(),
-            dt.contiguous(),
+            self.batch, self.num_chunks, self.chunk_len, self.n_heads,
+            self.d_head, self.d_state, self.n_groups, self.dtype_str,
+            self.config["block_l"], self.config["block_p"], self.config["block_n"],
+            self.config["block_s"], self.config["num_stages"],
+            x.contiguous(), cb.contiguous(), dA_cumsum.contiguous(),
+            C.contiguous(), prev_states.contiguous(), dt.contiguous(),
         )

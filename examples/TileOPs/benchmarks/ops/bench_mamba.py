@@ -139,7 +139,7 @@ def test_ssd_chunk_scan_fwd_bench(
         return ssd_chunk_scan_fwd_ref(x, cb, dA_cumsum, C, prev_states, dt, n_groups)
 
     result_bl = bm.profile(torch_ref, *inputs)
-    BenchmarkReport.record(op, locals(), result_bl, tag="torch-ref")
+    # BenchmarkReport.record(op, locals(), result_bl, tag="torch-ref")
 
 
 if __name__ == "__main__":

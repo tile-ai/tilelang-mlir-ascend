@@ -4,9 +4,9 @@
 import tilelang.language as T
 from typing import Union, Tuple, Optional, Literal, Callable
 from tilelang.common import TransformKind
-from tvm import DataType
-from tvm.tir import PrimExpr, IndexMap, Buffer
-from tvm.runtime import convert
+from tilelang.tvm import DataType
+from tilelang.tvm.tir import PrimExpr, IndexMap, Buffer
+from tilelang.tvm.runtime import convert
 from .utils import (
     mma_store_index_map,
     get_ldmatrix_offset,

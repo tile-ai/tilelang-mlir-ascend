@@ -1,12 +1,14 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 
+import os
 import shutil
 
 from typing import Literal, Union
+from tilelang.env import THIRD_PARTY_ROOT
 from tilelang import tvm as tvm
-from tvm.target import Target
-from tvm.contrib import rocm
+from tilelang.tvm.target import Target
+from tilelang.tvm.contrib import rocm
 from tilelang.contrib import nvcc
 
 AVALIABLE_TARGETS = {
@@ -16,7 +18,7 @@ AVALIABLE_TARGETS = {
     "webgpu",
     "c",  # represent c source backend
     "llvm",
-    "npuir"
+    "npuir",
 }
 
 
@@ -46,8 +48,9 @@ def check_hip_availability() -> bool:
         return False
 
 
-def determine_target(target: Union[str, Target, Literal["auto"]] = "auto",
-                     return_object: bool = False) -> Union[str, Target]:
+def determine_target(
+    target: Union[str, Target, Literal["auto"]] = "auto", return_object: bool = False
+) -> Union[str, Target]:
     """
     Determine the appropriate target for compilation (CUDA, HIP, or manual selection).
 
@@ -70,7 +73,9 @@ def determine_target(target: Union[str, Target, Literal["auto"]] = "auto",
         # Check for CUDA and HIP availability
         is_cuda_available = check_cuda_availability()
         is_hip_available = check_hip_availability()
-        is_npuir_available = shutil.which('bishengir-compile')
+        is_npuir_available = shutil.which(
+            "bishengir-compile", path=os.path.join(THIRD_PARTY_ROOT, "bin")
+        ) or shutil.which("bishengir-compile")
 
         # Determine the target based on availability
         if is_cuda_available:
@@ -83,8 +88,9 @@ def determine_target(target: Union[str, Target, Literal["auto"]] = "auto",
             raise ValueError("No CUDA or HIP available on this system.")
     else:
         # Validate the target if it's not "auto"
-        assert isinstance(
-            target, Target) or target in AVALIABLE_TARGETS, f"Target {target} is not supported"
+        assert isinstance(target, Target) or target in AVALIABLE_TARGETS, (
+            f"Target {target} is not supported"
+        )
         return_var = target
 
     if return_object:

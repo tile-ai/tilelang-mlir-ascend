@@ -3,7 +3,7 @@
 """The language interface for tl programs."""
 
 import tilelang.language as T
-from tvm.tir import PrimExpr, Buffer, BufferRegion, BufferLoad, Var
+from tilelang.tvm.tir import PrimExpr, Buffer, BufferRegion, BufferLoad, Var
 from typing import List, Union
 
 

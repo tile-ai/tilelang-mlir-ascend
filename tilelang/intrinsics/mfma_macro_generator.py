@@ -4,9 +4,9 @@
 from tilelang import tvm as tvm
 import tilelang.language as T
 from typing import Tuple
-from tvm import DataType
-from tvm.tir import PrimExpr
-from tvm.runtime import convert
+from tilelang.tvm import DataType
+from tilelang.tvm.tir import PrimExpr
+from tilelang.tvm.runtime import convert
 from typing import Optional
 from .utils import (
     mfma_store_index_map,)

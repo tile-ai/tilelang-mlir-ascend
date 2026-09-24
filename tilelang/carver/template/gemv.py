@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 from .base import BaseTemplate, AscendArch
-from tvm import te
+from tilelang.tvm import te
 from ..roller import Hint
 from typing import List
 from ..utils import get_roller_hints_from_func

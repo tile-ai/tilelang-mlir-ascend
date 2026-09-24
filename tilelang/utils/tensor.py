@@ -5,8 +5,8 @@ from __future__ import annotations
 """The profiler and convert to torch utils"""
 from enum import Enum
 import torch
-from tvm.runtime import ndarray
-from tvm import tir
+from tilelang.tvm.runtime import ndarray
+from tilelang.tvm import tir
 from torch.utils.dlpack import to_dlpack
 import numpy as np
 

@@ -150,6 +150,16 @@ def OptimizeForTarget(mod: IRModule, target: Target) -> IRModule:
         if pass_ctx.config.get("tl.enable_plan_and_update_buffer_allocation", True):
             mod = tilelang.transform.PlanAndUpdateBufferAllocationLocation()(mod)
         mod = tir.transform.LowerOpaqueBlock()(mod)
+        # Early-fail diagnostic: catch UB-budget overflow here with a
+        # readable message and a suggested block_M, instead of letting
+        # bishengir fail with an opaque "ub overflow" several seconds
+        # later. The pass is purely diagnostic — it never rewrites IR.
+        # Inserted AFTER LowerOpaqueBlock so the block-level alloc_buffers
+        # have materialised into explicit AllocateNodes.
+        # Can be opted out via `tl.disable_ub_budget_check=True` in the
+        # pass context if a user wants to force the bishengir path.
+        if not pass_ctx.config.get("tl.disable_ub_budget_check", False):
+            mod = tilelang.transform.CheckUBBudget()(mod)
         mod = tilelang.transform.LowerNpuirBlock()(mod)
         mod = tir.transform.RemoveNoOp()(mod)
         return mod

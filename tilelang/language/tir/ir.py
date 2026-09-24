@@ -1,18 +1,17 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 
-import tvm.script.ir_builder.tir.ir as _ir
-from tvm.script.ir_builder.tir import frame
-from tvm.tir import PrimExpr
+import tilelang.tvm.script.ir_builder.tir.ir as _ir
+from tilelang.tvm.script.ir_builder.tir import frame
+from tilelang.tvm.tir import PrimExpr
 from typing import Any, Dict
 import tilelang.language.tir.op as _tir_op
 import functools
 
 
-def serial(start: PrimExpr,
-           stop: PrimExpr = None,
-           *,
-           annotations: Dict[str, Any] = None) -> frame.ForFrame:
+def serial(
+    start: PrimExpr, stop: PrimExpr = None, *, annotations: Dict[str, Any] = None
+) -> frame.ForFrame:
     """The serial For statement.
 
     Parameters
@@ -34,10 +33,9 @@ def serial(start: PrimExpr,
     return _ir.serial(start=start, stop=stop, annotations=annotations)
 
 
-def parallel(start: PrimExpr,
-             stop: PrimExpr = None,
-             *,
-             annotations: Dict[str, Any] = None) -> frame.ForFrame:
+def parallel(
+    start: PrimExpr, stop: PrimExpr = None, *, annotations: Dict[str, Any] = None
+) -> frame.ForFrame:
     """The parallel For statement.
 
     Parameters
@@ -59,10 +57,9 @@ def parallel(start: PrimExpr,
     return _ir.parallel(start=start, stop=stop, annotations=annotations)
 
 
-def vectorized(start: PrimExpr,
-               stop: PrimExpr = None,
-               *,
-               annotations: Dict[str, Any] = None) -> frame.ForFrame:
+def vectorized(
+    start: PrimExpr, stop: PrimExpr = None, *, annotations: Dict[str, Any] = None
+) -> frame.ForFrame:
     """The vectorized For statement.
 
     Parameters
@@ -84,10 +81,9 @@ def vectorized(start: PrimExpr,
     return _ir.vectorized(start=start, stop=stop, annotations=annotations)
 
 
-def unroll(start: PrimExpr,
-           stop: PrimExpr = None,
-           *,
-           annotations: Dict[str, Any] = None) -> frame.ForFrame:
+def unroll(
+    start: PrimExpr, stop: PrimExpr = None, *, annotations: Dict[str, Any] = None
+) -> frame.ForFrame:
     """The unrolled For statement.
 
     Parameters
@@ -137,7 +133,9 @@ def thread_binding(
     res : frame.ForFrame
         The ForFrame.
     """
-    return _ir.thread_binding(start=start, stop=stop, thread=thread, annotations=annotations)
+    return _ir.thread_binding(
+        start=start, stop=stop, thread=thread, annotations=annotations
+    )
 
 
 def grid(*extents: PrimExpr) -> frame.ForFrame:

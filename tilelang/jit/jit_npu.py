@@ -19,9 +19,9 @@ from ..utils import (
     safe_copy,
 )
 
-from tvm import tir
-from tvm.tir import PrimFunc
-from tvm import transform
+from tilelang.tvm import tir
+from tilelang.tvm.tir import PrimFunc
+from tilelang.tvm import transform
 
 from tilelang.profiler import Profiler, TensorSupplyType
 from tilelang.transform.pass_config import normalize_pass_configs
@@ -278,7 +278,7 @@ def _eval_tir_expr(expr, dynamic_val):
             _eval_tir_expr(expr.a, dynamic_val), _eval_tir_expr(expr.b, dynamic_val)
         )
 
-    from tvm import arith
+    from tilelang.tvm import arith
 
     vars_found = _collect_tir_vars(expr)
     vmap = {}

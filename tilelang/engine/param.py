@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import List, Union, Optional
 import torch
 from tilelang import tvm as tvm
-from tvm.tir import Buffer, IntImm, Var, PrimExpr
+from tilelang.tvm.tir import Buffer, IntImm, Var, PrimExpr
 from tilelang.utils.tensor import map_torch_type
 
 

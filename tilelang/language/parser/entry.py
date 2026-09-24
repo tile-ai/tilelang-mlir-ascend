@@ -18,20 +18,21 @@
 # which is part of the TVM project (https://tvm.apache.org/).
 # ruff: noqa
 """The entry point of TVM parser for tir."""
+
 import inspect
 from typing import Callable, Optional, Union
 
-from tvm.ir.base import deprecated
-from tvm.tir import Buffer, PrimFunc
+from tilelang.tvm.ir.base import deprecated
+from tilelang.tvm.tir import Buffer, PrimFunc
 
 from ..ast import buffer, ptr
-from tvm.script.parser._core import parse, scan_macro, utils
-from tvm.script.parser.core.parser import Parser, ScriptMacro
+from tilelang.tvm.script.parser._core import parse, scan_macro, utils
+from tilelang.tvm.script.parser.core.parser import Parser, ScriptMacro
 
 
-def prim_func(func: Optional[Callable] = None,
-              private: bool = False,
-              check_well_formed=True) -> Union[PrimFunc, Callable]:
+def prim_func(
+    func: Optional[Callable] = None, private: bool = False, check_well_formed=True
+) -> Union[PrimFunc, Callable]:
     """The parsing method for tir prim func, by using `@prim_func` as decorator.
 
     Parameters
@@ -65,7 +66,11 @@ def prim_func(func: Optional[Callable] = None,
             raise TypeError(f"Expect a function, but got: {func}")
         if utils.is_defined_in_class(outer_stack, func):
             return func
-        f = parse(func, utils.inspect_function_capture(func), check_well_formed=check_well_formed)
+        f = parse(
+            func,
+            utils.inspect_function_capture(func),
+            check_well_formed=check_well_formed,
+        )
         setattr(f, "__name__", func.__name__)
         return f
 
@@ -150,7 +155,8 @@ def macro(*args, hygienic: bool = True) -> Callable:
         return _decorator(args[0])
 
     raise ValueError(
-        "Invalid use of T.macro. Usage: @T.macro, @T.macro(), @T.macro(hygienic=[True|False])")
+        "Invalid use of T.macro. Usage: @T.macro, @T.macro(), @T.macro(hygienic=[True|False])"
+    )
 
 
 class BufferProxy:

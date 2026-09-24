@@ -3,6 +3,7 @@
 # pylint: disable=invalid-name
 # modified from apache tvm python/tvm/contrib/nvcc.py
 """Utility to invoke nvcc compiler in the system"""
+
 from __future__ import absolute_import as _abs
 
 import os
@@ -10,19 +11,17 @@ import subprocess
 import warnings
 from ..env import CUDA_HOME
 
-import tvm._ffi
-from tvm.target import Target
+import tilelang.tvm._ffi  # noqa: F401
+from tilelang import tvm
+from tilelang.tvm.target import Target
 
-from tvm._ffi.base import py_str
-from tvm.contrib import utils
+from tilelang.tvm._ffi.base import py_str
+from tilelang.tvm.contrib import utils
 
 
-def compile_cuda(code,
-                 target_format="ptx",
-                 arch=None,
-                 options=None,
-                 path_target=None,
-                 verbose=False):
+def compile_cuda(
+    code, target_format="ptx", arch=None, options=None, path_target=None, verbose=False
+):
     """Compile cuda code with NVCC from env.
 
     Parameters
@@ -55,7 +54,8 @@ def compile_cuda(code,
         #   "-gencode", "arch=compute_70,code=sm_70"
         # ]
         compute_version = "".join(
-            get_target_compute_version(Target.current(allow_none=True)).split("."))
+            get_target_compute_version(Target.current(allow_none=True)).split(".")
+        )
         arch = ["-gencode", f"arch=compute_{compute_version},code=sm_{compute_version}"]
 
     temp = utils.tempdir()
@@ -66,7 +66,7 @@ def compile_cuda(code,
     temp_target = temp.relpath(f"{file_name}.{target_format}")
 
     pass_context = tvm.get_global_func("transform.GetCurrentPassContext")()
-    kernels_output_dir = (pass_context.config.get("cuda.kernels_output_dir", None))
+    kernels_output_dir = pass_context.config.get("cuda.kernels_output_dir", None)
     if kernels_output_dir is not None:
         if not os.path.isdir(kernels_output_dir):
             os.makedirs(kernels_output_dir)
@@ -113,10 +113,7 @@ def compile_cuda(code,
         print(py_str(out))
 
     if proc.returncode != 0:
-        msg = f"{code}\n" \
-            f"Compilation error:\n" \
-            f"{py_str(out)}\n" \
-            f"Command: {' '.join(cmd)}\n"
+        msg = f"{code}\nCompilation error:\n{py_str(out)}\nCommand: {' '.join(cmd)}\n"
         raise RuntimeError(msg)
 
     with open(file_target, "rb") as f:
@@ -128,7 +125,7 @@ def compile_cuda(code,
 
 def find_cuda_path():
     """Utility function to find cuda path
-    
+
     Returns
     -------
     path : str
@@ -296,8 +293,10 @@ def get_target_compute_version(target=None):
     if tvm.cuda(0).exist:
         return tvm.cuda(0).compute_version
 
-    raise ValueError("No CUDA architecture was specified or GPU detected."
-                     "Try specifying it by adding '-arch=sm_xx' to your target.")
+    raise ValueError(
+        "No CUDA architecture was specified or GPU detected."
+        "Try specifying it by adding '-arch=sm_xx' to your target."
+    )
 
 
 def parse_compute_version(compute_version):
@@ -374,7 +373,8 @@ def have_tensorcore(compute_version=None, target=None):
                 warnings.warn(
                     "Tensorcore will be disabled due to no CUDA architecture specified."
                     "Try specifying it by adding '-arch=sm_xx' to your target.",
-                    stacklevel=2)
+                    stacklevel=2,
+                )
                 return False
             compute_version = target.attrs["arch"]
             # Compute version will be in the form "sm_{major}{minor}"

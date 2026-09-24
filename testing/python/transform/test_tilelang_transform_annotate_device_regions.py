@@ -3,7 +3,7 @@
 
 import tilelang
 import tilelang.testing
-from tvm.script import tir as T
+from tilelang.tvm.script import tir as T
 
 
 class BaseCompare(tilelang.testing.CompareBeforeAfter):

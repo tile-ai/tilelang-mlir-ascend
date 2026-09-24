@@ -2,8 +2,8 @@
 # Licensed under the MIT License.
 
 from typing import Callable, Union
-from tvm import register_func
-from tvm.target import Target
+from tilelang.tvm import register_func
+from tilelang.tvm.target import Target
 
 
 def register_cuda_postproc(func: Callable[[str, Target], str], override: bool = True):
@@ -28,7 +28,9 @@ def register_hip_postproc(func: Callable[[str, Target], str], override: bool = T
     register_func("tilelang_callback_hip_postproc", f=func, override=override)
 
 
-def register_cuda_postproc_callback(func: Union[Callable, bool] = None, override: bool = True):
+def register_cuda_postproc_callback(
+    func: Union[Callable, bool] = None, override: bool = True
+):
     """Decorator for registering CUDA post-processing callback function.
 
     Can be used with or without parentheses:
@@ -61,7 +63,9 @@ def register_cuda_postproc_callback(func: Union[Callable, bool] = None, override
     raise TypeError("Invalid decorator usage")
 
 
-def register_hip_postproc_callback(func: Union[Callable, bool] = None, override: bool = True):
+def register_hip_postproc_callback(
+    func: Union[Callable, bool] = None, override: bool = True
+):
     """Decorator for registering HIP post-processing callback function.
 
     Can be used with or without parentheses:

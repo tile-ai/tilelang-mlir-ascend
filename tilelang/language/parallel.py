@@ -3,7 +3,7 @@
 """The language interface for tl programs."""
 
 from typing import Optional, Dict, Any
-from tvm import tir
+from tilelang.tvm import tir
 from tilelang import _ffi_api
 
 

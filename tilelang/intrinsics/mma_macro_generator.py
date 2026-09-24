@@ -4,9 +4,9 @@
 import tilelang.language as T
 from typing import Union, Tuple, Optional, Literal, Callable
 from tilelang.common import TransformKind
-from tvm import DataType
-from tvm.tir import PrimExpr, IndexMap, Buffer
-from tvm.runtime import convert
+from tilelang.tvm import DataType
+from tilelang.tvm.tir import PrimExpr, IndexMap, Buffer
+from tilelang.tvm.runtime import convert
 from .utils import (
     mma_store_index_map,
     get_ldmatrix_offset,
@@ -124,9 +124,8 @@ class TensorCoreIntrinEmitter(object):
         return inverse_index_map
 
     def extract_thread_binding(
-            self,
-            thread_id: PrimExpr,
-            is_m_first: Optional[bool] = None) -> Tuple[PrimExpr, PrimExpr, PrimExpr]:
+        self, thread_id: PrimExpr, is_m_first: Optional[bool] = None
+    ) -> Tuple[PrimExpr, PrimExpr, PrimExpr]:
         """
         is_m_first: True if the thread binding is in the form of (tx, warp_n, warp_m)
         which represents [warp_size, block_row_warps (split n), block_col_warps (split m)]
@@ -155,11 +154,13 @@ class TensorCoreIntrinEmitter(object):
             )
             return lane_id, warp_n, warp_m
 
-    def ldmatrix_a(self,
-                   A_local_buf: Buffer,
-                   A_shared_buf: Buffer,
-                   ki: PrimExpr,
-                   rk: Optional[PrimExpr] = 0):
+    def ldmatrix_a(
+        self,
+        A_local_buf: Buffer,
+        A_shared_buf: Buffer,
+        ki: PrimExpr,
+        rk: Optional[PrimExpr] = 0,
+    ):
         warp_row_tiles = self.warp_row_tiles
         warp_rows = self.warp_rows
         chunk = self.chunk
@@ -190,20 +191,24 @@ class TensorCoreIntrinEmitter(object):
                     ".b16",
                     A_local_buf.data,
                     i * local_size_a,
-                    T.address_of(A_shared_buf[
-                        warp_m * warp_row_tiles + i * micro_size_x,
-                        rk * chunk + ki * micro_size_k,
-                    ]),
+                    T.address_of(
+                        A_shared_buf[
+                            warp_m * warp_row_tiles + i * micro_size_x,
+                            rk * chunk + ki * micro_size_k,
+                        ]
+                    ),
                     get_ldmatrix_offset("A", tx, 0, stride, a_dtype, a_transposed),
                 )
 
         return _warp_ldmatrix_a(A_local_buf, A_shared_buf, ki, thread_binding, rk)
 
-    def ldmatrix_b(self,
-                   B_local_buf: Buffer,
-                   B_shared_buf: Buffer,
-                   ki: PrimExpr,
-                   rk: Optional[PrimExpr] = 0):
+    def ldmatrix_b(
+        self,
+        B_local_buf: Buffer,
+        B_shared_buf: Buffer,
+        ki: PrimExpr,
+        rk: Optional[PrimExpr] = 0,
+    ):
         warp_col_tiles = self.warp_col_tiles
         warp_cols = self.warp_cols
         chunk = self.chunk
@@ -247,11 +252,13 @@ class TensorCoreIntrinEmitter(object):
 
         return _warp_ldmatrix_b(B_local_buf, B_shared_buf, ki, thread_binding, rk)
 
-    def mma(self,
-            A_local_buf: Buffer,
-            B_local_buf: Buffer,
-            C_local_buf: Buffer,
-            k_inner: Optional[PrimExpr] = 0):
+    def mma(
+        self,
+        A_local_buf: Buffer,
+        B_local_buf: Buffer,
+        C_local_buf: Buffer,
+        k_inner: Optional[PrimExpr] = 0,
+    ):
         warp_rows = self.warp_rows
         warp_cols = self.warp_cols
         local_size_a = self.local_size_a
@@ -265,8 +272,12 @@ class TensorCoreIntrinEmitter(object):
 
         a_is_fragment = is_fragment(A_local_buf)
         b_is_fragment = is_fragment(B_local_buf)
-        a_local_stride: PrimExpr = k_inner * warp_rows * local_size_a if a_is_fragment else 0
-        b_local_stride: PrimExpr = k_inner * warp_cols * local_size_b if b_is_fragment else 0
+        a_local_stride: PrimExpr = (
+            k_inner * warp_rows * local_size_a if a_is_fragment else 0
+        )
+        b_local_stride: PrimExpr = (
+            k_inner * warp_cols * local_size_b if b_is_fragment else 0
+        )
 
         @T.macro
         def _warp_mma(A_local_buf, B_local_buf, C_local_buf):
@@ -301,7 +312,9 @@ class TensorCoreIntrinEmitter(object):
                     B_local_buf.data,
                     b_local_stride + j * local_size_b + lift(local_size_b) // 2,
                     C_local_buf.data,
-                    i * warp_cols * local_size_out + j * local_size_out + lift(local_size_out) // 2,
+                    i * warp_cols * local_size_out
+                    + j * local_size_out
+                    + lift(local_size_out) // 2,
                     T.bool(False),
                 )
 
@@ -337,14 +350,22 @@ class TensorCoreIntrinEmitter(object):
                         local_id = local_id_o * 2 + local_id_i
                         row, col = T.meta_var(mma_store_index_map(tx, local_id))
                         if C_buf_dims == 2:
-                            C_buf[(warp_m * warp_rows + i) * M_DIM + row,
-                                  (warp_n * warp_cols + j) * N_DIM +
-                                  col] = C_local_buf[i * (warp_cols * local_size_out) +
-                                                     j * local_size_out + local_id]
+                            C_buf[
+                                (warp_m * warp_rows + i) * M_DIM + row,
+                                (warp_n * warp_cols + j) * N_DIM + col,
+                            ] = C_local_buf[
+                                i * (warp_cols * local_size_out)
+                                + j * local_size_out
+                                + local_id
+                            ]
                         else:
-                            C_buf[warp_m * warp_rows + i, warp_n * warp_cols + j, row,
-                                  col] = C_local_buf[i * (warp_cols * local_size_out) +
-                                                     j * local_size_out + local_id]
+                            C_buf[
+                                warp_m * warp_rows + i, warp_n * warp_cols + j, row, col
+                            ] = C_local_buf[
+                                i * (warp_cols * local_size_out)
+                                + j * local_size_out
+                                + local_id
+                            ]
 
         @T.macro
         def _warp_stmatrix_global(C_local_buf, C_buf, thread_binding):
@@ -357,15 +378,21 @@ class TensorCoreIntrinEmitter(object):
                         C_buf[
                             (pid_m * BLOCK_M + warp_m * warp_rows + i) * M_DIM + row,
                             (pid_n * BLOCK_N + warp_n * warp_cols + j) * N_DIM + col,
-                        ] = C_local_buf[i * warp_cols * local_size_out + j * local_size_out +
-                                        local_id]
+                        ] = C_local_buf[
+                            i * warp_cols * local_size_out
+                            + j * local_size_out
+                            + local_id
+                        ]
 
-        return (_warp_stmatrix_global(C_local_buf, C_buf, thread_binding)
-                if is_global else _warp_stmatrix_shared(C_local_buf, C_buf, thread_binding))
+        return (
+            _warp_stmatrix_global(C_local_buf, C_buf, thread_binding)
+            if is_global
+            else _warp_stmatrix_shared(C_local_buf, C_buf, thread_binding)
+        )
 
-    def make_mma_load_layout(self,
-                             local_buf: Buffer,
-                             matrix: Literal["A", "B"] = "A") -> T.Fragment:
+    def make_mma_load_layout(
+        self, local_buf: Buffer, matrix: Literal["A", "B"] = "A"
+    ) -> T.Fragment:
         """
         Create a layout function for storing MMA results into a fragment buffer.
         This layout is used in conjunction with `inverse_mma_store_layout` to
@@ -394,6 +421,7 @@ class TensorCoreIntrinEmitter(object):
             shared_16x32_to_mma_32x16_layout,
             shared_32x16_to_mma_32x16_layout,
         )
+
         assert matrix in ["A", "B"], "matrix should be either A or B"
         dtype = self.a_dtype if matrix == "A" else self.b_dtype
         dtype_bits = DataType(dtype).bits
@@ -418,10 +446,13 @@ class TensorCoreIntrinEmitter(object):
         is_sr_conditions.append(matrix == "B" and transposed)
         is_sr_axis_order = any(is_sr_conditions)
 
-        transform_func: Callable = transform_func_sr if is_sr_axis_order else transform_func_rs
+        transform_func: Callable = (
+            transform_func_sr if is_sr_axis_order else transform_func_rs
+        )
 
-        assert is_fragment(local_buf), "local_buf must be a fragment, but got {}".format(
-            local_buf.scope())
+        assert is_fragment(local_buf), (
+            "local_buf must be a fragment, but got {}".format(local_buf.scope())
+        )
 
         if matrix == "A":
             micro_size_s, micro_size_r = self.micro_size_x, self.micro_size_k
@@ -436,7 +467,9 @@ class TensorCoreIntrinEmitter(object):
         warp_s = warp_rows if matrix == "A" else warp_cols
         chunk = self.chunk
         transform_func = transform_func
-        inverse_mma_load_layout = IndexMap.from_func(transform_func, index_dtype="int32")
+        inverse_mma_load_layout = IndexMap.from_func(
+            transform_func, index_dtype="int32"
+        )
 
         def forward_thread(i: int, j: int) -> int:
             """
@@ -457,11 +490,14 @@ class TensorCoreIntrinEmitter(object):
             forward_thread_fn=forward_thread,
             forward_index_fn=forward_index,
         )
-        warp_fragment = base_fragment.repeat([block_row_warps, 1],
-                                             repeat_on_thread=True).replicate(block_col_warps)
-        block_fragment = warp_fragment.repeat([warp_s, chunk // micro_size_r],
-                                              repeat_on_thread=False,
-                                              lower_dim_first=False)
+        warp_fragment = base_fragment.repeat(
+            [block_row_warps, 1], repeat_on_thread=True
+        ).replicate(block_col_warps)
+        block_fragment = warp_fragment.repeat(
+            [warp_s, chunk // micro_size_r],
+            repeat_on_thread=False,
+            lower_dim_first=False,
+        )
         print(f"base_fragment: {base_fragment}")
         print(f"warp_fragment: {warp_fragment}")
         print(f"block_fragment: {block_fragment}")
@@ -508,14 +544,25 @@ class TensorCoreIntrinEmitter(object):
             """
             # the upper bounds of i and j are block_row_warps * warp_rows * micro_size_x and block_col_warps * warp_cols * micro_size_y
             # the upper bounds of block_row_warps and block_col_warps are warp_rows and warp_cols
-            block_i, block_j = (i // micro_size_x) // warp_rows, (j // micro_size_y) // warp_cols
+            block_i, block_j = (
+                (i // micro_size_x) // warp_rows,
+                (j // micro_size_y) // warp_cols,
+            )
             # upper bounds of mma_i and mma_j are micro_size_x and micro_size_y
             mma_i, mma_j = i % micro_size_x, j % micro_size_y
             lane_id, _ = inverse_mma_store_layout.map_indices([mma_i, mma_j])
             if is_m_first:
-                thread_id = block_i * (block_col_warps * warp_cols) + block_j * warp_size + lane_id
+                thread_id = (
+                    block_i * (block_col_warps * warp_cols)
+                    + block_j * warp_size
+                    + lane_id
+                )
             else:
-                thread_id = block_j * (block_row_warps * warp_size) + block_i * warp_size + lane_id
+                thread_id = (
+                    block_j * (block_row_warps * warp_size)
+                    + block_i * warp_size
+                    + lane_id
+                )
             return thread_id
 
         def forward_index(i: int, j: int) -> int:
@@ -526,11 +573,18 @@ class TensorCoreIntrinEmitter(object):
             """
             # the upper bounds of i and j are block_row_warps * warp_rows * micro_size_x and block_col_warps * warp_cols * micro_size_y
             # the upper bounds of warp_i and warp_j are warp_rows and warp_cols
-            warp_i, warp_j = (i // micro_size_x) % warp_rows, (j // micro_size_y) % warp_cols
+            warp_i, warp_j = (
+                (i // micro_size_x) % warp_rows,
+                (j // micro_size_y) % warp_cols,
+            )
             # upper bounds of mma_i and mma_j are micro_size_x and micro_size_y
             mma_i, mma_j = i % micro_size_x, j % micro_size_y
             _, local_id = inverse_mma_store_layout.map_indices([mma_i, mma_j])
-            return warp_i * (warp_cols * local_size_out) + warp_j * local_size_out + local_id
+            return (
+                warp_i * (warp_cols * local_size_out)
+                + warp_j * local_size_out
+                + local_id
+            )
 
         return T.Fragment(
             shape,
@@ -621,8 +675,12 @@ class TensorCoreIntrinEmitterWithLadderTransform(TensorCoreIntrinEmitter):
         else:
             raise ValueError("Unsupported transform_kind_b")
 
-        assert transform_kind_a in [0, 1, 2, 3], "Input transform stage should be 0, 1, 2, or 3"
-        assert transform_kind_b in [0, 1, 2, 3], "Weight transform stage should be 0, 1, 2, or 3"
+        assert transform_kind_a in [0, 1, 2, 3], (
+            "Input transform stage should be 0, 1, 2, or 3"
+        )
+        assert transform_kind_b in [0, 1, 2, 3], (
+            "Weight transform stage should be 0, 1, 2, or 3"
+        )
 
     def ldmatrix_a(self, A_local_buf, A_shared_buf, ki, rk=0):
         warp_row_tiles = self.warp_row_tiles
@@ -657,10 +715,12 @@ class TensorCoreIntrinEmitterWithLadderTransform(TensorCoreIntrinEmitter):
                         ".b16",
                         A_local_buf.data,
                         i * local_size_a,
-                        T.address_of(A_shared_buf[
-                            warp_m * warp_row_tiles + i * micro_size_x,
-                            rk * chunk + ki * micro_size_k,
-                        ]),
+                        T.address_of(
+                            A_shared_buf[
+                                warp_m * warp_row_tiles + i * micro_size_x,
+                                rk * chunk + ki * micro_size_k,
+                            ]
+                        ),
                         get_ldmatrix_offset("A", tx, 0, stride, a_dtype, a_transposed),
                     )
             elif transform_kind_a == TransformKind.InterWarpTransform:
@@ -722,10 +782,13 @@ class TensorCoreIntrinEmitterWithLadderTransform(TensorCoreIntrinEmitter):
                             warp_m * warp_rows + j,
                             rk * (chunk // micro_size_k) + ki,
                         )
-                        rii, rjj = (tx * local_size_a +
-                                    local_id) // micro_size_k, (tx * local_size_a + local_id) % (
-                                        micro_size_k)
-                        A_local_buf[j * local_size_a + local_id] = (A_shared_buf[ri, rj, rii, rjj])
+                        rii, rjj = (
+                            (tx * local_size_a + local_id) // micro_size_k,
+                            (tx * local_size_a + local_id) % (micro_size_k),
+                        )
+                        A_local_buf[j * local_size_a + local_id] = A_shared_buf[
+                            ri, rj, rii, rjj
+                        ]
             else:
                 raise ValueError("Unsupported TransformKind for Input A")
 
@@ -835,12 +898,15 @@ class TensorCoreIntrinEmitterWithLadderTransform(TensorCoreIntrinEmitter):
                             warp_n * warp_cols + j,
                             rk * (chunk // micro_size_k) + ki,
                         )
-                        rii, rjj = (tx * local_size_dequantize +
-                                    local_id) // (micro_size_k // num_elems_per_byte), (
-                                        tx * local_size_dequantize + local_id) % (
-                                            micro_size_k // num_elems_per_byte)
+                        rii, rjj = (
+                            (tx * local_size_dequantize + local_id)
+                            // (micro_size_k // num_elems_per_byte),
+                            (tx * local_size_dequantize + local_id)
+                            % (micro_size_k // num_elems_per_byte),
+                        )
                         B_local_buf[j * local_size_dequantize + local_id] = (
-                            B_shared_buf[ri, rj, rii, rjj])
+                            B_shared_buf[ri, rj, rii, rjj]
+                        )
             else:
                 raise ValueError("Unsupported TransformKind for Input B")
 
@@ -891,7 +957,9 @@ class TensorCoreIntrinEmitterWithLadderTransform(TensorCoreIntrinEmitter):
                     B_local_buf.data,
                     j * local_size_b + lift(local_size_b) // 2,
                     C_local_buf.data,
-                    i * warp_cols * local_size_out + j * local_size_out + lift(local_size_out) // 2,
+                    i * warp_cols * local_size_out
+                    + j * local_size_out
+                    + lift(local_size_out) // 2,
                     T.bool(False),
                 )
 
@@ -899,7 +967,6 @@ class TensorCoreIntrinEmitterWithLadderTransform(TensorCoreIntrinEmitter):
 
 
 class INT4TensorCoreIntrinEmitter(TensorCoreIntrinEmitter):
-
     def mma(self, A_local_buf, B_local_buf, C_local_buf):
         warp_rows = self.warp_rows
         warp_cols = self.warp_cols
@@ -958,7 +1025,9 @@ class INT4TensorCoreIntrinEmitter(TensorCoreIntrinEmitter):
                     B_local_buf.data,
                     j * local_size_b + lift(local_size_b) // 2,
                     C_local_buf.data,
-                    i * warp_cols * local_size_out + j * local_size_out + lift(local_size_out) // 2,
+                    i * warp_cols * local_size_out
+                    + j * local_size_out
+                    + lift(local_size_out) // 2,
                     T.bool(False),
                 )
 
@@ -992,17 +1061,22 @@ class INT4TensorCoreIntrinEmitter(TensorCoreIntrinEmitter):
                     A_local_buf.data,
                     i * local_size_a + lift(local_size_b) // 2,
                     B_local_buf.data,
-                    j * local_size_b + lift(local_size_b) // 2 + lift(local_size_b) // 4,
+                    j * local_size_b
+                    + lift(local_size_b) // 2
+                    + lift(local_size_b) // 4,
                     C_local_buf.data,
-                    i * warp_cols * local_size_out + j * local_size_out + lift(local_size_out) // 2,
+                    i * warp_cols * local_size_out
+                    + j * local_size_out
+                    + lift(local_size_out) // 2,
                     T.bool(False),
                 )
 
         return _warp_mma(A_local_buf, B_local_buf, C_local_buf)
 
 
-class INT4TensorCoreIntrinEmitterWithLadderTransform(TensorCoreIntrinEmitterWithLadderTransform):
-
+class INT4TensorCoreIntrinEmitterWithLadderTransform(
+    TensorCoreIntrinEmitterWithLadderTransform
+):
     def mma(self, A_local_buf, B_local_buf, C_local_buf):
 
         warp_rows = self.warp_rows
@@ -1062,7 +1136,9 @@ class INT4TensorCoreIntrinEmitterWithLadderTransform(TensorCoreIntrinEmitterWith
                     B_local_buf.data,
                     j * local_size_b + lift(local_size_b) // 2,
                     C_local_buf.data,
-                    i * warp_cols * local_size_out + j * local_size_out + lift(local_size_out) // 2,
+                    i * warp_cols * local_size_out
+                    + j * local_size_out
+                    + lift(local_size_out) // 2,
                     T.bool(False),
                 )
 
@@ -1096,9 +1172,13 @@ class INT4TensorCoreIntrinEmitterWithLadderTransform(TensorCoreIntrinEmitterWith
                     A_local_buf.data,
                     i * local_size_a + lift(local_size_b) // 2,
                     B_local_buf.data,
-                    j * local_size_b + lift(local_size_b) // 2 + lift(local_size_b) // 4,
+                    j * local_size_b
+                    + lift(local_size_b) // 2
+                    + lift(local_size_b) // 4,
                     C_local_buf.data,
-                    i * warp_cols * local_size_out + j * local_size_out + lift(local_size_out) // 2,
+                    i * warp_cols * local_size_out
+                    + j * local_size_out
+                    + lift(local_size_out) // 2,
                     T.bool(False),
                 )
 

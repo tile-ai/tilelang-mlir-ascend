@@ -7,7 +7,7 @@ cimport cython
 import ctypes
 from libc.stdint cimport int64_t, uintptr_t
 from libc.stdlib cimport malloc, free
-from tvm import tir
+from tilelang.tvm import tir
 from tilelang.utils.tensor import map_torch_type
 
 cdef class CythonKernelWrapper:
@@ -80,7 +80,7 @@ cdef class CythonKernelWrapper:
             )
 
         # Use current CUDA stream if none specified
-        if stream == -1: 
+        if stream == -1:
             if torch.cuda.is_available():
                 try:
                     stream = torch._C._cuda_getCurrentRawStream(torch.cuda.current_device())
@@ -112,7 +112,7 @@ cdef class CythonKernelWrapper:
                 tensor = inputs[ins_idx]
                 ins_idx += 1
             tensor_list.append(tensor)
-        
+
         # Convert tensor pointers to C void pointers for kernel call
         call_args = []
         for i in range(len(tensor_list)):
@@ -141,8 +141,8 @@ cdef class CythonKernelWrapper:
         for param, (buffer_idx, device) in self.buffer_device_map.items():
             if isinstance(tensor_list[buffer_idx], torch.Tensor):
                 tensor_device = tensor_list[buffer_idx].device
-                # Compare device types and indices separately to handle both string and torch.device objects            
-                if (tensor_list_device_type != device.type or 
+                # Compare device types and indices separately to handle both string and torch.device objects
+                if (tensor_list_device_type != device.type or
                     (tensor_device.index is not None and device.index is not None and tensor_device.index != device.index)):
                     raise ValueError(f"Buffer device mismatch for parameter {param}: expected {device}, got {tensor_device}")
 
@@ -151,7 +151,7 @@ cdef class CythonKernelWrapper:
             if isinstance(tensor_list[buffer_idx], torch.Tensor):
                 if tensor_list[buffer_idx].dtype != torch_dtype:
                     raise ValueError(f"Buffer dtype mismatch for parameter {param}: expected {torch_dtype}, got {tensor_list[buffer_idx].dtype}")
-        
+
         # Check static shape map
         for param, (buffer_idx, shape_list) in self.static_shape_map.items():
             if isinstance(tensor_list[buffer_idx], torch.Tensor):
@@ -177,4 +177,3 @@ cdef class CythonKernelWrapper:
             return tensor_list[self.result_idx[0]]
         else:
             return [tensor_list[i] for i in self.result_idx]
-    

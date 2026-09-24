@@ -5,9 +5,9 @@
 from tilelang import tvm as tvm
 from tilelang.language import ptx_arrive_barrier, evaluate
 from tilelang.language.kernel import get_thread_bindings, get_block_extents
-from tvm import tir
+from tilelang.tvm import tir
 from typing import Union, Any
-from tvm.tir import PrimExpr, Var, Call
+from tilelang.tvm.tir import PrimExpr, Var, Call
 
 
 def create_list_of_mbarrier(*args: Any) -> Call:
@@ -28,18 +28,24 @@ def create_list_of_mbarrier(*args: Any) -> Call:
     ------
     TypeError
         If the input is not a list or variadic arguments.
-    
+
     Examples
     --------
     >>> create_list_of_mbarrier([128, 128])
     >>> create_list_of_mbarrier(128, 128)
     """
     if len(args) == 1 and isinstance(args[0], list):
-        return tir.call_intrin("handle", tir.op.Op.get("tl.create_list_of_mbarrier"), *args[0])
+        return tir.call_intrin(
+            "handle", tir.op.Op.get("tl.create_list_of_mbarrier"), *args[0]
+        )
     elif len(args) >= 1:
-        return tir.call_intrin("handle", tir.op.Op.get("tl.create_list_of_mbarrier"), *args)
+        return tir.call_intrin(
+            "handle", tir.op.Op.get("tl.create_list_of_mbarrier"), *args
+        )
     else:
-        raise TypeError("create_list_of_mbarrier expects a list or one or more arguments.")
+        raise TypeError(
+            "create_list_of_mbarrier expects a list or one or more arguments."
+        )
 
 
 def get_mbarrier(*args):
@@ -129,28 +135,29 @@ def set_max_nreg(reg_count: int, is_inc: int):
     Returns:
         tir.Call: A handle to the register setting operation
     """
-    return tir.call_intrin("handle", tir.op.Op.get("tl.set_max_nreg"), reg_count, is_inc)
+    return tir.call_intrin(
+        "handle", tir.op.Op.get("tl.set_max_nreg"), reg_count, is_inc
+    )
 
 
 def inc_max_nreg(reg_count: int):
-    """Increment the maximum number of registers to use.
-    """
+    """Increment the maximum number of registers to use."""
     return set_max_nreg(reg_count, 1)
 
 
 def dec_max_nreg(reg_count: int):
-    """Decrement the maximum number of registers to use.
-    """
+    """Decrement the maximum number of registers to use."""
     return set_max_nreg(reg_count, 0)
 
 
 def no_set_max_nreg():
-    """Disable the maximum register limit setting.
-    """
+    """Disable the maximum register limit setting."""
     return tir.call_intrin("handle", tir.op.Op.get("tl.no_set_max_nreg"))
 
 
-def mbarrier_wait_parity(mbarrier: Union[int, PrimExpr, tir.Call], parity: Union[int, Var]):
+def mbarrier_wait_parity(
+    mbarrier: Union[int, PrimExpr, tir.Call], parity: Union[int, Var]
+):
     """Wait for memory barrier parity condition.
 
     Args:
@@ -195,7 +202,9 @@ def mbarrier_wait_parity(mbarrier: Union[int, PrimExpr, tir.Call], parity: Union
         mbarrier = get_mbarrier(mbarrier)
     else:
         raise TypeError("mbarrier must be an integer or a tir.Call")
-    return tir.call_intrin("handle", tir.op.Op.get("tl.mbarrier_wait_parity"), mbarrier, parity)
+    return tir.call_intrin(
+        "handle", tir.op.Op.get("tl.mbarrier_wait_parity"), mbarrier, parity
+    )
 
 
 def mbarrier_arrive(mbarrier: Union[int, PrimExpr, tir.Call]):
@@ -238,7 +247,9 @@ def wait_wgmma(*args):
     return tir.call_intrin("handle", tir.op.Op.get("tl.wait_wgmma"), *args)
 
 
-def barrier_wait(barrier_id: Union[int, PrimExpr, tir.Call], parity: Union[int, Var, None] = None):
+def barrier_wait(
+    barrier_id: Union[int, PrimExpr, tir.Call], parity: Union[int, Var, None] = None
+):
     """Wait for a memory barrier to complete.
 
     Args:
@@ -263,7 +274,9 @@ def barrier_arrive(barrier_id: Union[int, PrimExpr, tir.Call]):
     return mbarrier_arrive(barrier_id)
 
 
-def shfl_xor(value: Union[int, PrimExpr, tir.Call], offset: Union[int, PrimExpr, tir.Call]):
+def shfl_xor(
+    value: Union[int, PrimExpr, tir.Call], offset: Union[int, PrimExpr, tir.Call]
+):
     """Perform a shuffle operation with XOR offset.
 
     Args:
@@ -274,32 +287,35 @@ def shfl_xor(value: Union[int, PrimExpr, tir.Call], offset: Union[int, PrimExpr,
     Returns:
         tir.Call: A handle to the shuffle operation
     """
-    return tir.call_extern(value.dtype, "__shfl_xor_sync", 0xffffffff, value, offset)
+    return tir.call_extern(value.dtype, "__shfl_xor_sync", 0xFFFFFFFF, value, offset)
 
 
-def shfl_down(value: Union[int, PrimExpr, tir.Call], offset: Union[int, PrimExpr, tir.Call]):
+def shfl_down(
+    value: Union[int, PrimExpr, tir.Call], offset: Union[int, PrimExpr, tir.Call]
+):
     """Perform a shuffle operation with down offset.
 
     Args:
         value: Optional[int, PrimExpr]
             The value to shuffle
     """
-    return tir.call_extern(value.dtype, "__shfl_down_sync", 0xffffffff, value, offset)
+    return tir.call_extern(value.dtype, "__shfl_down_sync", 0xFFFFFFFF, value, offset)
 
 
-def shfl_up(value: Union[int, PrimExpr, tir.Call], offset: Union[int, PrimExpr, tir.Call]):
+def shfl_up(
+    value: Union[int, PrimExpr, tir.Call], offset: Union[int, PrimExpr, tir.Call]
+):
     """Perform a shuffle operation with up offset.
 
     Args:
         value: Optional[int, PrimExpr]
             The value to shuffle
     """
-    return tir.call_extern(value.dtype, "__shfl_up_sync", 0xffffffff, value, offset)
+    return tir.call_extern(value.dtype, "__shfl_up_sync", 0xFFFFFFFF, value, offset)
 
 
 def sync_threads():
-    """Synchronize all threads in a warp.
-    """
+    """Synchronize all threads in a warp."""
     return tir.op.tvm_storage_sync("shared")
 
 
@@ -313,12 +329,13 @@ def sync_thread_partial(barrier_id: Union[int, PrimExpr, tir.Call]):
     Returns:
         tir.Call: A handle to the synchronization operation
     """
-    return tir.call_intrin("handle", tir.op.Op.get("tl.sync_thread_partial"), barrier_id)
+    return tir.call_intrin(
+        "handle", tir.op.Op.get("tl.sync_thread_partial"), barrier_id
+    )
 
 
 def sync_global():
-    """Synchronize all threads in a block.
-    """
+    """Synchronize all threads in a block."""
     tx, ty, tz = get_thread_bindings()
     ex, ey, ez = get_block_extents()
     print(tx, ty, tz, ex, ey, ez)

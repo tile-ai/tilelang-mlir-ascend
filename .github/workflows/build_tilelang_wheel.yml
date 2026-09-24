@@ -67,7 +67,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: ${{ env.TVM_INSTALL_DIR }}
-        key: tvm-prebuild-${{ matrix.arch }}-${{ inputs.tvm-commit }}
+        key: tvm-prebuild-isolated-v2-${{ matrix.arch }}-${{ inputs.tvm-commit }}
         fail-on-cache-miss: true
 
     - name: Set up Python ${{ env.PYTHON_VERSION }}

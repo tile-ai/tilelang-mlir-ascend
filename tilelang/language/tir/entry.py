@@ -3,15 +3,15 @@
 
 from typing import Callable, Optional, Union
 
-from tvm.tir.function import PrimFunc
-import tvm.script.parser.tir.entry as _tir_entry
+from tilelang.tvm.tir.function import PrimFunc
+import tilelang.tvm.script.parser.tir.entry as _tir_entry
 import inspect
-from tvm.script.parser._core import parse, scan_macro, utils
+from tilelang.tvm.script.parser._core import parse, scan_macro, utils
 
 
-def prim_func(func: Optional[Callable] = None,
-              private: bool = False,
-              check_well_formed=True) -> Union[PrimFunc, Callable]:
+def prim_func(
+    func: Optional[Callable] = None, private: bool = False, check_well_formed=True
+) -> Union[PrimFunc, Callable]:
     """The parsing method for tir prim func, by using `@prim_func` as decorator.
 
     Parameters
@@ -45,7 +45,11 @@ def prim_func(func: Optional[Callable] = None,
             raise TypeError(f"Expect a function, but got: {func}")
         if utils.is_defined_in_class(outer_stack, func):
             return func
-        f = parse(func, utils.inspect_function_capture(func), check_well_formed=check_well_formed)
+        f = parse(
+            func,
+            utils.inspect_function_capture(func),
+            check_well_formed=check_well_formed,
+        )
         setattr(f, "__name__", func.__name__)  # noqa: B010
         return f
 
@@ -113,7 +117,8 @@ def macro(*args, hygienic: bool = True) -> Callable:
         return _decorator(args[0])
 
     raise ValueError(
-        "Invalid use of T.macro. Usage: @T.macro, @T.macro(), @T.macro(hygienic=[True|False])")
+        "Invalid use of T.macro. Usage: @T.macro, @T.macro(), @T.macro(hygienic=[True|False])"
+    )
 
 
 setattr(macro, "dispatch_token", "tir")  # noqa: B010

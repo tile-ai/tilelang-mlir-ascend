@@ -1,8 +1,8 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 from tilelang import tvm as tvm
-from tvm import IRModule
-from tvm.tir import PrimFunc
+from tilelang.tvm import IRModule
+from tilelang.tvm.tir import PrimFunc
 from typing import Union, Callable
 from . import _ffi_api
 

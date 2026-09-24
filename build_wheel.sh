@@ -18,8 +18,8 @@ echo "Using Python: $PYTHON"
 REQUIRED_LIBS=(
     "build/libtilelang.so"
     "build/libtilelang_module.so"
-    "build/tvm/libtvm.so"
-    "build/tvm/libtvm_runtime.so"
+    "build/tvm/libtilelang_tvm.so"
+    "build/tvm/libtilelang_tvm_runtime.so"
     "build/libtilelangir.so"
 )
 

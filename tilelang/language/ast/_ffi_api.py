@@ -17,6 +17,8 @@
 # This file is modified from the original version,
 # which is part of the TVM project (https://tvm.apache.org/).
 """FFI APIs"""
-import tvm._ffi
+
+import tilelang.tvm._ffi  # noqa: F401
+from tilelang import tvm
 
 tvm._ffi._init_api("script.ir_builder.tir", __name__)  # pylint: disable=protected-access

@@ -1,7 +1,8 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 """Hint definition for schedule"""
-from tvm import DataType
+
+from tilelang.tvm import DataType
 from typing import Dict, List, Tuple
 from . import PrimFuncNode
 import numpy as np
@@ -63,7 +64,7 @@ class Stride:
             strided_elem = original_shape
         else:
             assert self.ax < len(shape)
-            strided_elem = np.prod(shape[0:self.ax + 1]) * self.stride
+            strided_elem = np.prod(shape[0 : self.ax + 1]) * self.stride
             assert strided_elem >= original_shape
         return int(strided_elem)
 

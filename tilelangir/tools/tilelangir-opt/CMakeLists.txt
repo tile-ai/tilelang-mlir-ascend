@@ -1,8 +1,8 @@
 get_tilelangir_link_libraries(LIBS)
 add_tilelangir_install_tool(tilelangir-opt
   tilelangir-opt.cpp
-  DEPENDS ${LIBS} tilelangir_transforms
-  LINK_LIBS tilelangir_transforms ${LIBS}
+  DEPENDS ${LIBS} tilelangir_transforms tilelangir_dialect_tl
+  LINK_LIBS tilelangir_transforms tilelangir_dialect_tl ${LIBS}
 )
 target_link_libraries(tilelangir-opt PRIVATE tilelangir_headers)
 

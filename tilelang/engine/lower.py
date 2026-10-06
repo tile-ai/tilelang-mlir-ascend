@@ -164,6 +164,15 @@ def host_codegen(host_mod: tvm.IRModule, target_host: Target) -> tvm.IRModule:
     return host_mod
 
 
+def _use_tlir() -> bool:
+    return os.environ.get("TILELANG_TLIR", "").lower().strip() in (
+        "1",
+        "true",
+        "on",
+        "yes",
+    )
+
+
 def device_codegen(device_mod: tvm.IRModule, target: Target) -> tvm.IRModule:
     if target.kind.name == "npuir":
         # device_mod = tvm._ffi.get_global_func("target.build.tilelang_npuir")(device_mod, target)
@@ -173,9 +182,12 @@ def device_codegen(device_mod: tvm.IRModule, target: Target) -> tvm.IRModule:
             "exp",
             "e",
         ]:
-            device_mod = tvm._ffi.get_global_func("target.build.tilelang_npuir_apis")(
-                device_mod, target
+            build_name = (
+                "target.build.tilelang_tlir"
+                if _use_tlir()
+                else "target.build.tilelang_npuir_apis"
             )
+            device_mod = tvm._ffi.get_global_func(build_name)(device_mod, target)
         else:
             device_mod = tvm._ffi.get_global_func("target.build.tilelang_npuir_dev")(
                 device_mod, target
@@ -281,7 +293,7 @@ def lower(
         # A5: tilelangir native module not available, skip MLIR pass pipeline
         from tilelang.jit.jit_npu import _is_a5_device
 
-        if not _is_a5_device():
+        if not _use_tlir() and not _is_a5_device():
             pipeline = Pipeline()
             pipeline.add(transforms.mlir.canonicalize, top_down=True)
             pipeline.add(transforms.bishengir.adapt_triton_kernel)

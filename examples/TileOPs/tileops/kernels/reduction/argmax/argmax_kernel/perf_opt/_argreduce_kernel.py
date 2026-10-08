@@ -1,6 +1,13 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2026.
 """Argmax/argmin first-occurrence reduction kernel (NPU, Developer mode).
 
+ROUND-6 VERSION (``_argreduce_kernel_r6``): current best (rounds 1-4) plus
+two later vectorization fixes -- the r5 vectorized int64 epilogue
+(``T.reshape`` + ``T.vcast``) and the r6 in-kernel idx construction
+(1-D ``T.arange`` -> ``T.reshape`` -> ``T.vbrc``, replacing the round-4 FIX
+GM idx input). Call contract back to ``main(x) -> out`` for the resident
+path (no host-side idx tensor injection).
+
 Migrated from the GPU TileOPs ``_argreduce_kernel`` (ArgmaxFwdOp) to
 ``target="npuir"``.
 
@@ -23,6 +30,30 @@ NPU redesign (DESIGN.md sections 0.6 / 1.4, frozen):
     R4: block_m / tile_n chosen from a probe-calibrated UB budget table
         (DESIGN.md section 4.5); resident path for N * B/elem * bm <= 64KB,
         tiled online path (forced bm=1) otherwise.
+    R5: vectorized int64 epilogue on every path: ``T.reshape`` +
+        ``T.vcast(..., round_mode="rint")`` replaces the generic
+        ``T.Parallel`` cast loops, which stayed scalar because
+        NpuLoopVectorize rejects rank-reducing Cast (npu_loop_vectorize.cc:
+        785-794; see CG-2026-0020). Applied to resident (first), tiled
+        (running_idx), and nsplit merge (first). The narrow path needed no
+        change: its ``first_flat[i]`` load is already rank-1 (1->1) and
+        NpuLoopVectorize auto-vectorizes it (verified in final IR:
+        ``npuir_cast`` region op -> ``hivm.hir.vcast``). Value-identical to
+        the old fptosi trunc on the integer-valued domain.
+    R6: in-kernel idx construction: ``T.arange(idx_src (N,), [1], 0)`` ->
+        ``T.reshape(idx_src, idx_row (1,N))`` -> ``T.vbrc(idx_row, idx_j)``
+        (bm==1: reshape directly into idx_j). Replaces the GM idx input of
+        the 2026-09-30 FIX. Probe evidence (2026-09-30, /tmp/opencode/
+        idx_probe): the old r4b 2-D form (``T.arange(idx_row (1,N), [0,1],
+        0)`` -> vbrc) lowers to ``varange strides[%c0, %c1]`` (dim0
+        stride-0) and races under padded-stride layouts N%16 in [9,12] with
+        bm>=2 (block-first-row tail lanes go stale); the 1-D form lowers to
+        ``varange strides[%c1]`` + metadata-only ``tensor.expand_shape`` and
+        passed the identical sensitive detector (0 fail / 315 launches)
+        plus a 21-case random battery while the 2-D control failed 23
+        (shape, column) combos. msprof kernel-only vs the GM-idx version:
+        (128,300) bf16 5.02 -> 3.12us (-37.9%), (2048,256) fp16 5.34 ->
+        4.74us (-11.2%), hidden-state ~-1%.
 
 Known toolchain constraints enforced here (DESIGN.md section 9.1, probe-backed):
     C-1 reduce dst dtype MUST equal src dtype (mixed dtype silently corrupts).
@@ -30,6 +61,8 @@ Known toolchain constraints enforced here (DESIGN.md section 9.1, probe-backed):
         (f16 -> i1 broadcast) -> bm==1 uses ``T.vbrc`` into a same-shape buffer.
     C-3 unused fragment alloc is NOT dead-code-eliminated -> bm==1 / bm>=2 and
         bf16 / non-bf16 each get a dedicated prim_func (no unconditional alloc).
+        The TVM tracer also does not track buffers allocated inside a
+        conditional block (variant allocs must live in dedicated prim_funcs).
     C-4 shared multi-consumer buffers race under auto-multi-buffer when the
         double-buffer budget overflows -> all compute reads fragments; shared
         is GM staging only.
@@ -38,6 +71,15 @@ Known toolchain constraints enforced here (DESIGN.md section 9.1, probe-backed):
     C-8 if_then_else condition referencing a serial loop var segfaults -> the
         candidate condition only references buffer elements; tile base index is
         plain arithmetic in the value position.
+    C-9 2-D stride-0 ``varange`` (``T.arange`` into a (1,N) region with
+        strides [0,1]) feeding a VCOPY broadcast races on padded-stride
+        layouts (N%16 in [9,12], bm>=2) -> the resident idx construction
+        uses the 1-D arange + reshape form (C-9 does NOT affect the 1-D
+        ``varange strides[%c1]`` + ``tensor.expand_shape`` lowering; probe
+        evidence in the R6 note).
+    C-10 same-shape ``T.vbrc`` (no size-1 dim) emits an empty broadcast_dims
+        array -> MLIR verify fail -> the bm==1 idx path reshapes (N,) ->
+        (1,N) directly instead of a (1,N)->(1,N) vbrc.
 """
 
 import os
@@ -71,10 +113,6 @@ TILE_ALIGNMENT = 256
 # Launch-item threshold above which the extended block_m ladder engages
 # (DESIGN.md section 5.2; REVIEW blocking-1 fix).
 _LAUNCH_GATE = 96
-
-# FIX (2026-09-30): cache of precomputed (block_m, N) f32 index tensors for
-# the resident path's GM idx input (see _argreduce_kernel resident branch).
-_IDX_INPUT_CACHE: dict = {}
 
 _SUPPORTED_DTYPES = ("float16", "float32", "bfloat16")
 _KINDS = ("argmax", "argmin")
@@ -259,20 +297,38 @@ def _build_resident(M, N, op_kind, dtype, work_dtype, vector_cores):
         vbrc(ext) -> vcmp("eq") -> vselect(idx_j, sent_v) -> reduce_min
     - ext_brc is materialized via T.vbrc for ALL bm (no (bm,1) broadcast
       operand inside any Parallel condition; C-2 moot, bm=1/bm>=2 unified).
-    - idx_j (column indices) is loaded from a GM input tensor via the
-      flag-synchronized MTE2 copy (FIX 2026-09-30: replaces the in-kernel
-      ``T.arange -> T.vbrc`` pair, which races under padded-stride layouts
-      N%16 in [9,12] with bm>=2 -- see upload/data/argmax_minimal_repro/);
-      sent_v (BIG sentinel via scalar T.vbrc) stays task-invariant and
-      hoisted before the task loop.
+    - idx_j (column indices) is built in-kernel via the r6 1-D arange chain:
+      ``T.arange(idx_src (N,), [1], 0)`` -> ``T.reshape`` to (1,N) ->
+      ``T.vbrc`` to (bm,N); bm==1 reshapes (N,) into idx_j directly (C-10:
+      same-shape vbrc fails MLIR verify). This replaces the 2026-09-30 GM
+      idx input (MTE2 copy). Probe evidence: the r4b 2-D form
+      (``T.arange`` into (1,N) with strides [0,1]) lowers to a stride-0
+      ``varange`` whose tail writes race the VCOPY broadcast on
+      padded-stride layouts (N%16 in [9,12], bm>=2; C-9); the 1-D form
+      lowers to ``varange strides[%c1]`` + metadata-only
+      ``tensor.expand_shape`` and is race-free on the identical sensitive
+      detector (0 fail / 315 launches + 21-case random battery vs 23
+      failing (shape, col) combos for the 2-D control). msprof vs the GM
+      idx version: (128,300) bf16 -37.9%, (2048,256) fp16 -11.2%,
+      hidden-state ~-1%.
     - x_frag staging dropped: compute (reduce_max/vcmp) reads x_ub directly
       (vcmp-on-shared proven by T.vselect.md section 2.4 example); keeps the
       chain buffer set within the x2 auto-multi-buffer envelope at bm=2.
     Two prim_funcs (bf16 / non-bf16); C-3 respected (ext_brc always used).
+    r5 epilogue: the int64 output cast is vectorized via
+    ``T.reshape(first, first_flat)`` + ``T.vcast(first_flat, out_ub,
+    round_mode="rint")``. The original ``for i in T.Parallel(block_m):
+    out_ub[i] = T.cast(first[i, 0], "int64")`` stayed scalar because
+    NpuLoopVectorize deliberately rejects rank-reducing Cast (load
+    ``first[i, 0]`` rank-2 vs store ``out_ub[i]`` rank-1,
+    npu_loop_vectorize.cc HandleUnaryExpression guard) and the npuir
+    codegen prints generic TIR loops verbatim as scalar scf.for. rint vs the
+    old fptosi trunc is value-identical: ``first`` holds exact small integers
+    (valid indices j < N <= 2**24 or the BIG sentinel, all fp32-exact).
     """
     is_bf16 = dtype == "bfloat16"
 
-    @tilelang.jit(out_idx=[2], target="npuir")
+    @tilelang.jit(out_idx=[1], target="npuir")
     def _func(block_m):
         num_logical = _ceildiv(M, block_m)
         num_kernels = min(num_logical, vector_cores)
@@ -283,7 +339,6 @@ def _build_resident(M, N, op_kind, dtype, work_dtype, vector_cores):
             @T.prim_func
             def main(
                 x: T.Tensor((M, N), dtype),
-                idx: T.Tensor((block_m, N), "float32"),
                 out: T.Tensor((M,), "int64"),
             ):
                 with T.Kernel(num_kernels, is_npu=True) as (cid, _):
@@ -292,22 +347,29 @@ def _build_resident(M, N, op_kind, dtype, work_dtype, vector_cores):
                     row_ext = T.alloc_fragment((block_m, 1), "float32")
                     ext_brc = T.alloc_fragment((block_m, N), "float32")
                     cmp_eq = T.alloc_fragment((block_m, N), "bool")
+                    idx_src = T.alloc_shared((N,), "float32")
+                    idx_row = T.alloc_shared((1, N), "float32")
                     idx_j = T.alloc_shared((block_m, N), "float32")
                     sent_v = T.alloc_fragment((block_m, N), "float32")
                     cand = T.alloc_fragment((block_m, N), "float32")
                     first = T.alloc_fragment((block_m, 1), "float32")
+                    first_flat = T.alloc_fragment((block_m,), "float32")
                     out_ub = T.alloc_shared((block_m,), "int64")
 
                     # Task-invariant operands hoisted out of the task loop.
-                    # FIX (2026-09-30): idx_j comes from the GM input via the
-                    # flag-synchronized MTE2 copy (same path as x), replacing
-                    # the in-kernel ``T.arange -> T.vbrc`` pair. That pair
-                    # races under padded-stride layouts (N%16 in [9,12],
-                    # bm>=2): arange lowers to a scalar store loop whose tail
-                    # writes lose to the VCOPY broadcast read/write, leaving
-                    # stale UB in idx_j's block-first-row tail lanes.
-                    # Bisect evidence: upload/data/argmax_minimal_repro/.
-                    T.copy(idx[0:block_m, 0:N], idx_j[0:block_m, 0:N])
+                    # r6: 1-D arange -> reshape -> vbrc (in-kernel idx). The
+                    # 1-D varange lowers to a contiguous fill; expand_shape is
+                    # metadata-only. NOT the r4b 2-D form (T.arange into (1,N)
+                    # with strides [0,1]) -- that lowers to a stride-0 varange
+                    # that races the VCOPY broadcast on padded-stride layouts
+                    # (N%16 in [9,12], bm>=2; C-9). bm==1: reshape (N,) ->
+                    # (1,N) directly into idx_j (C-10 same-shape vbrc trap).
+                    T.arange(idx_src, [1], 0)
+                    if block_m >= 2:
+                        T.reshape(idx_src, idx_row)
+                        T.vbrc(idx_row, idx_j)
+                    else:
+                        T.reshape(idx_src, idx_j)
                     T.vbrc(T.float32(BIG), sent_v)
 
                     for s in T.serial(num_local_tasks):
@@ -325,8 +387,13 @@ def _build_resident(M, N, op_kind, dtype, work_dtype, vector_cores):
                             T.vcmp(x_work, ext_brc, cmp_eq, "eq")
                             T.vselect(cmp_eq, idx_j, sent_v, cand)
                             T.reduce_min(cand, first, dim=1)
-                            for i in T.Parallel(block_m):
-                                out_ub[i] = T.cast(first[i, 0], "int64")
+                            # r5 epilogue: vectorized first-occurrence ->
+                            # int64. The old ``T.Parallel`` cast loop lowered
+                            # to a scalar scf.for (NpuLoopVectorize rejects
+                            # rank-reducing Cast: first[i,0] rank-2 store
+                            # rank-1; npu_loop_vectorize.cc:785-794).
+                            T.reshape(first, first_flat)
+                            T.vcast(first_flat, out_ub, round_mode="rint")
                             T.copy(out_ub[0:real_m], out[off_m : off_m + real_m])
 
         else:
@@ -334,7 +401,6 @@ def _build_resident(M, N, op_kind, dtype, work_dtype, vector_cores):
             @T.prim_func
             def main(
                 x: T.Tensor((M, N), dtype),
-                idx: T.Tensor((block_m, N), "float32"),
                 out: T.Tensor((M,), "int64"),
             ):
                 with T.Kernel(num_kernels, is_npu=True) as (cid, _):
@@ -342,17 +408,24 @@ def _build_resident(M, N, op_kind, dtype, work_dtype, vector_cores):
                     row_ext = T.alloc_fragment((block_m, 1), dtype)
                     ext_brc = T.alloc_fragment((block_m, N), dtype)
                     cmp_eq = T.alloc_fragment((block_m, N), "bool")
+                    idx_src = T.alloc_shared((N,), "float32")
+                    idx_row = T.alloc_shared((1, N), "float32")
                     idx_j = T.alloc_shared((block_m, N), "float32")
                     sent_v = T.alloc_fragment((block_m, N), "float32")
                     cand = T.alloc_fragment((block_m, N), "float32")
                     first = T.alloc_fragment((block_m, 1), "float32")
+                    first_flat = T.alloc_fragment((block_m,), "float32")
                     out_ub = T.alloc_shared((block_m,), "int64")
 
                     # Task-invariant operands hoisted out of the task loop.
-                    # FIX (2026-09-30): same as the bf16 branch -- idx_j via
-                    # GM input + MTE2 copy, replacing arange -> vbrc (race
-                    # under padded-stride layouts, see bf16 branch comment).
-                    T.copy(idx[0:block_m, 0:N], idx_j[0:block_m, 0:N])
+                    # r6: same 1-D arange -> reshape -> vbrc form as the bf16
+                    # branch (C-9 / C-10 notes there).
+                    T.arange(idx_src, [1], 0)
+                    if block_m >= 2:
+                        T.reshape(idx_src, idx_row)
+                        T.vbrc(idx_row, idx_j)
+                    else:
+                        T.reshape(idx_src, idx_j)
                     T.vbrc(T.float32(BIG), sent_v)
 
                     for s in T.serial(num_local_tasks):
@@ -369,8 +442,10 @@ def _build_resident(M, N, op_kind, dtype, work_dtype, vector_cores):
                             T.vcmp(x_ub, ext_brc, cmp_eq, "eq")
                             T.vselect(cmp_eq, idx_j, sent_v, cand)
                             T.reduce_min(cand, first, dim=1)
-                            for i in T.Parallel(block_m):
-                                out_ub[i] = T.cast(first[i, 0], "int64")
+                            # r5 epilogue: vectorized first-occurrence ->
+                            # int64 (see bf16 variant note above).
+                            T.reshape(first, first_flat)
+                            T.vcast(first_flat, out_ub, round_mode="rint")
                             T.copy(out_ub[0:real_m], out[off_m : off_m + real_m])
 
         return main
@@ -626,6 +701,12 @@ def _build_tiled(M, N, op_kind, dtype, work_dtype, vector_cores, tile_n):
     Two prim_funcs (bf16 / non-bf16). Tile-0 initializes the running state
     directly; full tiles and the static tail tile use the strict-greater
     (argmax) / strict-less (argmin) update rule for first-occurrence tie-break.
+    r5 epilogue: the int64 output cast is vectorized via
+    ``T.reshape(running_idx, running_flat)`` + ``T.vcast`` (same rank-reduction
+    scalarization as the resident path; at the C-5-forced bm=1 it degenerated
+    to one scalar extract/fptosi/insert per task). The bm=1
+    ``chunk_global`` / ``tail_global`` scalar add stores are left as-is (one
+    element each, not the cast pattern).
     """
     is_bf16 = dtype == "bfloat16"
     num_full = N // tile_n
@@ -659,6 +740,7 @@ def _build_tiled(M, N, op_kind, dtype, work_dtype, vector_cores, tile_n):
                     running_idx = T.alloc_fragment((block_m, 1), "float32")
                     new_ext = T.alloc_fragment((block_m, 1), "float32")
                     new_idx = T.alloc_fragment((block_m, 1), "float32")
+                    running_flat = T.alloc_fragment((block_m,), "float32")
                     out_ub = T.alloc_shared((block_m,), "int64")
 
                     x_tail = T.alloc_shared((block_m, tail_w), dtype)
@@ -761,8 +843,12 @@ def _build_tiled(M, N, op_kind, dtype, work_dtype, vector_cores, tile_n):
                                 T.copy(new_ext, running_ext)
                                 T.copy(new_idx, running_idx)
 
-                            for i in T.Parallel(block_m):
-                                out_ub[i] = T.cast(running_idx[i, 0], "int64")
+                            # r5 epilogue (see _build_resident): the
+                            # ``T.Parallel`` cast loop on running_idx[i,0]
+                            # (rank-2 load, rank-1 store) stayed scalar
+                            # (NpuLoopVectorize rank-reduction guard).
+                            T.reshape(running_idx, running_flat)
+                            T.vcast(running_flat, out_ub, round_mode="rint")
                             T.copy(out_ub, out[block_id : block_id + block_m])
 
         else:
@@ -782,6 +868,7 @@ def _build_tiled(M, N, op_kind, dtype, work_dtype, vector_cores, tile_n):
                     running_idx = T.alloc_fragment((block_m, 1), "float32")
                     new_ext = T.alloc_fragment((block_m, 1), work_dtype)
                     new_idx = T.alloc_fragment((block_m, 1), "float32")
+                    running_flat = T.alloc_fragment((block_m,), "float32")
                     out_ub = T.alloc_shared((block_m,), "int64")
 
                     x_tail = T.alloc_shared((block_m, tail_w), dtype)
@@ -884,8 +971,12 @@ def _build_tiled(M, N, op_kind, dtype, work_dtype, vector_cores, tile_n):
                                 T.copy(new_ext, running_ext)
                                 T.copy(new_idx, running_idx)
 
-                            for i in T.Parallel(block_m):
-                                out_ub[i] = T.cast(running_idx[i, 0], "int64")
+                            # r5 epilogue (see _build_resident): the
+                            # ``T.Parallel`` cast loop on running_idx[i,0]
+                            # (rank-2 load, rank-1 store) stayed scalar
+                            # (NpuLoopVectorize rank-reduction guard).
+                            T.reshape(running_idx, running_flat)
+                            T.vcast(running_flat, out_ub, round_mode="rint")
                             T.copy(out_ub, out[block_id : block_id + block_m])
 
         return main
@@ -981,36 +1072,15 @@ def _argreduce_kernel(M, N, op_kind, dtype):
         return _f
 
     if cfg["path"] == "resident":
+        # r6: the resident kernel builds its column indices in-kernel (1-D
+        # arange -> reshape -> vbrc; see _build_resident) -- no GM idx input,
+        # no host-side injection wrapper. The call API stays
+        # ``_argreduce_kernel(...)(block_m)(x)`` for the TileOPs wrapper, the
+        # L0 suite and the bench, and build_case's resident branch is a plain
+        # single-input kernel again.
         _f = _build_resident(M, N, op_kind, dtype, work_dtype, vector_cores)
-
-        # FIX (2026-09-30): the resident kernel now takes a precomputed
-        # (block_m, N) f32 index tensor as its second GM input (loaded into
-        # idx_j via the flag-synchronized MTE2 copy inside the kernel,
-        # replacing the racy in-kernel arange -> vbrc pair; see
-        # _build_resident). This factory wrapper injects that tensor so the
-        # call API stays ``_argreduce_kernel(...)(block_m)(x)`` unchanged
-        # for the TileOPs wrapper, the L0 suite and the bench.
-        def _resident_factory(block_m):
-            raw_kernel = _f(block_m)
-
-            def launch(x):
-                key = (block_m, N, str(x.device))
-                idx_t = _IDX_INPUT_CACHE.get(key)
-                if idx_t is None:
-                    idx_t = (
-                        torch.arange(N, dtype=torch.float32)
-                        .unsqueeze(0)
-                        .expand(block_m, N)
-                        .contiguous()
-                        .to(x.device)
-                    )
-                    _IDX_INPUT_CACHE[key] = idx_t
-                return raw_kernel(x, idx_t)
-
-            return launch
-
-        _resident_factory.msprof_kernel_name = "main"
-        return _resident_factory
+        _f.msprof_kernel_name = "main"
+        return _f
     _f = _build_tiled(M, N, op_kind, dtype, work_dtype, vector_cores, cfg["tile_n"])
     _f.msprof_kernel_name = "main"
     return _f
@@ -1441,6 +1511,7 @@ def _build_nsplit_merge(M, N, op_kind, dtype, work_dtype, tn, nchunk):
                 sent_v = T.alloc_fragment((M, nchunk), "float32")
                 cand = T.alloc_fragment((M, nchunk), "float32")
                 first = T.alloc_fragment((M, 1), "float32")
+                first_flat = T.alloc_fragment((M,), "float32")
                 out_ub = T.alloc_shared((M,), "int64")
 
                 T.vbrc(T.float32(BIG), sent_v)
@@ -1458,8 +1529,11 @@ def _build_nsplit_merge(M, N, op_kind, dtype, work_dtype, tn, nchunk):
                 T.vcmp(val_f, g_brc, cmp_eq, "eq")
                 T.vselect(cmp_eq, idx_f, sent_v, cand)
                 T.reduce_min(cand, first, dim=1)
-                for i in T.Parallel(M):
-                    out_ub[i] = T.cast(first[i, 0], "int64")
+                # r5 epilogue (see _build_resident): vectorized cast; the
+                # ``T.Parallel`` loop on first[i,0] (rank-2 -> rank-1) stayed
+                # scalar (NpuLoopVectorize rank-reduction guard).
+                T.reshape(first, first_flat)
+                T.vcast(first_flat, out_ub, round_mode="rint")
                 T.copy(out_ub[0:M], out[0:M])
 
         return argreduce_merge
@@ -1544,10 +1618,14 @@ def run_nsplit_L0():
             )
             n_cases += 1
 
-            # M=1 with a cross-chunk tie.
+            # M=1 with a cross-chunk tie. NOTE: the original test used
+            # ``40 * tn`` which equals N (out of bounds) under the r3e tn
+            # rule (fp16 tn=2560, nchunk=40); use an in-bounds last-chunk
+            # index instead (fixed here only; the perf_opt original still
+            # carries the rot).
             x3 = torch.zeros(1, 102400, dtype=dt, device="npu")
             x3[0, 3 * tn + 7] = v
-            x3[0, 40 * tn] = v
+            x3[0, (nchunk - 1) * tn + 7] = v
             ws_val3 = torch.empty(1, nchunk, dtype=ws_dt, device="npu")
             ws_idx3 = torch.empty(1, nchunk, dtype=torch.float32, device="npu")
             launch2 = build_nsplit(1, 102400, op_kind, dtype_str, tn)

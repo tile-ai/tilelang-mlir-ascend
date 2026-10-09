@@ -13,12 +13,13 @@
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/MLIRContext.h"
 
+#include "tilelangir/Dialect/TL/TLIROps.h"
+
 namespace tilelangir {
 
 /// Register all TileLangIR dialects to the provided registry.
 inline void registerAllDialects(mlir::DialectRegistry &registry) {
-  (void)registry;
-  // No TileLangIR dialects to register yet.
+  registry.insert<mlir::tlir::TLIRDialect>();
 }
 
 /// Append all TileLangIR dialects to the registry contained in the given

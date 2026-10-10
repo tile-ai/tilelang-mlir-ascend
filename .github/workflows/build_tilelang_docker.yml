@@ -1,0 +1,181 @@
+name: Build TileLang Docker
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+# Serialize publications to this fixed image tag, including runs from other refs.
+concurrency:
+  group: tilelang-docker-0.1.15-950-ubuntu22.04-py3.11-x86_64
+  cancel-in-progress: false
+
+env:
+  REGISTRY: quay.io
+  ORG: ascend
+  IMAGE_NAME: tilelang
+  OS: ubuntu22.04
+  PYTHON: py3.11
+  TILELANG_REF: v0.1.15
+  TILELANG_COMMIT: a35f8ddf45eba16c21211ec8822d56ce5363036f
+
+jobs:
+  build-amd64:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    strategy:
+      matrix:
+        chip: ['950']
+    steps:
+      - name: Check release branch
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: test "$RELEASE_REF" = refs/heads/tilelang-docker-image-release
+
+      - name: Checkout build files
+        uses: actions/checkout@v4
+        with:
+          path: ci
+          persist-credentials: false
+
+      - name: Check fixed release configuration
+        run: python3 ci/docker/tilelang/release.py validate
+
+      - name: Checkout TileLang
+        uses: actions/checkout@v4
+        with:
+          repository: tile-ai/tilelang
+          ref: ${{ env.TILELANG_REF }}
+          path: source
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify source and read VERSION
+        id: version
+        run: |
+          test "$(git -C source rev-parse HEAD)" = "$TILELANG_COMMIT"
+          test "$(cat source/VERSION)" = 0.1.15
+          submodules=$(git -C source submodule status --recursive)
+          if grep -Eq '^[-+U]' <<< "$submodules"; then
+            echo 'Submodule checkout does not match the release' >&2
+            exit 1
+          fi
+          echo "VERSION=$(cat source/VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare isolated build context
+        run: |
+          mkdir -p context/image
+          mv source context/source
+          find context/source -name .git -prune -exec rm -rf '{}' +
+          printf '%s\n' "$TILELANG_COMMIT" > context/source/.git_commit.txt
+          cp ci/docker/tilelang/{release.json,release.py,entrypoint.sh,smoke.py} context/image/
+          cp ci/docker/Dockerfile.tilelang context/Dockerfile
+
+      - name: Set image tag
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.ORG }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}-${{ matrix.chip }}-${{ env.OS }}-${{ env.PYTHON }}-x86_64
+        run: echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and load amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: context
+          file: context/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=tilelang-0.1.15-cann9.3.0-950-amd64
+          cache-to: type=gha,mode=max,scope=tilelang-0.1.15-cann9.3.0-950-amd64
+
+      - name: Validate image without an NPU
+        run: |
+          set -euo pipefail
+          test "$(docker image inspect "$IMAGE" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          docker run --rm -e TORCH_DEVICE_BACKEND_AUTOLOAD=0 "$IMAGE" \
+            python /opt/tilelang-image/smoke.py | tee smoke.log
+          container=$(docker run -d -e TORCH_DEVICE_BACKEND_AUTOLOAD=0 "$IMAGE" sleep infinity)
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          docker exec "$container" python /opt/tilelang-image/smoke.py | tee -a smoke.log
+          docker exec "$container" bash -ic 'command -v python; command -v bisheng'
+          docker image inspect "$IMAGE" --format '{{.Id}}' > tested-image-id.txt
+
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Record previous digest
+        run: |
+          set -euo pipefail
+          if docker buildx imagetools inspect "$IMAGE" > previous-manifest.txt 2> previous-error.txt; then
+            digest=$(awk '/^Digest:/ {print $2; exit}' previous-manifest.txt)
+            test -n "$digest"
+            echo "PREVIOUS_DIGEST=$digest" >> "$GITHUB_ENV"
+            echo "Previous image digest: \`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          elif grep -Eqi 'manifest unknown|not found' previous-error.txt; then
+            echo 'PREVIOUS_DIGEST=none' >> "$GITHUB_ENV"
+          else
+            cat previous-error.txt >&2
+            exit 1
+          fi
+
+      - name: Push tested image
+        run: |
+          set -euo pipefail
+          test "$(docker image inspect "$IMAGE" --format '{{.Id}}')" = "$(cat tested-image-id.txt)"
+          docker push "$IMAGE" | tee push.log
+
+      - name: Verify published image
+        run: |
+          set -euo pipefail
+          pushed_digest=$(sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' push.log | tail -1)
+          test -n "$pushed_digest"
+          docker buildx imagetools inspect "$IMAGE" | tee published-manifest.txt
+          remote_digest=$(awk '/^Digest:/ {print $2; exit}' published-manifest.txt)
+          test "$remote_digest" = "$pushed_digest"
+          docker pull --platform linux/amd64 "$IMAGE"
+          test "$(docker image inspect "$IMAGE" --format '{{.Id}}')" = "$(cat tested-image-id.txt)"
+          test "$(docker image inspect "$IMAGE" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          {
+            echo '## TileLang image published'
+            echo
+            echo "Image: \`$IMAGE\`"
+            echo "Digest: \`$remote_digest\`"
+            echo "Previous digest: \`$PREVIOUS_DIGEST\`"
+            echo "Source commit: \`$TILELANG_COMMIT\`"
+            echo
+            echo 'Validation: installation and 950 device compilation passed; NPU execution was not tested.'
+            echo
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          config = json.loads(Path('ci/docker/tilelang/release.json').read_text())
+          print(f"CANN: {config['cann_version']}")
+          print(f"CANN package: {config['cann_package_version']}")
+          for name in ('torch', 'torch_npu'):
+              print(f"{name}: {config[name]['version']}")
+          PY
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save verification records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tilelang-950-image-validation
+          if-no-files-found: ignore
+          path: |
+            smoke.log
+            push.log
+            tested-image-id.txt
+            previous-manifest.txt
+            published-manifest.txt

@@ -12,6 +12,7 @@ import struct
 from typing import Any
 
 from tilelang import tvm
+from tilelang.env import env
 
 
 __all__ = ["TileObjectKernel"]
@@ -83,10 +84,33 @@ class TileObjectKernel:
         encoded = self._encode_args(list(args))
         stream = _current_npu_stream()
         dynamic_ubuf_bytes = self._compute_dynamic_ubuf_size()
-        self._launch(
-            self._kernel_token,
-            self.block_count,
-            dynamic_ubuf_bytes,
-            stream,
-            encoded,
-        )
+        profile_value = str(env.TILELANG_NPU_PROFILE).strip()
+
+        if profile_value == "0":
+            self._launch(
+                self._kernel_token,
+                self.block_count,
+                dynamic_ubuf_bytes,
+                stream,
+                encoded,
+            )
+            return
+
+        # Runtime-only import keeps compiler-side Tile object handling
+        # free from profiler dependencies.
+        from tilelang.profiler.npu import NPUProfileConfig, npu_annotation
+
+        config = NPUProfileConfig.from_env()
+
+        with npu_annotation(
+            f"tilelang.launch::{self.kernel_name}",
+            enabled=config.enabled,
+            strict=config.strict,
+        ):
+            self._launch(
+                self._kernel_token,
+                self.block_count,
+                dynamic_ubuf_bytes,
+                stream,
+                encoded,
+            )

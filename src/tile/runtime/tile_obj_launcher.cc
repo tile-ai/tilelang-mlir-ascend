@@ -30,6 +30,10 @@
  *       float64 -> IEEE-754 bit pattern
  *   - stream is the raw NPU stream handle (0 = ACL default stream).
  */
+#ifdef TILELANG_CANN_PROFILER_AVAILABLE
+#include "tile_npu_profiler.h"
+#endif
+
 #include <dlfcn.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/error.h>
@@ -443,9 +447,9 @@ private:
 // Returns the raw ACL error code; error reporting stays in the launch entry
 // point so block-count and dynamic-UBUF context are attached in one place.
 template <size_t kNumWords>
-AclError PackAndLaunch(AclDriver *driver, AclFuncHandle function,
-                       uint32_t num_blocks, AclStream stream,
-                       AclLaunchKernelCfg *config,
+AclError PackAndLaunch(AclDriver *driver, const char *kernel_name,
+                       AclFuncHandle function, uint32_t num_blocks,
+                       AclStream stream, AclLaunchKernelCfg *config,
                        const AclArgPackPlan &plan,
                        const ffi::Array<int64_t> &args) {
   AclArgBuffer<kNumWords> buffer(plan.buffer_size / sizeof(uint64_t));
@@ -453,6 +457,11 @@ AclError PackAndLaunch(AclDriver *driver, AclFuncHandle function,
   for (size_t i = 0; i < plan.args.size(); ++i) {
     PackArg(plan.args[i].kind, args[i], base + plan.args[i].offset);
   }
+
+#ifdef TILELANG_CANN_PROFILER_AVAILABLE
+  NpuProfilerProbe profiler_probe(kernel_name, function, num_blocks);
+#endif
+
   return driver->LaunchKernelWithHostArgs(function, num_blocks, stream,
                                           config, base, plan.buffer_size);
 }
@@ -492,26 +501,31 @@ void LaunchTileObjectKernel(BoundKernelToken kernel_token, int64_t block_count,
   AclError result;
   size_t num_words = bound.pack_plan->buffer_size / sizeof(uint64_t);
   if (num_words <= 4) {
-    result = PackAndLaunch<4>(driver, bound.function,
-                              static_cast<uint32_t>(block_count),
-                              reinterpret_cast<AclStream>(stream), config_ptr,
-                              *bound.pack_plan, args);
+    result = PackAndLaunch<4>(
+        driver, bound.kernel_name->c_str(), bound.function,
+        static_cast<uint32_t>(block_count),
+        reinterpret_cast<AclStream>(stream), config_ptr, *bound.pack_plan,
+        args);
   } else if (num_words <= 8) {
-    result = PackAndLaunch<8>(driver, bound.function,
-                              static_cast<uint32_t>(block_count),
-                              reinterpret_cast<AclStream>(stream), config_ptr,
-                              *bound.pack_plan, args);
+    result = PackAndLaunch<8>(
+        driver, bound.kernel_name->c_str(), bound.function,
+        static_cast<uint32_t>(block_count),
+        reinterpret_cast<AclStream>(stream), config_ptr, *bound.pack_plan,
+        args);
   } else if (num_words <= 16) {
-    result = PackAndLaunch<16>(driver, bound.function,
-                               static_cast<uint32_t>(block_count),
-                               reinterpret_cast<AclStream>(stream), config_ptr,
-                               *bound.pack_plan, args);
+    result = PackAndLaunch<16>(
+        driver, bound.kernel_name->c_str(), bound.function,
+        static_cast<uint32_t>(block_count),
+        reinterpret_cast<AclStream>(stream), config_ptr, *bound.pack_plan,
+        args);
   } else {
-    result = PackAndLaunch<0>(driver, bound.function,
-                              static_cast<uint32_t>(block_count),
-                              reinterpret_cast<AclStream>(stream), config_ptr,
-                              *bound.pack_plan, args);
+    result = PackAndLaunch<0>(
+        driver, bound.kernel_name->c_str(), bound.function,
+        static_cast<uint32_t>(block_count),
+        reinterpret_cast<AclStream>(stream), config_ptr, *bound.pack_plan,
+        args);
   }
+
   if (result != kAclSuccess) {
     const char *message = driver->GetRecentErrorMessage();
     std::ostringstream error;

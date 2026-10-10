@@ -522,6 +522,12 @@ endif()
 add_compile_definitions(DMLC_USE_LOGGING_LIBRARY=<tvm/runtime/logging.h>)
 
 add_library(tilelang_objs OBJECT ${TILE_LANG_SRCS})
+if(TILELANG_CANN_PROFILER_AVAILABLE)
+  target_compile_definitions(
+    tilelang_objs
+    PRIVATE TILELANG_CANN_PROFILER_AVAILABLE=1
+  )
+endif()
 if(MSVC)
   # Keep the wider project on its current baseline, but let TileLang's C++
   # sources use C++20 so designated initializers compile under MSVC.
@@ -559,6 +565,12 @@ if(WIN32)
 else()
   add_library(tilelang SHARED $<TARGET_OBJECTS:tilelang_objs>)
   target_link_libraries(tilelang PUBLIC tvm_compiler)
+  if(TILELANG_CANN_PROFILER_AVAILABLE)
+    target_link_libraries(
+      tilelang
+      PRIVATE ${TILELANG_CANN_PROFILER_LIBRARIES}
+    )
+  endif()
 
   # Place dev build outputs under build/lib for consistency
   set_target_properties(tilelang PROPERTIES

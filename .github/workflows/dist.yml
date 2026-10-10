@@ -40,6 +40,8 @@ env:
   CLICOLOR_FORCE: "1"
   UV_INDEX_STRATEGY: "unsafe-best-match"
   UV_HTTP_TIMEOUT: "600"
+  PIP_FIND_LINKS: "https://llvm.github.io/eudsl"
+  UV_FIND_LINKS: "https://llvm.github.io/eudsl"
   XDG_CACHE_HOME: "${{ github.workspace }}/.cache" # to be updated
   PIP_CACHE_DIR: "${{ github.workspace }}/.cache/pip" # to be updated
   UV_CACHE_DIR: "${{ github.workspace }}/.cache/uv" # to be updated

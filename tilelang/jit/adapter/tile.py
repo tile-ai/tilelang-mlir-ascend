@@ -3,6 +3,7 @@
 import torch
 
 from .base import BaseKernelAdapter
+from tilelang.env import env
 from tilelang.opentile.compiler import TileCompilationResult
 from tilelang.opentile.manifest import ParameterBinding, validate_scalar_value
 from tilelang.opentile.tile_obj import TileObjectKernel
@@ -17,6 +18,7 @@ class TileKernelAdapter(BaseKernelAdapter):
         launch_spec = compilation_result.launch_spec
         if artifact.params is None:
             raise ValueError("artifact.params is required; do not lower with runtime_only=True")
+
         self.artifact = artifact
         self.mod = artifact.device_mod
         self.params = list(artifact.params)
@@ -71,6 +73,26 @@ class TileKernelAdapter(BaseKernelAdapter):
         )
         self._post_init()
 
+    def _invoke_validated(self, logical, device):
+        with torch.npu.device(device):
+            for i in self.result_idx:
+                logical[i] = torch.empty(
+                    self.shapes[i],
+                    dtype=self.dtypes[i],
+                    device=device,
+                )
+
+            physical = [
+                logical[arg.source.index]
+                if isinstance(arg.source, ParameterBinding)
+                else arg.source.value
+                for arg in self.launch_spec.arguments
+            ]
+
+            self.runtime_kernel(*physical)
+
+        outputs = [logical[i] for i in self.result_idx]
+        return outputs[0] if len(outputs) == 1 else outputs
 
     def _convert_torch_func(self):
         def invoke(*args):
@@ -89,21 +111,33 @@ class TileKernelAdapter(BaseKernelAdapter):
                     if not value.is_contiguous():
                         raise ValueError(f"parameter {i} must be contiguous")
                     if device is not None and value.device != device:
-                        raise ValueError(f"all input tensors must be on the same NPU")
+                        raise ValueError("all input tensors must be on the same NPU")
                     device = value.device
                 else:
                     validate_scalar_value(self.scalar_kinds[i], value)
                 logical[i] = value
-            # Read the stream on the tensor's device; restore caller context on exit.
-            # Do not synchronize: output stay stream-ordered.
-            with torch.npu.device(device):
-                for i in self.result_idx:
-                    logical[i] = torch.empty(self.shapes[i], dtype=self.dtypes[i], device=device)
-                physical = [logical[arg.source.index] if isinstance(arg.source, ParameterBinding)
-                            else arg.source.value for arg in self.launch_spec.arguments]
-                self.runtime_kernel(*physical)
-            outputs = [logical[i] for i in self.result_idx]
-            return outputs[0] if len(outputs) == 1 else outputs
+            profile_value = str(env.TILELANG_NPU_PROFILE).strip()
+            if profile_value == "0":
+                return self._invoke_validated(logical, device)
+
+            from tilelang.profiler.npu import (
+                NPUProfileConfig,
+                get_npu_profiler_controller,
+                npu_annotation,
+            )
+
+            config = NPUProfileConfig.from_env()
+            controller = get_npu_profiler_controller()
+
+            def profiled_invoke():
+                with npu_annotation(
+                    f"tilelang::{self.launch_spec.kernel_name}",
+                    enabled=config.enabled,
+                    strict=config.strict,
+                ):
+                    return self._invoke_validated(logical, device)
+
+            return controller.run(config, profiled_invoke)
         return invoke
 
 

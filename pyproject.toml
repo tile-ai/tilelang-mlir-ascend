@@ -96,7 +96,7 @@ requires = [
 build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
-wheel.py-api = "cp38"
+wheel.py-api = "cp39"
 cmake.version = ">=3.26.1"
 build-dir = "build"
 
@@ -268,6 +268,8 @@ environment-pass = [
     "CMAKE_BUILD_PARALLEL_LEVEL",
     "FORCE_COLOR",
     "CLICOLOR_FORCE",
+    "PIP_FIND_LINKS",
+    "UV_FIND_LINKS",
 ]
 before-build = "env -0 | sort -z | tr '\\0' '\\n'"
 windows.before-build = "set"

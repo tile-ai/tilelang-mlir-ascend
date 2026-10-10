@@ -5,7 +5,7 @@ import tilelang as tl
 from tilelang.utils.target import determine_target
 import tilelang.language as T
 import tilelang.testing
-from tvm import tir
+from tilelang.tvm import tir
 
 auto_target = tvm.target.Target(determine_target("auto"))
 

@@ -9,7 +9,7 @@ from typing import Optional
 # tir script
 # TODO(lei): remove this import once the
 # upstream tir script is fully compatible
-from tvm.script.parser.tir import *
+from tilelang.tvm.script.parser.tir import *
 from .tir import (
     prim_func,  # noqa: F401
 )

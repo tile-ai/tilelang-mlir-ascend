@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 """The language interface for tl programs."""
 
-from tvm import tir
+from tilelang.tvm import tir
 from typing import Union
 from tilelang.language import has_let_value, get_let_value
 

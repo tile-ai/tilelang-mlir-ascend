@@ -1,7 +1,7 @@
 """Unit test for composite dynamic shape support in _process_dynamic_symbolic."""
 
 import tilelang.language as T
-from tvm import tir
+from tilelang.tvm import tir
 from tilelang.jit.jit_npu import (
     _collect_tir_vars,
     _detect_affine,

@@ -11,11 +11,12 @@ from __future__ import absolute_import as _abs
 
 import subprocess
 
-import tvm._ffi
+import tilelang.tvm._ffi  # noqa: F401
+from tilelang import tvm
 
-from tvm.contrib import utils
-from tvm._ffi.base import py_str
-from tvm.contrib.rocm import get_rocm_arch, find_rocm_path
+from tilelang.tvm.contrib import utils
+from tilelang.tvm._ffi.base import py_str
+from tilelang.tvm.contrib.rocm import get_rocm_arch, find_rocm_path
 
 
 def compile_hip(code,

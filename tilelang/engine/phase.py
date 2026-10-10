@@ -1,8 +1,8 @@
 # Copyright (c) Tile-AI Organization.
 # Licensed under the MIT License.
 import os
-from tvm import tir, IRModule
-from tvm.target import Target
+from tilelang.tvm import tir, IRModule
+from tilelang.tvm.target import Target
 import tilelang
 from tilelang.transform import PassContext
 from tilelang.contrib.nvcc import have_tma

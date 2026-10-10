@@ -23,20 +23,20 @@ import contextlib
 from functools import partial
 from typing import Any
 
-import tvm
-from tvm.ir import GlobalVar, PrimType
-from tvm.tir import Buffer, IterVar, PrimExpr, Var
+from tilelang import tvm
+from tilelang.tvm.ir import GlobalVar, PrimType
+from tilelang.tvm.tir import Buffer, IterVar, PrimExpr, Var
 
-from tvm.script.ir_builder import ir as I
-from tvm.script.ir_builder import tir as T
+from tilelang.tvm.script.ir_builder import ir as I
+from tilelang.tvm.script.ir_builder import tir as T
 
 # May rewrite some register functions
 # if we use our own registration
 # from .. import ast as T
 
-from tvm.script.ir_builder.base import IRBuilder
-from tvm.script.ir_builder.base import IRBuilderFrame as Frame
-from tvm.script.parser._core import Parser, dispatch, doc
+from tilelang.tvm.script.ir_builder.base import IRBuilder
+from tilelang.tvm.script.ir_builder.base import IRBuilderFrame as Frame
+from tilelang.tvm.script.parser._core import Parser, dispatch, doc
 
 
 def bind_with_value(self: Parser, node: doc.expr, var_name: str, value: Any) -> Any:

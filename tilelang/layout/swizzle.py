@@ -3,7 +3,7 @@
 """Wrapping Layouts."""
 # pylint: disable=invalid-name, unsupported-binary-operation
 
-import tvm
+from tilelang import tvm
 from tilelang import _ffi_api
 
 

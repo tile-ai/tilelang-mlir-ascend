@@ -7,7 +7,7 @@ cimport cython
 import ctypes
 from libc.stdint cimport int64_t, uintptr_t
 from libc.stdlib cimport malloc, free
-from tvm import tir
+from tilelang.tvm import tir
 from tilelang.utils.tensor import map_torch_type
 
 cdef class CythonKernelWrapper:

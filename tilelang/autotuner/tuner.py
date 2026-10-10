@@ -11,8 +11,8 @@ import tilelang
 from tilelang import tvm as tvm
 from tilelang.jit.jit_npu import JitKernel_NPU
 from tilelang.version import __version__  # Import early to avoid circular import
-from tvm.tir import PrimFunc, Var
-from tvm.target import Target
+from tilelang.tvm.tir import PrimFunc, Var
+from tilelang.tvm.target import Target
 import inspect
 from functools import partial
 from typing import Callable, Generic, Literal, Any, TypeVar, TYPE_CHECKING

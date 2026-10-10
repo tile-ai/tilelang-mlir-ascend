@@ -7,9 +7,9 @@ import os.path as osp
 from typing import Union, Optional, Callable, List
 import tilelang.transform
 from tilelang import tvm as tvm
-from tvm import tir
-from tvm.ir import CallingConv
-from tvm.target import Target
+from tilelang.tvm import tir
+from tilelang.tvm.ir import CallingConv
+from tilelang.tvm.target import Target
 from tilelang.contrib import hipcc, nvcc
 from tilelang.engine.param import KernelParam, CompiledArtifact
 from tilelang.utils.target import determine_target  # noqa: F401

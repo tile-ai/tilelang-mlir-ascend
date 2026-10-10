@@ -1,8 +1,8 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 
-from tvm import DataType
-from tvm.runtime import convert
+from tilelang.tvm import DataType
+from tilelang.tvm.runtime import convert
 import tilelang.language as T
 
 

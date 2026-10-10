@@ -17,8 +17,8 @@ from typing import (
     Optional,
 )
 from tilelang import tvm as tvm
-from tvm.tir import PrimFunc
-from tvm.target import Target
+from tilelang.tvm.tir import PrimFunc
+from tilelang.tvm.target import Target
 
 from tilelang.cache import cached_npu
 from os import path, makedirs

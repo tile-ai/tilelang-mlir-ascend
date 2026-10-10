@@ -5,7 +5,7 @@ This module provides macros and utilities for debugging TileLang (tl) programs.
 It includes functionality to print variables, print values in buffers, and conditionally execute debug prints.
 """
 
-from tvm import tir
+from tilelang.tvm import tir
 from typing import Any
 from tilelang.language.kernel import get_thread_bindings
 from tilelang.language import copy, macro, serial, alloc_shared

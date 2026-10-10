@@ -2,8 +2,8 @@
 # Licensed under the MIT License.
 
 from typing import List, Optional, Union
-from tvm import tir, IRModule
-from tvm.tir import PrimFunc
+from tilelang.tvm import tir, IRModule
+from tilelang.tvm.tir import PrimFunc
 from tilelang.utils.npu_arch import AscendArch
 from .roller.policy import (
     TensorCorePolicy,

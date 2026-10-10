@@ -4,8 +4,8 @@
 import tilelang
 from tilelang import tvm as tvm
 import tilelang.testing
-from tvm import te
-from tvm.script import ir as I
+from tilelang.tvm import te
+from tilelang.tvm.script import ir as I
 from tilelang import language as T
 import pytest
 

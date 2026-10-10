@@ -4,7 +4,7 @@
 
 from tilelang.primitives.gemm.base import GemmWarpPolicy
 import tilelang.language as T
-from tvm import tir
+from tilelang.tvm import tir
 from typing import Union, List
 
 

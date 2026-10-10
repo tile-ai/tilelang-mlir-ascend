@@ -4,11 +4,11 @@
 from typing import List, Optional, Set, Union
 from typing_extensions import Literal
 
-from tvm import ir, tir, DataType
-from tvm._ffi import get_global_func
-from tvm.target.target import Target
-from tvm.tir import Schedule, IterVar
-from tvm.tir.schedule import BlockRV
+from tilelang.tvm import ir, tir, DataType
+from tilelang.tvm._ffi import get_global_func
+from tilelang.tvm.target.target import Target
+from tilelang.tvm.tir import Schedule, IterVar
+from tilelang.tvm.tir.schedule import BlockRV
 
 
 class IterInfo:

@@ -483,7 +483,7 @@ class TileLangIRTranslator(PyStmtExprVisitor):
                 f"{src_type.rank} -> {dst_type.rank}"
             )
         src_shape = list(src_type.shape)
-        dst_shape = list(dst_type.shape) 
+        dst_shape = list(dst_type.shape)
         broadcast_dims = self._infer_broadcast_dims(src_shape, dst_shape)
         self._linalg.broadcast(src, outs=[dst], dimensions=broadcast_dims)
     def _emit_vdiv(self, call: tirx.Call) -> None:
@@ -492,7 +492,6 @@ class TileLangIRTranslator(PyStmtExprVisitor):
         src0 = self._get_or_create_expr_value(call.args[0])
         src1 = self._get_or_create_expr_value(call.args[1])
         dst = self._get_or_create_expr_value(call.args[2])
-        src0_type = self._ir.MemRefType(src0.type)
         src1_type = self._ir.MemRefType(src1.type)
         dst_type = self._ir.MemRefType(dst.type)
 
@@ -516,7 +515,6 @@ class TileLangIRTranslator(PyStmtExprVisitor):
         src0 = self._get_or_create_expr_value(call.args[0])
         src1 = self._get_or_create_expr_value(call.args[1])
         dst = self._get_or_create_expr_value(call.args[2])
-        src0_type = self._ir.MemRefType(src0.type)
         src1_type = self._ir.MemRefType(src1.type)
         dst_type = self._ir.MemRefType(dst.type)
 
@@ -1450,6 +1448,58 @@ class TileLangIRTranslator(PyStmtExprVisitor):
         lhs = self._get_or_create_expr_value(op.a)
         rhs = self._get_or_create_expr_value(op.b)
         self._insert_value(op, self._arith_binary_op(op.dtype, lhs, rhs, "DivSIOp", "DivFOp"))
+
+    # NOTE: The dispatch method names of tirx PyStmtExprVisitor are explicitly
+    # registered by functor.py via _tvm_metadata["methods"]; FloorMod maps to
+    # visit_floor_mod_ (with a trailing underscore).
+    def visit_floor_mod_(self, op: tirx.FloorMod) -> None:
+        if isinstance(self._dtype_type(op.dtype), self._ir.FloatType):
+            raise NotImplementedError(f"FloorMod on float operands is not supported: {op}")
+        lhs = self._get_or_create_expr_value(op.a)
+        rhs = self._get_or_create_expr_value(op.b)
+        lhs, rhs = self._unify_integer_operands(lhs, rhs)
+        # TIR floormod follows floor semantics (the sign of the result follows
+        # the divisor), whereas arith.remsi uses truncation semantics (the sign
+        # of the result follows the dividend). When the remainder is nonzero and
+        # its sign differs from that of the divisor, rem + rhs yields the floor
+        # result.
+        rem = self._arith.RemSIOp(lhs, rhs).result
+        zero = self._arith.ConstantOp(
+            rem.type, self._ir.IntegerAttr.get(rem.type, 0)
+        ).result
+        rem_nonzero = self._arith.cmpi(self._arith.CmpIPredicate.ne, rem, zero)
+        rem_negative = self._arith.cmpi(self._arith.CmpIPredicate.slt, rem, zero)
+        rhs_negative = self._arith.cmpi(self._arith.CmpIPredicate.slt, rhs, zero)
+        sign_mismatch = self._arith.XOrIOp(rem_negative, rhs_negative).result
+        adjust = self._arith.AndIOp(rem_nonzero, sign_mismatch).result
+        adjusted = self._arith.AddIOp(rem, rhs).result
+        self._insert_value(op, self._arith.select(adjust, adjusted, rem))
+
+    def visit_floor_div_(self, op: tirx.FloorDiv) -> None:
+        if isinstance(self._dtype_type(op.dtype), self._ir.FloatType):
+            raise NotImplementedError(f"FloorDiv on float operands is not supported: {op}")
+        lhs = self._get_or_create_expr_value(op.a)
+        rhs = self._get_or_create_expr_value(op.b)
+        lhs, rhs = self._unify_integer_operands(lhs, rhs)
+        # TIR floordiv follows floor semantics (rounding toward negative
+        # infinity), whereas arith.divsi uses truncation semantics (rounding
+        # toward zero). When the remainder is nonzero and its sign differs from
+        # that of the divisor, the quotient must be decremented by one.
+        quotient = self._arith.DivSIOp(lhs, rhs).result
+        rem = self._arith.RemSIOp(lhs, rhs).result
+        zero = self._arith.ConstantOp(
+            rem.type, self._ir.IntegerAttr.get(rem.type, 0)
+        ).result
+        one = self._arith.ConstantOp(
+            quotient.type, self._ir.IntegerAttr.get(quotient.type, 1)
+        ).result
+        rem_nonzero = self._arith.cmpi(self._arith.CmpIPredicate.ne, rem, zero)
+        rem_negative = self._arith.cmpi(self._arith.CmpIPredicate.slt, rem, zero)
+        rhs_negative = self._arith.cmpi(self._arith.CmpIPredicate.slt, rhs, zero)
+        sign_mismatch = self._arith.XOrIOp(rem_negative, rhs_negative).result
+        adjust = self._arith.AndIOp(rem_nonzero, sign_mismatch).result
+        adjusted = self._arith.SubIOp(quotient, one).result
+        self._insert_value(op, self._arith.select(adjust, adjusted, quotient))
 
     def _emit_comparison(
         self, op: tirx.PrimExpr, int_pred: str, float_pred: str

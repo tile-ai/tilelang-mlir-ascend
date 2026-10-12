@@ -37,7 +37,7 @@
 | Parallel `For` | `scf.for` | 增加 `tilelang.loop_kind = "parallel"`，并原样保留循环 annotations。 |
 | Vectorized `For` | `scf.for` | 增加 `tilelang.loop_kind = "vectorized"`，并原样保留循环 annotations。 |
 | Unrolled `For` | `scf.for` | 增加 `tilelang.loop_kind = "unrolled"`，并原样保留 unroll factor 等 annotations。 |
-| Pipelined `For` | `scf.for` | TIRX 中实际是 Serial `For`；根据 pipeline annotations 识别，增加 `tilelang.loop_kind = "pipelined"`，并原样保留 `num_stages`、`tl_pipeline_order`、`tl_pipeline_stage` 和 `tl_pipeline_group`。 |
+| Pipelined `For` | `scf.for` | TIRX 中实际是 Serial `For`；根据 pipeline annotations 识别，增加 `tilelang.loop_kind = "pipelined"`，并原样保留 `num_stages`、`tl_pipeline_order`、`tl_pipeline_stage` ; 根据`tl_pipeline_group`合并指定的 pipeline units，并消除该 annotation。 |
 | 条件语句 | `scf.if` | 保留 then/else Region。 |
 | `SBlock` | `scf.execute_region` | 在 Operation 上增加 `tilelang.sblock_name` 等普通 Attribute；不转换自动推导的 `reads`/`writes`。 |
 | `SimdVF` | `scf.execute_region` | 增加表示 SimdVF scope 的普通 Attribute。 |
@@ -62,6 +62,7 @@ Operation，不在 Codegen 阶段提前展开或硬件化：
 | `T.copy` / `tl.tileop.copy` | `tilelang.copy` | 源和目标 Region，以及 `split_dim`、`transpose` 等 Attribute。 |
 | `T.gemm` / `tl.tileop.gemm` | `tilelang.gemm` | A/B/C Region、transpose、M/N/K、clear_accum 和其他原始参数。 |
 | Kernel launch / thread binding | `tilelang.launch_thread` | thread tag、extent、绑定变量和嵌套 Region。 |
+| Pipelined 循环中的可执行源语句 | `tilelang.pipeline_stage` | 保持一个源调度单元，显式 sblock 的名称存为 label；内部地址展开不改变 stage/order 的计数。 |
 
 自定义 Operation 的目标是无损保存前端语义，而不是在这里决定最终硬件指令。
 后续真正面向某个后端时，可以再对 TileLangIR 运行独立的 lowering 或转换流程。

@@ -14,6 +14,7 @@ from .dialect import configure_context
 from ._tilelang_ops_gen import (
     CopyOp,
     GemmOp,
+    PipelineStageOp,
     ScopeOp,
     VcvtOp,
     VexpdifOp,
@@ -483,16 +484,16 @@ class TileLangIRTranslator(PyStmtExprVisitor):
                 f"{src_type.rank} -> {dst_type.rank}"
             )
         src_shape = list(src_type.shape)
-        dst_shape = list(dst_type.shape) 
+        dst_shape = list(dst_type.shape)
         broadcast_dims = self._infer_broadcast_dims(src_shape, dst_shape)
         self._linalg.broadcast(src, outs=[dst], dimensions=broadcast_dims)
+
     def _emit_vdiv(self, call: tirx.Call) -> None:
         if len(call.args) != 3:
             raise ValueError(f"tl.tileop.vdiv expects 3 arguments, but received {len(call.args)}")
         src0 = self._get_or_create_expr_value(call.args[0])
         src1 = self._get_or_create_expr_value(call.args[1])
         dst = self._get_or_create_expr_value(call.args[2])
-        src0_type = self._ir.MemRefType(src0.type)
         src1_type = self._ir.MemRefType(src1.type)
         dst_type = self._ir.MemRefType(dst.type)
 
@@ -516,7 +517,6 @@ class TileLangIRTranslator(PyStmtExprVisitor):
         src0 = self._get_or_create_expr_value(call.args[0])
         src1 = self._get_or_create_expr_value(call.args[1])
         dst = self._get_or_create_expr_value(call.args[2])
-        src0_type = self._ir.MemRefType(src0.type)
         src1_type = self._ir.MemRefType(src1.type)
         dst_type = self._ir.MemRefType(dst.type)
 
@@ -839,6 +839,7 @@ class TileLangIRTranslator(PyStmtExprVisitor):
             transpose_b=transpose_b,
             clear_accum=clear_accum,
         )
+
     def _emit_vcvt(self, call: tirx.Call) -> None:
         if len(call.args) != 3:
             raise ValueError(f"tl.tileop.vcvt expects 3 arguments, but received {len(call.args)}")
@@ -897,6 +898,7 @@ class TileLangIRTranslator(PyStmtExprVisitor):
         result = self._arith.select(cond, true_value, false_value)
         self._insert_value(call, result)
         return result
+
     def _emit_vexp(self, call: tirx.Call) -> None:
         if len(call.args) != 2:
             raise ValueError(
@@ -1174,11 +1176,137 @@ class TileLangIRTranslator(PyStmtExprVisitor):
         body_keys = set(self.value_map)
         self._insert_value(op.loop_var, for_op.induction_variable)
         with self._ir.InsertionPoint(for_op.body):
-            self.visit_stmt(op.body)
+            if op.annotations and any(key in op.annotations for key in self._PIPELINE_ANNOTATION_KEYS):
+                self._emit_pipeline_body(op)
+            else:
+                self.visit_stmt(op.body)
             self._scf.YieldOp([])
         for key in list(self.value_map):
             if key not in body_keys:
                 del self.value_map[key]
+
+    def _emit_pipeline_body(self, op: tirx.For) -> None:
+        """Bind scheduling entries before copies/macros expand into MLIR ops.
+
+        Bind address recipes remain in the loop for AS to rematerialize at each
+        scheduled use. Each executable source statement, including an explicit
+        sblock or nested loop, is one unit. ``tl_pipeline_group`` merges the
+        listed units into a single ``tilelang.pipeline_stage`` unit, emitted at
+        the position of its first member with the members kept in program
+        order; the frontend consumes the grouping, so ``tl_pipeline_stage`` and
+        ``tl_pipeline_order`` must number the merged units. Region-local SSA
+        must not escape a unit.
+        """
+        statements = list(op.body.seq) if isinstance(op.body, tirx.SeqStmt) else [op.body]
+        units = [
+            stmt
+            for stmt in statements
+            if not isinstance(stmt, (tirx.Bind, tirx.AllocBuffer, tirx.DeclBuffer))
+        ]
+        merged_units = self._merged_pipeline_units(op, len(units))
+        self._check_pipeline_annotation_size(op, "tl_pipeline_stage", len(merged_units))
+        self._check_pipeline_annotation_size(op, "tl_pipeline_order", len(merged_units))
+
+        merged_of_unit = {}
+        for merged_index, members in enumerate(merged_units):
+            for member in members:
+                merged_of_unit[member] = merged_index
+
+        emitted = set()
+        unit_index = 0
+        for stmt in statements:
+            if isinstance(stmt, (tirx.Bind, tirx.AllocBuffer, tirx.DeclBuffer)):
+                self.visit_stmt(stmt)
+                continue
+            current = unit_index
+            unit_index += 1
+            if current in emitted:
+                continue
+            members = merged_units[merged_of_unit[current]]
+            stage = PipelineStageOp(label=self._unit_label(units, members))
+            block = self._ir.Block.create_at_start(stage.body)
+            with self._ir.InsertionPoint(block), self._scoped_value_map():
+                for member in members:
+                    self.visit_stmt(units[member])
+                    emitted.add(member)
+
+    def _merged_pipeline_units(self, op: tirx.For, unit_count: int) -> list[list[int]]:
+        """Resolve ``tl_pipeline_group`` into merged scheduling units.
+
+        Each merged unit lists its original unit indices in program order and
+        is placed at the position of its first member; units the user keeps
+        apart stay separate units. A missing or empty grouping merges nothing.
+        """
+        annotations = op.annotations or {}
+        if "tl_pipeline_group" not in annotations:
+            return [[unit] for unit in range(unit_count)]
+
+        groups = self._validated_pipeline_groups(annotations["tl_pipeline_group"], unit_count)
+        group_of_unit = {}
+        for group in groups:
+            members = tuple(sorted(group))
+            for member in members:
+                group_of_unit[member] = members
+
+        merged_units = []
+        emitted = set()
+        for unit in range(unit_count):
+            members = group_of_unit.get(unit)
+            if members is None:
+                merged_units.append([unit])
+            elif unit not in emitted:
+                merged_units.append(list(members))
+                emitted.update(members)
+        return merged_units
+
+    def _validated_pipeline_groups(self, raw: Any, unit_count: int) -> list[list[int]]:
+        """Normalize and validate user-specified ``tl_pipeline_group`` entries."""
+        if not hasattr(raw, "__iter__") or isinstance(raw, (str, bytes)):
+            raise ValueError(f"tl_pipeline_group must be a list of unit-index lists, got {raw}.")
+        groups = []
+        seen = set()
+        for entry in raw:
+            if not hasattr(entry, "__iter__") or isinstance(entry, (str, bytes)):
+                raise ValueError(f"tl_pipeline_group must be a list of unit-index lists, got {raw}.")
+            members = []
+            for element in entry:
+                index = self._try_static_int(element)
+                if index is None:
+                    raise ValueError(f"tl_pipeline_group unit indices must be integers, got {element}.")
+                if not 0 <= index < unit_count:
+                    raise ValueError(
+                        f"tl_pipeline_group unit index {index} is out of range [0, {unit_count})."
+                    )
+                if index in seen:
+                    raise ValueError(f"tl_pipeline_group unit {index} appears in more than one group.")
+                seen.add(index)
+                members.append(index)
+            if not members:
+                raise ValueError("tl_pipeline_group groups must not be empty.")
+            groups.append(members)
+        return groups
+
+    def _check_pipeline_annotation_size(self, op: tirx.For, key: str, unit_count: int) -> None:
+        """Manual stage/order arrays must number exactly the merged units."""
+        if not op.annotations or key not in op.annotations:
+            return
+        value = op.annotations[key]
+        size = len(value) if hasattr(value, "__iter__") and not isinstance(value, (str, bytes)) else None
+        if size != unit_count:
+            got = size if size is not None else value
+            raise ValueError(
+                f"{key} must hold one entry per pipeline unit: expected {unit_count}, got {got}."
+            )
+
+    @staticmethod
+    def _unit_label(units: list[tirx.Stmt], members: list[int]) -> str | None:
+        """Label a unit; merged members read as ``first+second``."""
+        labels = [
+            str(units[member].block.name_hint)
+            for member in members
+            if isinstance(units[member], tirx.SBlockRealize)
+        ]
+        return "+".join(labels) if labels else None
 
     def _simt_parallel_rank(self, op: tirx.For) -> int | None:
         """Infer the rank of a perfect SIMT parallel loop nest."""
@@ -1288,7 +1416,7 @@ class TileLangIRTranslator(PyStmtExprVisitor):
         """
         kind = op.kind
         if kind == tirx.ForKind.SERIAL:
-            if op.annotations and "num_stages" in op.annotations:
+            if op.annotations and any(key in op.annotations for key in self._PIPELINE_ANNOTATION_KEYS):
                 return self._ir.StringAttr.get("pipelined")
             return self._ir.StringAttr.get("serial")
         if kind == tirx.ForKind.PARALLEL:
@@ -1313,6 +1441,11 @@ class TileLangIRTranslator(PyStmtExprVisitor):
             return
         for key in self._PIPELINE_ANNOTATION_KEYS:
             if key not in op.annotations:
+                continue
+            if key == "tl_pipeline_group":
+                # The frontend already merged the grouped units into shared
+                # pipeline_stage units; mirroring the raw groups would let a
+                # downstream pass schedule the same unit twice.
                 continue
             try:
                 for_op.attributes[key] = self._annotation_value_to_attr(op.annotations[key])
@@ -1389,7 +1522,6 @@ class TileLangIRTranslator(PyStmtExprVisitor):
         ).result
 
         self._insert_value(op, loaded)
-
 
     def visit_buffer_store_(self, op: tirx.BufferStore) -> None:
         """
@@ -1556,6 +1688,7 @@ class TileLangIRTranslator(PyStmtExprVisitor):
             self._emit_infinity(op)
         elif op_name == "tl.tileop.vcvt":
             self._emit_vcvt(op)
+
     def _emit_fill(self, op: tirx.Call) -> None:
         if len(op.args) != 2:
             raise ValueError(f"tl.tileop.fill expects 2 arguments, but received {len(op.args)}")

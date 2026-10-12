@@ -8,17 +8,52 @@ from mlir.dialects._ods_common import (
 _ods_ir = _ods_cext.ir
 
 import builtins
-from typing import Optional as _Optional
 
 
 # ---------------------------------------------------------------------------
 # Dialect
 # ---------------------------------------------------------------------------
 
+
 @_ods_cext.register_dialect
 class _Dialect(_ods_ir.Dialect):
     DIALECT_NAMESPACE = "tilelang"
 
+
+
+# ===========================================================================
+# tilelang.pipeline_stage
+# ===========================================================================
+
+
+@_ods_cext.register_operation(_Dialect)
+class PipelineStageOp(_ods_ir.OpView):
+    """Internal source statement boundary for OpenTileAS pipeline planning."""
+
+    OPERATION_NAME = "tilelang.pipeline_stage"
+    _ODS_REGIONS = (1, True)
+
+    def __init__(self, *, label=None, loc=None, ip=None):
+        attributes = {}
+        if label is not None:
+            attributes["label"] = _ods_ir.StringAttr.get(label)
+        super().__init__(
+            self.OPERATION_NAME,
+            self._ODS_REGIONS,
+            None,
+            None,
+            attributes=attributes,
+            results=[],
+            operands=[],
+            successors=None,
+            regions=None,
+            loc=loc,
+            ip=ip,
+        )
+
+    @property
+    def body(self):
+        return self.regions[0]
 
 # ===========================================================================
 # tilelang.copy
@@ -42,10 +77,10 @@ class CopyOp(_ods_ir.OpView):
         src,
         dest,
         *,
-        split_dim: _Optional[int] = None,
-        transpose: _Optional[bool] = None,
-        loc: _Optional[_ods_ir.Location] = None,
-        ip: _Optional[_ods_ir.InsertionPoint] = None,
+        split_dim: int | None = None,
+        transpose: bool | None = None,
+        loc: _ods_ir.Location | None = None,
+        ip: _ods_ir.InsertionPoint | None = None,
     ):
         attributes: dict = {}
         if split_dim is not None:
@@ -79,13 +114,13 @@ class CopyOp(_ods_ir.OpView):
         return self.operation.operands[1]
 
     @builtins.property
-    def split_dim(self) -> _Optional[int]:
+    def split_dim(self) -> int | None:
         if "split_dim" not in self.operation.attributes:
             return None
         return _ods_ir.IntegerAttr(self.operation.attributes["split_dim"]).value
 
     @split_dim.setter
-    def split_dim(self, value: _Optional[int]):
+    def split_dim(self, value: int | None):
         if value is not None:
             self.operation.attributes["split_dim"] = _ods_ir.IntegerAttr.get(
                 _ods_ir.IntegerType.get_signless(64), value
@@ -121,11 +156,11 @@ class GemmOp(_ods_ir.OpView):
         b,
         c,
         *,
-        transpose_a: _Optional[bool] = None,
-        transpose_b: _Optional[bool] = None,
-        clear_accum: _Optional[bool] = None,
-        loc: _Optional[_ods_ir.Location] = None,
-        ip: _Optional[_ods_ir.InsertionPoint] = None,
+        transpose_a: bool | None = None,
+        transpose_b: bool | None = None,
+        clear_accum: bool | None = None,
+        loc: _ods_ir.Location | None = None,
+        ip: _ods_ir.InsertionPoint | None = None,
     ):
         attributes: dict = {}
         _ods_context = _ods_get_default_loc_context(loc)
@@ -218,9 +253,9 @@ class ScopeOp(_ods_ir.OpView):
         self,
         *,
         mode: str,
-        threads: _Optional[int] = None,
-        loc: _Optional[_ods_ir.Location] = None,
-        ip: _Optional[_ods_ir.InsertionPoint] = None,
+        threads: int | None = None,
+        loc: _ods_ir.Location | None = None,
+        ip: _ods_ir.InsertionPoint | None = None,
     ):
         attributes: dict = {}
         if mode not in ("default", "simd", "simt"):
@@ -269,7 +304,7 @@ class ScopeOp(_ods_ir.OpView):
         return self.operation.attributes["mode"]
 
     @builtins.property
-    def threads(self) -> _Optional[int]:
+    def threads(self) -> int | None:
         if "threads" not in self.operation.attributes:
             return None
         return _ods_ir.IntegerAttr(self.operation.attributes["threads"]).value
@@ -290,8 +325,8 @@ class ScopeYieldOp(_ods_ir.OpView):
     def __init__(
         self,
         *,
-        loc: _Optional[_ods_ir.Location] = None,
-        ip: _Optional[_ods_ir.InsertionPoint] = None,
+        loc: _ods_ir.Location | None = None,
+        ip: _ods_ir.InsertionPoint | None = None,
     ):
         super().__init__(
             self.OPERATION_NAME,
@@ -337,8 +372,8 @@ class VcvtOp(_ods_ir.OpView):
         *,
         src_dtype: str,
         dst_dtype: str,
-        loc: _Optional[_ods_ir.Location] = None,
-        ip: _Optional[_ods_ir.InsertionPoint] = None,
+        loc: _ods_ir.Location | None = None,
+        ip: _ods_ir.InsertionPoint | None = None,
     ):
         super().__init__(
             self.OPERATION_NAME,
@@ -398,8 +433,8 @@ class VexpdifOp(_ods_ir.OpView):
         src1,
         dst,
         *,
-        loc: _Optional[_ods_ir.Location] = None,
-        ip: _Optional[_ods_ir.InsertionPoint] = None,
+        loc: _ods_ir.Location | None = None,
+        ip: _ods_ir.InsertionPoint | None = None,
     ):
         super().__init__(
             self.OPERATION_NAME,
@@ -454,8 +489,8 @@ class VmulsOp(_ods_ir.OpView):
         scalar,
         dst,
         *,
-        loc: _Optional[_ods_ir.Location] = None,
-        ip: _Optional[_ods_ir.InsertionPoint] = None,
+        loc: _ods_ir.Location | None = None,
+        ip: _ods_ir.InsertionPoint | None = None,
     ):
         super().__init__(
             self.OPERATION_NAME,
@@ -512,8 +547,8 @@ class VmaxOp(_ods_ir.OpView):
         dst,
         *,
         dtype: str,
-        loc: _Optional[_ods_ir.Location] = None,
-        ip: _Optional[_ods_ir.InsertionPoint] = None,
+        loc: _ods_ir.Location | None = None,
+        ip: _ods_ir.InsertionPoint | None = None,
     ):
         super().__init__(
             self.OPERATION_NAME,
@@ -574,8 +609,8 @@ class VsubOp(_ods_ir.OpView):
         src1,
         dst,
         *,
-        loc: _Optional[_ods_ir.Location] = None,
-        ip: _Optional[_ods_ir.InsertionPoint] = None,
+        loc: _ods_ir.Location | None = None,
+        ip: _ods_ir.InsertionPoint | None = None,
     ):
         super().__init__(
             self.OPERATION_NAME,

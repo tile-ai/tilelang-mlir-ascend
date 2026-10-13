@@ -158,6 +158,6 @@ jobs:
     needs: test
     uses: ./.github/workflows/build_docker.yml
     with:
-      cann_version: '8.5.0'
+      cann_version: '9.0.0'
       checkout-ref: ${{ github.ref }}
     secrets: inherit

@@ -77,6 +77,26 @@ def alloc_fragment(shape: ShapeType, dtype: DType, scope="local.fragment") -> Bu
     return T.sblock_alloc_buffer(shape, dtype, scope=scope)
 
 
+def alloc_l1(shape: ShapeType, dtype: DType, scope="l1") -> Buffer:
+    """Allocate an explicit L1 (cbuf) buffer for Cube/vector operand staging."""
+    return T.sblock_alloc_buffer(shape, dtype, scope=scope)
+
+
+def alloc_l0a(shape: ShapeType, dtype: DType, scope="l0a") -> Buffer:
+    """Allocate an explicit L0A (ca) buffer for gemm A operand."""
+    return T.sblock_alloc_buffer(shape, dtype, scope=scope)
+
+
+def alloc_l0b(shape: ShapeType, dtype: DType, scope="l0b") -> Buffer:
+    """Allocate an explicit L0B (cb) buffer for gemm B operand."""
+    return T.sblock_alloc_buffer(shape, dtype, scope=scope)
+
+
+def alloc_l0c(shape: ShapeType, dtype: DType, scope="l0c") -> Buffer:
+    """Allocate an explicit L0C (cc) buffer for gemm accumulator."""
+    return T.sblock_alloc_buffer(shape, dtype, scope=scope)
+
+
 @overload
 def alloc_var(dtype: DType, init: PrimExpr | int | float, scope: str = "local.var") -> Buffer: ...
 

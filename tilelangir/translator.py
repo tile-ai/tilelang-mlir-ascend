@@ -257,7 +257,7 @@ class TileLangIRTranslator(PyStmtExprVisitor):
     #############
     def _emit_alloc_buffer(self, buffer: Any) -> Any:
         scope = str(buffer.scope())
-        if scope in ("shared", "shared.dyn"):
+        if scope in ("shared", "shared.dyn", "l1"):
             return self._emit_shared_buffer(buffer)
 
         # Register fragments are logical typed allocations.  Unlike shared
@@ -483,7 +483,7 @@ class TileLangIRTranslator(PyStmtExprVisitor):
                 f"{src_type.rank} -> {dst_type.rank}"
             )
         src_shape = list(src_type.shape)
-        dst_shape = list(dst_type.shape) 
+        dst_shape = list(dst_type.shape)
         broadcast_dims = self._infer_broadcast_dims(src_shape, dst_shape)
         self._linalg.broadcast(src, outs=[dst], dimensions=broadcast_dims)
     def _emit_vdiv(self, call: tirx.Call) -> None:
@@ -492,7 +492,6 @@ class TileLangIRTranslator(PyStmtExprVisitor):
         src0 = self._get_or_create_expr_value(call.args[0])
         src1 = self._get_or_create_expr_value(call.args[1])
         dst = self._get_or_create_expr_value(call.args[2])
-        src0_type = self._ir.MemRefType(src0.type)
         src1_type = self._ir.MemRefType(src1.type)
         dst_type = self._ir.MemRefType(dst.type)
 
@@ -516,7 +515,6 @@ class TileLangIRTranslator(PyStmtExprVisitor):
         src0 = self._get_or_create_expr_value(call.args[0])
         src1 = self._get_or_create_expr_value(call.args[1])
         dst = self._get_or_create_expr_value(call.args[2])
-        src0_type = self._ir.MemRefType(src0.type)
         src1_type = self._ir.MemRefType(src1.type)
         dst_type = self._ir.MemRefType(dst.type)
 
@@ -956,6 +954,14 @@ class TileLangIRTranslator(PyStmtExprVisitor):
             address_space = 1
         elif scope == "local.fragment":
             address_space = 2
+        elif scope == "l1":
+            address_space = 3
+        elif scope == "l0a":
+            address_space = 4
+        elif scope == "l0b":
+            address_space = 5
+        elif scope == "l0c":
+            address_space = 6
         else:
             raise NotImplementedError(
                 f"TileLangIR has no memory-space mapping for TIRX scope {scope!r}."

@@ -1,8 +1,8 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 
-from tvm._ffi.registry import register_func
-from tvm.ir import make_node
+from tilelang.tvm._ffi.registry import register_func
+from tilelang.tvm.ir import make_node
 
 
 @register_func("tvm.info.mem.local.var")

@@ -2,12 +2,12 @@
 # Licensed under the MIT License.
 
 from typing import Any, Optional
-import tvm
-from tvm.ir import PrimExpr
-from tvm.ir.base import Span
-from tvm.runtime import const
-from tvm.tir.expr import IntImm, PrimExprWithOp
-import tvm.tir.op as _tvm_op
+from tilelang import tvm
+from tilelang.tvm.ir import PrimExpr
+from tilelang.tvm.ir.base import Span
+from tilelang.tvm.runtime import const
+from tilelang.tvm.tir.expr import IntImm, PrimExprWithOp
+import tilelang.tvm.tir.op as _tvm_op  # noqa: F401
 
 
 def call_packed(*args, span=None):

@@ -1,0 +1,50 @@
+From: kang-ingu <kang.ingu@huawei.com>
+Subject: [PATCH] HFusionToHIVM: skip result-less MmadL1Op in tile propagation
+
+Backport the two-line guard from upstream commit
+f9f4507c4187fe05035a52f1094a6ae602f6bb71 onto CANN 9.1.0 / v1.2.0
+(8796a8ac1508380d78128427c61ab47d03f05739).
+
+Buffer-form MmadL1Op has no SSA result. Do not read getResult(0) while
+propagating TileMixCubeNum annotations. Add a focused regression test that
+keeps the buffer-form operation intact through the conversion pass.
+
+The guard is unchanged from upstream; the regression test is added here.
+---
+diff --git a/bishengir/lib/Conversion/HFusionToHIVM/HFusionToHIVM.cpp b/bishengir/lib/Conversion/HFusionToHIVM/HFusionToHIVM.cpp
+index ecdaa18f9..557c82b53 100644
+--- a/bishengir/lib/Conversion/HFusionToHIVM/HFusionToHIVM.cpp
++++ b/bishengir/lib/Conversion/HFusionToHIVM/HFusionToHIVM.cpp
+@@ -1347,6 +1347,8 @@ public:
+     });
+ 
+     moduleOp->walk([&](hivm::MmadL1Op op) {
++      if (op.getNumResults() == 0)
++        return;
+       std::optional<Operation *> tileCubeMarkOp =
+           utils::getAnnotateOpWithAttr(op.getResult(0), hivm::TileMixCubeNumAttr::name);
+       if (tileCubeMarkOp.has_value()) {
+diff --git a/bishengir/test/Conversion/HFusionToHIVM/mmad-l1-buffer.mlir b/bishengir/test/Conversion/HFusionToHIVM/mmad-l1-buffer.mlir
+new file mode 100644
+index 000000000..a9a09620b
+--- /dev/null
++++ b/bishengir/test/Conversion/HFusionToHIVM/mmad-l1-buffer.mlir
+@@ -0,0 +1,18 @@
++// RUN: bishengir-opt %s -convert-hfusion-to-hivm="mm-map-mode=macro_instr" | FileCheck %s
++
++// Buffer-form MmadL1Op has no SSA result. The TileMixCubeNum propagation
++// walk must leave it intact instead of accessing getResult(0).
++// CHECK-LABEL: func.func @mmad_l1_buffer
++// CHECK: hivm.hir.mmadL1
++// CHECK-SAME: outs({{.*}} : memref<16x16xf32>)
++// CHECK: return
++func.func @mmad_l1_buffer(%a: memref<16x16xf16>,
++                          %b: memref<16x16xf16>,
++                          %c: memref<16x16xf32>) {
++  %false = arith.constant false
++  %c0 = arith.constant 0 : index
++  hivm.hir.mmadL1 ins(%a, %b, %false, %c0, %c0, %c0 :
++      memref<16x16xf16>, memref<16x16xf16>, i1, index, index, index)
++    outs(%c : memref<16x16xf32>)
++  return
++}

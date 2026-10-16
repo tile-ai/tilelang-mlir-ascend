@@ -5,9 +5,9 @@
 from tilelang import tvm as tvm
 from tilelang.language import ptx_arrive_barrier, evaluate
 from tilelang.language.kernel import get_thread_bindings, get_block_extents
-from tvm import tir
+from tilelang.tvm import tir
 from typing import Union, Any
-from tvm.tir import PrimExpr, Var, Call
+from tilelang.tvm.tir import PrimExpr, Var, Call
 
 
 def create_list_of_mbarrier(*args: Any) -> Call:

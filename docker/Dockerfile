@@ -140,12 +140,14 @@ RUN cd tilelang-ascend/3rdparty/AscendNPU-IR && \
 #          Suppress compiler warnings to avoid hitting GitHub Actions 2MiB log limit.
 #          LLVM/MLIR produces massive -Wsign-compare / -Wformat-nonliteral noise
 #          that fills the log buffer and makes the build appear hung.
-RUN cd tilelang-ascend/3rdparty/AscendNPU-IR && \
+RUN cd tilelang-ascend && \
+    bash 3rdparty/patch/apply_npuir_patches.sh && \
+    cd 3rdparty/AscendNPU-IR && \
     bash ./build-tools/apply_patches.sh && \
     rm -rf ./build && \
     ./build-tools/build.sh -o ./build --python-binding --c-compiler=clang --cxx-compiler=clang++ \
     --add-cmake-options="-DCMAKE_LINKER=lld -DLLVM_ENABLE_LLD=ON -DLLVM_ENABLE_RTTI=ON -DCMAKE_C_FLAGS=-w -DCMAKE_CXX_FLAGS=-w" \
-    --apply-patches --bishengir-publish=off
+    --apply-patches --bishengir-publish=on
 
 # Step 3f: Save build artifacts and clean source to reduce final image size
 RUN mkdir -p /build/AscendNPU-IR/build && \

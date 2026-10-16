@@ -2677,8 +2677,10 @@ void CodeGenTileLangNPUIRDEV::FixpipeCodegen(const CallNode *op) {
   // gen hivm.hir.fixpipe
   mlir::Location unknown_loc = builder.getUnknownLoc();
   mlir::TypeRange result = {};
-  mlir::UnitAttr enable_nz2nd =
-      npuirop.enable_nz2nd ? builder.getUnitAttr() : mlir::UnitAttr();
+  auto dma_mode = mlir::hivm::FixpipeDMAModeAttr::get(
+      builder.getContext(), npuirop.enable_nz2nd
+                                ? mlir::hivm::FixpipeDMAMode::NZ2ND
+                                : mlir::hivm::FixpipeDMAMode::NZ2NZ);
   mlir::hivm::FixpipePreReluMode pre_relu_mode =
       fixpipe_pre_relu_mode[npuirop.pre_relu_mode];
   auto src_dtype = npuirop.src->dtype;
@@ -2705,9 +2707,9 @@ void CodeGenTileLangNPUIRDEV::FixpipeCodegen(const CallNode *op) {
       mlir::hivm::FixpipePreReluModeAttr::get(builder.getContext(),
                                               pre_relu_mode);
   mlir::BoolAttr channel_split = builder.getBoolAttr(npuirop.channel_split);
-  builder.create<mlir::hivm::FixpipeOp>(unknown_loc, result, src, dst,
-                                        enable_nz2nd, pre_quant, pre_relu,
-                                        channel_split);
+  builder.create<mlir::hivm::FixpipeOp>(unknown_loc, result, src, dst, dma_mode,
+                                        /*dual_dst_mode=*/nullptr, pre_quant,
+                                        pre_relu, channel_split);
 }
 
 /// Generate hivm.hir.mmadL1 for tl.npuir_dot.

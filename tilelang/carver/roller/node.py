@@ -2,11 +2,11 @@
 # Licensed under the MIT License.
 """PrimFunc Wrapper and Block information Analaysis"""
 
-import tvm
-from tvm import tir
-from tvm.tir import IterVar, PrimFunc
+from tilelang import tvm
+from tilelang.tvm import tir
+from tilelang.tvm.tir import IterVar, PrimFunc
 from typing import Any, Dict, List, Tuple, Optional
-from tvm.tir.schedule.schedule import BlockRV
+from tilelang.tvm.tir.schedule.schedule import BlockRV
 import numpy as np
 import functools
 from ..analysis import BlockInfo, get_reduction_blocks

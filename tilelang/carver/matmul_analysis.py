@@ -7,18 +7,18 @@
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Set, Union, Tuple, Dict
-from tvm import tir
-from tvm.ir import Range
-from tvm.tir import IterVar, PrimExpr, Var, BufferRegion, IndexMap
-from tvm.tir.analysis import undefined_vars
-from tvm.tir.schedule.schedule import BlockRV
+from tilelang.tvm import tir
+from tilelang.tvm.ir import Range
+from tilelang.tvm.tir import IterVar, PrimExpr, Var, BufferRegion, IndexMap
+from tilelang.tvm.tir.analysis import undefined_vars
+from tilelang.tvm.tir.schedule.schedule import BlockRV
 from .analysis import (
     collect_block_iter_vars_used_in_access_region,
     get_root_block,
     get_reduction_blocks,
 )
-from tvm.target.target import Target
-from tvm.tir.stmt_functor import pre_order_visit
+from tilelang.tvm.target.target import Target
+from tilelang.tvm.tir.stmt_functor import pre_order_visit
 from tilelang.utils.npu_arch import (
     get_arch,
     is_tensorcore_supported_precision,

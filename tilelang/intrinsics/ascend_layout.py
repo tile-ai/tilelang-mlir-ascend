@@ -1,7 +1,7 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
 
-from tvm import arith, DataType
+from tilelang.tvm import arith, DataType
 import tilelang.language as T
 from enum import Enum
 

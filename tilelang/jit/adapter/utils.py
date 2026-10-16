@@ -6,8 +6,8 @@ from __future__ import annotations
 import re
 from typing import Union, Optional, Literal
 from tilelang import tvm as tvm
-from tvm import IRModule, tir
-from tvm.target import Target
+from tilelang.tvm import IRModule, tir
+from tilelang.tvm.target import Target
 from tilelang.engine.lower import (
     get_device_call,
     get_host_call,

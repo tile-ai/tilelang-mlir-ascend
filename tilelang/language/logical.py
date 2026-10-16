@@ -3,9 +3,9 @@
 """The language interface for tl programs."""
 
 from tilelang import language as T
-from tvm.tir import Buffer, BufferRegion
-from tvm.ir import Range
-from tvm import tir
+from tilelang.tvm.tir import Buffer, BufferRegion
+from tilelang.tvm.ir import Range
+from tilelang.tvm import tir
 from typing import Union
 from tilelang.utils.language import get_buffer_elems
 

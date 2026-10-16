@@ -2,8 +2,8 @@
 # Licensed under the MIT License.
 
 from typing import Callable, Union
-from tvm import register_func
-from tvm.target import Target
+from tilelang.tvm import register_func
+from tilelang.tvm.target import Target
 
 
 def register_cuda_postproc(func: Callable[[str, Target], str], override: bool = True):

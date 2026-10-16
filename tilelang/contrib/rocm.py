@@ -21,12 +21,13 @@ import subprocess
 import os
 from os.path import join, exists
 
-import tvm._ffi
-from tvm._ffi.base import py_str
-import tvm.runtime
-import tvm.target
+import tilelang.tvm._ffi  # noqa: F401
+from tilelang import tvm
+from tilelang.tvm._ffi.base import py_str
+import tilelang.tvm.runtime  # noqa: F401
+import tilelang.tvm.target  # noqa: F401
 
-from tvm.contrib import utils
+from tilelang.tvm.contrib import utils
 
 
 def find_lld(required=True):

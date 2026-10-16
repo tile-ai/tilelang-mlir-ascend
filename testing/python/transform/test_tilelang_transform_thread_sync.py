@@ -18,8 +18,8 @@
 import tilelang
 import tilelang.testing
 from tilelang import tvm as tvm
-from tvm import te
-from tvm.script import tir as T
+from tilelang.tvm import te
+from tilelang.tvm.script import tir as T
 
 
 def run_passes(func: tvm.tir.PrimFunc):

@@ -2,11 +2,11 @@
 # Licensed under the MIT License.
 """Override the LetFrame to print a message when entering the frame."""
 
-from tvm._ffi import register_object as _register_object
-from tvm.tir import Var, PrimExpr, BufferLoad, BufferRegion
-from tvm.ir import Range
-from tvm import DataType
-from tvm.script.ir_builder.tir.frame import TIRFrame
+from tilelang.tvm._ffi import register_object as _register_object
+from tilelang.tvm.tir import Var, PrimExpr, BufferLoad, BufferRegion
+from tilelang.tvm.ir import Range
+from tilelang.tvm import DataType
+from tilelang.tvm.script.ir_builder.tir.frame import TIRFrame
 from collections import deque
 from typing import Optional
 import threading

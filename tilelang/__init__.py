@@ -3,7 +3,6 @@
 
 import sys
 import os
-import ctypes
 
 import logging
 from tqdm import tqdm
@@ -59,9 +58,9 @@ logger = logging.getLogger(__name__)
 from .env import env  # noqa: F401
 from .env import enable_cache, disable_cache, is_cache_enabled  # noqa: F401
 
-import tvm
-import tvm._ffi.base
-from tvm import DataType  # noqa: F401
+from tilelang import tvm
+import tilelang.tvm._ffi.base  # noqa: F401
+from tilelang.tvm import DataType  # noqa: F401
 
 from . import libinfo
 
@@ -75,7 +74,9 @@ def _load_tile_lang_lib():
     lib_name = "tilelang" if tvm._ffi.base._RUNTIME_ONLY else "tilelang_module"
     # pylint: enable=protected-access
     lib_path = libinfo.find_lib_path(lib_name, optional=False)
-    return ctypes.CDLL(lib_path[0]), lib_path[0]
+    from ._tvm_lib import load_library
+
+    return load_library(lib_path[0]), lib_path[0]
 
 
 # only load once here

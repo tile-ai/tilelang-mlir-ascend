@@ -21,12 +21,12 @@
 import inspect
 from typing import Callable, Optional, Union
 
-from tvm.ir.base import deprecated
-from tvm.tir import Buffer, PrimFunc
+from tilelang.tvm.ir.base import deprecated
+from tilelang.tvm.tir import Buffer, PrimFunc
 
 from ..ast import buffer, ptr
-from tvm.script.parser._core import parse, scan_macro, utils
-from tvm.script.parser.core.parser import Parser, ScriptMacro
+from tilelang.tvm.script.parser._core import parse, scan_macro, utils
+from tilelang.tvm.script.parser.core.parser import Parser, ScriptMacro
 
 
 def prim_func(func: Optional[Callable] = None,

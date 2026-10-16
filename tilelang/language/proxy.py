@@ -6,9 +6,9 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence, SupportsIndex, TYPE_CHECKING
 from typing_extensions import Self
 
-from tvm import tir
-from tvm.tir import Var, PrimExpr
-from tvm.script.ir_builder.tir import buffer, handle, match_buffer
+from tilelang.tvm import tir
+from tilelang.tvm.tir import Var, PrimExpr
+from tilelang.tvm.script.ir_builder.tir import buffer, handle, match_buffer
 from tilelang.utils import deprecated
 
 

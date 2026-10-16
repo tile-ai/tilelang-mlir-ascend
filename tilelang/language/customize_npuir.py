@@ -2,12 +2,12 @@
 
 import tilelang.language as T
 from tilelang.language import get_let_value, has_let_value
-from tvm.tir import PrimExpr, BufferRegion, BufferLoad
+from tilelang.tvm.tir import PrimExpr, BufferRegion, BufferLoad
 from typing import Union, Optional
-from tvm import tir
-from tvm import runtime
-from tvm.script.ir_builder.tir.frame import TIRFrame
-from tvm._ffi import register_object
+from tilelang.tvm import tir
+from tilelang.tvm import runtime
+from tilelang.tvm.script.ir_builder.tir.frame import TIRFrame
+from tilelang.tvm._ffi import register_object
 from tilelang import _ffi_api
 from .kernel import FrameStack
 import threading

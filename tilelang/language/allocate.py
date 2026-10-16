@@ -16,7 +16,7 @@ Each function takes shape and dtype parameters and returns a TVM buffer object
 with the appropriate memory scope.
 """
 
-from tvm.script import tir as T
+from tilelang.tvm.script import tir as T
 
 
 def alloc_shared(shape, dtype, scope="shared.dyn"):

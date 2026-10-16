@@ -5,7 +5,7 @@ from enum import IntEnum
 from dataclasses import dataclass
 
 from typing import Optional
-from tvm import tir
+from tilelang.tvm import tir
 
 
 class GemmWarpPolicy(IntEnum):

@@ -4,7 +4,7 @@
 import argparse
 import logging
 from tilelang import tvm as tvm
-from tvm import DataType
+from tilelang.tvm import DataType
 import tilelang as tl
 import tilelang.language as T
 from tilelang.intrinsics import get_swizzle_layout

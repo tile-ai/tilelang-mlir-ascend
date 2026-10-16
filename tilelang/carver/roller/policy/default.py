@@ -8,7 +8,7 @@ from queue import PriorityQueue
 from typing import Iterable, Dict, List, Optional
 
 import numpy as np
-import tvm
+from tilelang import tvm
 
 from tilelang.utils.npu_arch import AscendArch
 from ..bestfit import BestFit

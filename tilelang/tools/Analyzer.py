@@ -3,7 +3,7 @@
 import numpy as np
 from dataclasses import dataclass
 from tilelang import tvm
-from tvm.tir.stmt_functor import ir_transform
+from tilelang.tvm.tir.stmt_functor import ir_transform
 import logging
 from typing import Optional
 # Configuration for different hardware architectures.

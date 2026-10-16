@@ -39,9 +39,8 @@ namespace codegen {
 using namespace tir;
 using tl::BufferMap;
 
-class CodeGenTileLangTLIR
-    : public ExprFunctor<mlir::Value(const PrimExpr &)>,
-      public StmtFunctor<void(const Stmt &)> {
+class CodeGenTileLangTLIR : public ExprFunctor<mlir::Value(const PrimExpr &)>,
+                            public StmtFunctor<void(const Stmt &)> {
 public:
   CodeGenTileLangTLIR();
   void AddFunction(const GlobalVar &gvar, const PrimFunc &f);
@@ -76,6 +75,9 @@ private:
   mlir::Attribute AddressSpaceAttr(mlir::tl::AddressSpace space);
   void EmitCopy(const CallNode *op);
   void EmitAdd(const CallNode *op);
+  void EmitSub(const CallNode *op);
+  template <typename TLOpT, typename NpuirOpT>
+  void EmitBinary(const CallNode *op);
 
   mlir::MLIRContext context_;
   mlir::OpBuilder builder_;

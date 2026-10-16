@@ -89,25 +89,23 @@ static std::vector<int64_t> ShapeFromExprs(const Array<PrimExpr> &shape) {
 
 mlir::MemRefType CodeGenTileLangTLIR::BufferToMemRefType(const Buffer &buffer) {
   auto space = ScopeToAddressSpace(GetPtrStorageScope(buffer->data));
-  return ::mlir::MemRefType::get(ShapeFromExprs(buffer->shape),
-                                 DTypeToMLIRType(buffer->dtype),
-                                 /*layout=*/::mlir::MemRefLayoutAttrInterface{},
-                                 AddressSpaceAttr(space));
+  return ::mlir::MemRefType::get(
+      ShapeFromExprs(buffer->shape), DTypeToMLIRType(buffer->dtype),
+      /*layout=*/::mlir::MemRefLayoutAttrInterface{}, AddressSpaceAttr(space));
 }
 
 mlir::MemRefType
 CodeGenTileLangTLIR::AllocToMemRefType(const AllocateNode *op) {
   auto space = ScopeToAddressSpace(GetPtrStorageScope(op->buffer_var));
-  return ::mlir::MemRefType::get(ShapeFromExprs(op->extents),
-                                 DTypeToMLIRType(op->dtype),
-                                 /*layout=*/::mlir::MemRefLayoutAttrInterface{},
-                                 AddressSpaceAttr(space));
+  return ::mlir::MemRefType::get(
+      ShapeFromExprs(op->extents), DTypeToMLIRType(op->dtype),
+      /*layout=*/::mlir::MemRefLayoutAttrInterface{}, AddressSpaceAttr(space));
 }
 
 mlir::Value CodeGenTileLangTLIR::GetBufferValue(const Buffer &buffer) {
   auto it = var_map_.find(buffer->data.get());
-  ICHECK(it != var_map_.end()) << "CodeGenTileLangTLIR: unknown buffer "
-                               << buffer->name;
+  ICHECK(it != var_map_.end())
+      << "CodeGenTileLangTLIR: unknown buffer " << buffer->name;
   return it->second;
 }
 
@@ -128,7 +126,30 @@ void CodeGenTileLangTLIR::EmitAdd(const CallNode *op) {
                                      GetBufferValue(add.Dst().GetBuffer()));
 }
 
-void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar, const PrimFunc &f) {
+void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
+  tvm::tl::NpuirSub sub(op->args, vmap_);
+  ICHECK(sub.Src0().IsTensor() && sub.Src1().IsTensor() && sub.Dst().IsTensor())
+      << "CodeGenTileLangTLIR: tl.npuir_sub currently requires tensor operands";
+  builder_.create<::mlir::tl::SubOp>(builder_.getUnknownLoc(),
+                                     GetBufferValue(sub.Src0().GetBuffer()),
+                                     GetBufferValue(sub.Src1().GetBuffer()),
+                                     GetBufferValue(sub.Dst().GetBuffer()));
+}
+
+template <typename TLOpT, typename NpuirOpT>
+void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
+  NpuirOpT bin(op->args, vmap_);
+  ICHECK(bin.Src0().IsTensor() && bin.Src1().IsTensor() && bin.Dst().IsTensor())
+      << "CodeGenTileLangTLIR: binary npuir op currently requires tensor "
+         "operands";
+  builder_.create<TLOpT>(builder_.getUnknownLoc(),
+                         GetBufferValue(bin.Src0().GetBuffer()),
+                         GetBufferValue(bin.Src1().GetBuffer()),
+                         GetBufferValue(bin.Dst().GetBuffer()));
+}
+
+void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
+                                      const PrimFunc &f) {
   InitFuncState();
   vmap_ = f->buffer_map;
 
@@ -151,8 +172,8 @@ void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar, const PrimFunc &f) 
   builder_.setInsertionPointToEnd(module_.getBody());
   auto func_type = builder_.getFunctionType(arg_types, {});
   std::string func_name(current_function_name_);
-  auto func = builder_.create<::mlir::func::FuncOp>(
-      builder_.getUnknownLoc(), func_name, func_type);
+  auto func = builder_.create<::mlir::func::FuncOp>(builder_.getUnknownLoc(),
+                                                    func_name, func_type);
   func->setAttr("tl.core_type", ::mlir::tl::CoreTypeAttr::get(
                                     &context_, ::mlir::tl::CoreType::AIV));
   ::mlir::Block *entry = func.addEntryBlock();
@@ -181,8 +202,8 @@ std::string CodeGenTileLangTLIR::Finish() {
 
 mlir::Value CodeGenTileLangTLIR::VisitExpr_(const VarNode *op) {
   auto it = var_map_.find(op);
-  ICHECK(it != var_map_.end()) << "CodeGenTileLangTLIR: unknown var "
-                               << op->name_hint;
+  ICHECK(it != var_map_.end())
+      << "CodeGenTileLangTLIR: unknown var " << op->name_hint;
   return it->second;
 }
 
@@ -226,6 +247,26 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_add"))) {
     EmitAdd(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
+    EmitSub(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_mul"))) {
+    EmitBinary<::mlir::tl::MulOp, tvm::tl::NpuirMul>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_div"))) {
+    EmitBinary<::mlir::tl::DivOp, tvm::tl::NpuirDiv>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_max"))) {
+    EmitBinary<::mlir::tl::MaxOp, tvm::tl::NpuirMax>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_min"))) {
+    EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
     return {};
   }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;

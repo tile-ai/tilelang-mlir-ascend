@@ -163,7 +163,9 @@ getBroadcastDim(const Array<PrimExpr> &buffer_shape0,
   if (buffer_shape0.empty() || buffer_shape1.empty()) {
     return dims;
   }
-  CHECK(buffer_shape0.size() == buffer_shape1.size());
+  if (buffer_shape0.size() != buffer_shape1.size()) {
+    return dims;
+  }
   for (int i = 0; i < buffer_shape0.size(); i++) {
     if (*as_const_int(buffer_shape0[i]) == 1 &&
         *as_const_int(buffer_shape1[i]) != 1) {
@@ -2301,11 +2303,17 @@ void CodeGenTileLangNPUIRDEV::VbrcCodegen(const CallNode *op) {
 ///    %.* = hivm.hir.vcast ins(A) outs(B) -> tensor<>
 void CodeGenTileLangNPUIRDEV::VcastCodegen(const CallNode *op) {
   tvm::tl::NpuirCast npuirop(op->args, this->vmap);
-  Value src = GetVarValue(npuirop.src);
+  Value src = GenExtractSliceFromRegion(npuirop.src, npuirop.src_range);
   Value dst = GetVarValue(npuirop.dst);
   auto round_mode = npuirop.round_mode;
   mlir::hivm::RoundMode mode = NPUIR_STR_ROUNDMODE[round_mode];
-  auto broadcastDim = getBroadcastDim(npuirop.src->shape, npuirop.dst->shape);
+  Array<tvm::PrimExpr> src_shape;
+  Array<tvm::PrimExpr> dst_shape;
+  for (int i = 0; i < npuirop.src_range.size(); i++) {
+    src_shape.push_back(npuirop.src_range[i]->extent);
+    dst_shape.push_back(npuirop.dst_range[i]->extent);
+  }
+  auto broadcastDim = getBroadcastDim(src_shape, dst_shape);
   auto broadcastDimAttr = builder.getDenseI64ArrayAttr(broadcastDim);
   mlir::Type dst_type = dst.getType();
   mlir::TypeRange result_tensors(&dst_type, 1);

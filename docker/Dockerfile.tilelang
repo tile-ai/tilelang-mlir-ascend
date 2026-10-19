@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1
+FROM ubuntu:22.04
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
+
+# Ubuntu 22.04 defaults to Python 3.10; install the 3.11 interpreter and headers.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl gnupg build-essential git libnuma-dev libgomp1 \
+    zlib1g-dev libedit-dev libssl-dev libffi-dev libblas-dev gfortran \
+    pciutils unzip && \
+    curl -fsSL 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xBA6932366A755776' \
+    | gpg --dearmor -o /usr/share/keyrings/deadsnakes-ppa.gpg && \
+    echo 'deb [signed-by=/usr/share/keyrings/deadsnakes-ppa.gpg] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu jammy main' \
+    > /etc/apt/sources.list.d/deadsnakes-ppa.list && \
+    apt-get update && apt-get install -y --no-install-recommends python3.11 python3.11-dev python3.11-venv && \
+    python3.11 -m venv /opt/venv && rm -rf /var/lib/apt/lists/*
+
+ENV PATH=/opt/venv/bin:${PATH} PIP_NO_CACHE_DIR=1
+COPY image/release.json image/release.py /opt/tilelang-image/
+RUN python /opt/tilelang-image/release.py validate && \
+    python -m pip install --upgrade pip setuptools wheel && \
+    python -m pip install attrs cython numpy decorator sympy cffi pyyaml pathlib2 \
+    psutil protobuf==3.20 scipy requests absl-py && \
+    python /opt/tilelang-image/release.py install-cann
+
+# Stable aliases are resolved from the verified release configuration at build time.
+# ENV also covers docker exec, which does not execute the image entrypoint.
+ENV ASCEND_HOME_PATH=/opt/cann \
+    ASCEND_TOOLKIT_HOME=/opt/cann \
+    ASCEND_AICPU_PATH=/opt/cann \
+    ASCEND_OPP_PATH=/opt/cann/opp \
+    BISHENG_HOME=/opt/bisheng \
+    ASCEND_NPU_ARCH=dav-3510 \
+    PATH=/opt/bisheng/bin:/opt/cann/bin:/opt/cann/tools/ccec_compiler/bin:/opt/venv/bin:${PATH} \
+    LD_LIBRARY_PATH=/opt/cann/lib64:/opt/cann/lib64/plugin/opskernel:/opt/cann/lib64/plugin/nnengine:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver \
+    PYTHONPATH=/opt/cann/python/site-packages:/opt/cann/opp/built-in/op_impl/ai_core/tbe
+
+RUN source /opt/tilelang-image/cann-env.sh && python /opt/tilelang-image/release.py install-torch
+ENV PIP_CONSTRAINT=/opt/tilelang-image/constraints.txt \
+    USE_ASCEND=ON USE_CUDA=OFF USE_ROCM=OFF USE_LLVM=OFF \
+    NO_VERSION_LABEL=ON CMAKE_BUILD_PARALLEL_LEVEL=2 \
+    TORCH_DEVICE_BACKEND_AUTOLOAD=0
+
+COPY source/requirements.txt source/requirements-dev.txt /tmp/tilelang-requirements/
+RUN source /opt/tilelang-image/cann-env.sh && \
+    python -m pip install -r /tmp/tilelang-requirements/requirements-dev.txt \
+    -r /tmp/tilelang-requirements/requirements.txt && \
+    rm -rf /tmp/tilelang-requirements
+
+COPY source/ /opt/tilelang/
+RUN source /opt/tilelang-image/cann-env.sh && \
+    cd /opt/tilelang && \
+    CMAKE_ARGS='-DUSE_ASCEND=ON -DUSE_CUDA=OFF -DUSE_ROCM=OFF -DUSE_LLVM=OFF -DTILELANG_USE_ASCEND_STUBS=ON' \
+    python -m build --wheel --no-isolation --outdir /tmp/tilelang-wheel && \
+    python -m pip install --no-deps /tmp/tilelang-wheel/*.whl && \
+    python -m pip check && \
+    rm -rf /tmp/tilelang-wheel /opt/tilelang/build /root/.cache
+
+COPY image/entrypoint.sh image/smoke.py /opt/tilelang-image/
+RUN chmod +x /opt/tilelang-image/entrypoint.sh && \
+    echo 'source /opt/tilelang-image/cann-env.sh' >> /etc/bash.bashrc
+
+WORKDIR /workspace
+ENV TORCH_DEVICE_BACKEND_AUTOLOAD=1
+ENTRYPOINT ["/opt/tilelang-image/entrypoint.sh"]
+CMD ["bash"]

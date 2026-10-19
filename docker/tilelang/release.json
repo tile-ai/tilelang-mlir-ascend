@@ -1,0 +1,32 @@
+{
+  "tilelang_version": "0.1.15",
+  "tilelang_commit": "a35f8ddf45eba16c21211ec8822d56ce5363036f",
+  "cann_version": "9.3.0",
+  "cann_package_version": "9.3.0~weekly.20260916.01",
+  "cann_home": "/usr/local/Ascend/ascend-toolkit/latest",
+  "cann_set_env": "/usr/local/Ascend/ascend-toolkit/set_env.sh",
+  "bisheng_home": "",
+  "cann_version_file": "",
+  "cann_packages": [
+    {
+      "name": "toolkit",
+      "url": "https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/master/20260916000323606/Ascend-cann-toolkit_9.3.0~weekly.20260916.01_linux-x86_64.run",
+      "sha256": ""
+    },
+    {
+      "name": "950-ops",
+      "url": "https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/master/20260916000323606/Ascend-cann-950-ops_9.3.0~weekly.20260916.01_linux-x86_64.run",
+      "sha256": ""
+    }
+  ],
+  "torch": {
+    "version": "2.10.0+cpu",
+    "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl",
+    "sha256": "b7cb1ec66cefb90fd7b676eac72cfda3b8d4e4d0cacd7a531963bc2e0a9710ab"
+  },
+  "torch_npu": {
+    "version": "2.10.0",
+    "url": "https://files.pythonhosted.org/packages/20/36/90f05a8a1a69a767dcdaba6b63b235b4055976c8503cd56b5e077feeaa78/torch_npu-2.10.0-cp311-cp311-manylinux_2_28_x86_64.whl",
+    "sha256": "4e14fa849000189c26b006be1d1700e2f46edda48c84a7de05efd9ce6786a215"
+  }
+}

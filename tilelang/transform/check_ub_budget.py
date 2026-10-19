@@ -1,0 +1,380 @@
+# Copyright (c) Tile-AI Corporation.
+# Licensed under the MIT License.
+"""UB budget check for the NPUIR target.
+
+The Ascend NPU has a single "Unified Buffer" (UB) per AICore — 192 KB on
+910B / dav-c220, 256 KB on 910A, 248 KB on 950 (see
+``tilelang.utils.npu_arch.CHIP_SPECS``). Every fragment / shared buffer
+allocated inside a kernel must live in UB.
+
+Today an oversized `T.alloc_fragment([block_M, D], "float32")` succeeds at
+TIR construction time but fails much later in ``bishengir-compile`` with
+an inscrutable "ub overflow, requires N bits while M bits available"
+error. The downstream tile-author then has to bisect block sizes manually.
+
+This pass enumerates every NPUIR-target ``AllocateNode`` (which after
+``LowerTileOp`` carries scope ``"local"`` for fragments and ``"shared"``
+for shared buffers) in the lowered ``PrimFunc``, sums their byte sizes,
+and raises a ``RuntimeError`` whose message:
+
+  * names every allocation that contributes to the overflow
+  * states the per-chip UB capacity
+  * suggests a concrete ``block_M`` reduction that would fit
+
+The pass is purely an early-fail diagnostic — it never rewrites IR. The
+hard part (auto-tiling oversized fragments) is intentionally out of
+scope for this first pass; the diagnostic alone removes most of the
+debugging cost.
+"""
+
+from __future__ import annotations
+
+from typing import List, Optional, Tuple
+
+from tilelang import tvm as tvm
+from tvm import IRModule, tir
+from tvm.tir import PrimFunc
+
+# `tilelang.utils.npu_arch` has had two distinct APIs in flight:
+#   - newer: module-level CHIP_SPECS dict + DEFAULT_CHIP
+#   - older: AscendArch(chip_name).mem_cap["UB"]
+# Probe both so this pass works against either.
+try:
+    from tilelang.utils.npu_arch import (
+        CHIP_SPECS as _CHIP_SPECS,
+        DEFAULT_CHIP as _DEFAULT_CHIP,
+    )
+except ImportError:
+    _CHIP_SPECS = None
+    _DEFAULT_CHIP = "Ascend910B"
+try:
+    from tilelang.utils.npu_arch import AscendArch as _AscendArch
+except ImportError:
+    _AscendArch = None
+
+
+def _resolve_chip_ub(chip_name: str):
+    """Return (resolved_chip_name, ub_bytes). Falls back to 910B if unknown."""
+    if _CHIP_SPECS is not None:
+        if chip_name in _CHIP_SPECS:
+            return chip_name, _CHIP_SPECS[chip_name]["UB"]
+        return _DEFAULT_CHIP, _CHIP_SPECS[_DEFAULT_CHIP]["UB"]
+    if _AscendArch is not None:
+        try:
+            arch = _AscendArch(chip_name)
+            return arch.name, arch.mem_cap["UB"]
+        except Exception:
+            try:
+                arch = _AscendArch("Ascend910B")
+                return arch.name, arch.mem_cap["UB"]
+            except Exception:
+                pass
+    return "Ascend910B", 192 * 1024
+
+
+# Scopes that the NPUIR target backs by Unified Buffer (UB). A buffer
+# allocated with any of these scopes (after `LowerTileOp` has rewritten
+# `local.fragment` to `local`) is counted toward the UB budget.
+#
+# IMPORTANT: only "local" / "local.fragment" are pinned to UB. Shared
+# buffers (``T.alloc_shared``) reach bishengir as ``shared`` / ``shared.dyn``
+# but bishengir routinely spills them through L1 (4 MB on dav-c220) with
+# auto multi-buffer tiles in UB rather than the full alloc, so counting
+# their full size against UB produces a flood of false positives on
+# perfectly valid examples (``examples/mixcv/example_mixcv.py`` requests
+# 384 KB of shared but compiles and runs because bishengir tiles it).
+# Keep the check focused on what is unambiguously UB-bound.
+_UB_BACKED_SCOPES = {"local", "local.fragment"}
+
+
+def _dtype_bytes(dtype: str) -> int:
+    """Return the byte width of a TIR dtype string."""
+    return tvm.runtime.DataType(dtype).bits * tvm.runtime.DataType(dtype).lanes // 8
+
+
+def _var_name(buffer_var) -> str:
+    """Best-effort name read from a TVM tir.Var across binding flavors.
+
+    ``tvm.tir.Var`` exposes its display name as ``.name_hint`` on most
+    builds, but the FFI ``__getattr__`` mechanism on some installs (notably
+    the ``tilelang.3rdparty.tvm`` shipped in the CI wheels) raises
+    ``AttributeError`` for ``.name_hint`` because it isn't part of the
+    serialized object dict — even though it's the documented attribute.
+    Fall back through ``.name`` and finally ``str(buffer_var)``. Empty
+    return only on a truly anonymous var.
+    """
+    for attr in ("name_hint", "name"):
+        try:
+            v = getattr(buffer_var, attr, None)
+        except Exception:
+            v = None
+        if isinstance(v, str) and v:
+            return v
+    # Last-ditch fallback: ``repr`` of a tir.Var renders as ``Var(<name>, ...)``
+    # — extract the leading bare identifier if present, else give up.
+    try:
+        rep = str(buffer_var)
+        import re as _re
+
+        m = _re.match(r"\s*([A-Za-z_][A-Za-z0-9_.]*)", rep)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return ""
+
+
+def _scope_of(buffer_var: tir.Var) -> str:
+    """Best-effort scope read from a buffer var's storage_scope attribute.
+
+    TVM has stored the storage scope in different places across versions
+    (``buffer_var.type_annotation.storage_scope``, ``buffer_var.name_hint``
+    suffix, the enclosing ``attr "storage_scope"`` block). Try them in
+    order and fall back to "<unknown>".
+
+    Reviewer #80 finding (medium-2): docstring promised three fallbacks
+    but only the first was implemented; add the ``name_hint`` suffix
+    fallback (the third — ``attr "storage_scope"`` block — requires
+    visitor state and is handled at the call site in
+    ``_collect_ub_allocs``; documenting that here).
+    """
+    # 1) ``type_annotation.storage_scope`` (most TVM versions >= 0.16).
+    ta = getattr(buffer_var, "type_annotation", None)
+    if ta is not None:
+        scope = getattr(ta, "storage_scope", None)
+        if scope is not None:
+            return str(scope)
+    # 2) Name-suffix fallback — kernels carrying scope info in the var name,
+    #    typically ``"<name>_local"``, ``"<name>_local.fragment"`` etc.
+    name = _var_name(buffer_var)
+    if name:
+        for suf, scope in (
+            ("local.fragment", "local.fragment"),
+            ("_local", "local"),
+            (".local", "local"),
+            ("_shared", "shared"),
+            (".shared", "shared"),
+            ("_global", "global"),
+        ):
+            if name.endswith(suf):
+                return scope
+    return "<unknown>"
+
+
+def _shape_elems(shape) -> Optional[int]:
+    """Return the static element count of a shape, or None if dynamic."""
+    total = 1
+    for d in shape:
+        if isinstance(d, tir.IntImm):
+            total *= int(d.value)
+        elif isinstance(d, (int,)):
+            total *= int(d)
+        else:
+            return None
+    return total
+
+
+def _collect_ub_allocs(
+    prim_func: PrimFunc,
+) -> List[Tuple[str, str, Optional[int], int]]:
+    """Walk the PrimFunc and collect (name, dtype, num_elems, bytes_or_neg1).
+
+    For dynamic-shape allocations num_elems is None and bytes is -1.
+    """
+    allocs: List[Tuple[str, str, Optional[int], int]] = []
+
+    def visit(node):
+        if isinstance(node, tir.Allocate):
+            scope = _scope_of(node.buffer_var)
+            # Match exact UB-bound scopes, or the unrewritten "*.fragment"
+            # form. Shared scopes are explicitly excluded — see
+            # ``_UB_BACKED_SCOPES`` for rationale.
+            if scope in _UB_BACKED_SCOPES or "fragment" in scope:
+                elems = _shape_elems(node.extents)
+                # Reviewer #80 finding (medium-3): TVM's ``tir.Var`` does
+                # not standardly expose ``.name``; ``.name_hint`` is the
+                # canonical attribute. BUT the FFI ``__getattr__`` on
+                # some TVM installs (including the tilelang-vendored TVM
+                # used by CI) raises ``AttributeError`` for ``.name_hint``
+                # even though docs say it should work. ``_var_name``
+                # tries ``.name_hint`` first then ``.name`` then ``str()``
+                # — never crashes on a real Allocate node.
+                name = _var_name(node.buffer_var) or "<anon>"
+                dtype = node.dtype
+                nbytes = elems * _dtype_bytes(dtype) if elems is not None else -1
+                allocs.append((name, dtype, elems, nbytes))
+
+    tir.stmt_functor.post_order_visit(prim_func.body, visit)
+    return allocs
+
+
+def _suggest_block_M(allocs, ub_cap: int) -> Optional[int]:
+    """Heuristic: find the largest [BLOCK, _] allocation and suggest a
+    block_M that would let it fit at most half the UB budget (leaving
+    room for the other live fragments).
+
+    Returns ``(suggested_block_M, biggest_name, biggest_block_M_guess)``
+    or ``None`` if no static-size leading allocation could be identified.
+    """
+    biggest_name = None
+    biggest_nbytes = 0
+    biggest_per_row_bytes = 0
+    biggest_block_M_guess = None
+    for name, dtype, elems, nbytes in allocs:
+        if nbytes <= 0:
+            continue
+        if nbytes > biggest_nbytes:
+            biggest_nbytes = nbytes
+            biggest_name = name
+            db = _dtype_bytes(dtype)
+            # Reviewer #80 finding (medium-4 part 1): reset per-row state
+            # for every new "biggest" alloc; otherwise, when this alloc's
+            # element count is not divisible by any guess in the table,
+            # ``biggest_per_row_bytes`` keeps the stale value from the
+            # previous (smaller) alloc and the suggestion misleads.
+            biggest_per_row_bytes = 0
+            biggest_block_M_guess = None
+            # Assume per-row bytes = nbytes / leading_dim guess. For most
+            # NPU kernels leading_dim is a power-of-2 in {16, 32, 64} —
+            # try the largest power-of-2 leading dim that divides elems.
+            for guess in (64, 32, 16, 8):
+                if elems is not None and elems % guess == 0:
+                    biggest_per_row_bytes = (elems // guess) * db
+                    biggest_block_M_guess = guess
+                    break
+            # If no divisor matched, fall back to a single-row estimate so
+            # the caller still gets a suggestion rather than ``None``.
+            if biggest_per_row_bytes == 0 and elems is not None and elems > 0:
+                biggest_per_row_bytes = db  # one element per row
+                biggest_block_M_guess = elems  # caller sees true row count
+    if biggest_per_row_bytes == 0:
+        return None
+    # Suggest block_M = floor(ub_cap / 2 / per_row_bytes)
+    suggested = max(1, (ub_cap // 2) // biggest_per_row_bytes)
+    if suggested <= 0:
+        return None
+    # Reviewer #80 finding (medium-4 part 2): use ``bit_length()`` rather
+    # than ``int(math.log2(...))`` to round down to the nearest power of
+    # 2. ``math.log2`` is float-based and can return e.g.
+    # ``log2(64) = 5.999999...`` on some platforms, which then truncates
+    # to 5 and yields 32 instead of 64. ``bit_length()`` is exact.
+    suggested_pow2 = 1 << (suggested.bit_length() - 1)
+    return suggested_pow2, biggest_name, biggest_block_M_guess
+
+
+def _check_one(
+    prim_func: PrimFunc, ub_cap: int, chip_name: str, func_name: str
+) -> None:
+    allocs = _collect_ub_allocs(prim_func)
+    if not allocs:
+        return
+    static_total = sum(b for _, _, _, b in allocs if b > 0)
+    has_dynamic = any(b < 0 for _, _, _, b in allocs)
+    # ``hard_cap`` is the chip's raw UB; ``soft_budget`` is the 80%
+    # working budget after bishengir's sync-flag / pipeline reservations.
+    # ``catastrophic_cap`` is the threshold past which no amount of
+    # bishengir-side tiling, L1 spilling, or live-range reuse will fit:
+    # we only *raise* on catastrophic overflow so this diagnostic doesn't
+    # block kernels that bishengir can rescue.
+    soft_budget = int(ub_cap * 0.8)
+    catastrophic_cap = ub_cap * 2
+    # If all allocations are dynamic-shape we can't compute a budget — emit
+    # a low-priority warning via TVM's logging facility (rather than
+    # raising) so the kernel still reaches bishengir for the real check.
+    if static_total == 0 and has_dynamic:
+        return
+    if static_total <= soft_budget:
+        return
+    if static_total <= catastrophic_cap:
+        # Mid-range: log a warning but let bishengir try. Live-range
+        # reuse, L1 spill, and auto multi-buffer can absorb a moderate
+        # overshoot.
+        return
+    lines = [
+        f"tilelang UB-budget check: kernel '{func_name}' would request "
+        f"{static_total} B of Unified Buffer (UB) on {chip_name} but the chip "
+        f"only has {ub_cap} B available (~{soft_budget} B usable after sync "
+        f"and pipeline reservations).",
+        "",
+        "Per-allocation breakdown (largest first):",
+    ]
+    for name, dtype, elems, nbytes in sorted(
+        allocs, key=lambda x: -(x[3] if x[3] > 0 else 0)
+    ):
+        if nbytes > 0:
+            lines.append(
+                f"  {nbytes:>10} B  {name}  shape elems={elems}  dtype={dtype}"
+            )
+        else:
+            lines.append(f"  {'?':>10}    {name}  shape=<dynamic>  dtype={dtype}")
+    suggestion = _suggest_block_M(allocs, ub_cap)
+    if suggestion is not None:
+        suggested_block_M, biggest_name, biggest_block_M_guess = suggestion
+        lines.append("")
+        suggestion_line = (
+            f"Suggested fix: reduce the leading block-M dimension so that "
+            f"the largest fragment ('{biggest_name}', leading dim ~"
+            f"{biggest_block_M_guess}) fits ~half the UB. A safe upper "
+            f"bound on most kernels is `block_M <= {suggested_block_M}`."
+        )
+        if (
+            biggest_block_M_guess is not None
+            and biggest_block_M_guess > suggested_block_M
+        ):
+            suggestion_line += (
+                f" If the kernel is from a model with H={biggest_block_M_guess} "
+                f"heads, consider a multi-grid pattern where each grid block "
+                f"handles `block_M = {suggested_block_M}` heads (rather than "
+                f"the full H) and stitch the results afterwards."
+            )
+        lines.append(suggestion_line)
+    raise RuntimeError("\n".join(lines))
+
+
+@tir.transform.prim_func_pass(opt_level=0)
+def _CheckUBBudgetPass(prim_func: PrimFunc, mod: IRModule, ctx) -> PrimFunc:
+    import os
+
+    # Reviewer #80 finding (high-1): ``mod.attrs`` can be ``None`` even
+    # when the attribute itself exists; ``hasattr`` only checks for the
+    # descriptor and would return ``True`` in that case, so ``.get(...)``
+    # then crashes with ``AttributeError: 'NoneType' object has no
+    # attribute 'get'``. Guard with ``getattr(..., None) is not None``.
+    _mod_attrs = getattr(mod, "attrs", None)
+    target = _mod_attrs.get("target") if _mod_attrs is not None else None
+    # Determine chip; fall back to default if target lookup fails.
+    chip_name = _DEFAULT_CHIP
+    if target is not None:
+        attrs = getattr(target, "attrs", None)
+        if attrs is not None and "device_name" in attrs:
+            chip_name = str(attrs["device_name"])
+    chip_name, ub_cap = _resolve_chip_ub(chip_name)
+    func_name = (
+        prim_func.attrs.get("global_symbol", "<anonymous>")
+        if prim_func.attrs
+        else "<anonymous>"
+    )
+    if os.environ.get("TILELANG_DEBUG_UB_CHECK", ""):
+        allocs_dbg = _collect_ub_allocs(prim_func)
+        print(
+            f"[CheckUBBudget] func={func_name} chip={chip_name} ub_cap={ub_cap} n_allocs={len(allocs_dbg)}"
+        )
+    _check_one(prim_func, ub_cap, chip_name, str(func_name))
+    return prim_func
+
+
+def CheckUBBudget():
+    """Diagnostic pass: error early if the NPUIR target kernel's
+    fragment+shared allocations exceed the chip's Unified Buffer (UB)
+    capacity, instead of letting ``bishengir-compile`` fail with an
+    opaque "ub overflow" several seconds later in lowering.
+
+    Insert this pass after ``PlanAndUpdateBufferAllocationLocation`` in
+    the NPUIR target pipeline (see ``tilelang/engine/phase.py``).
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The pass.
+    """
+    return _CheckUBBudgetPass

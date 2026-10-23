@@ -110,4 +110,4 @@ jobs:
       run: |
         mkdir -p ${{ env.TVM_INSTALL_DIR }}
         python3 -m pip install patchelf
-        python3 tools/prepare_tvm.py libraries 3rdparty/tvm/build "$TVM_INSTALL_DIR"
+        python3 tools/prepare_tvm.py libraries 3rdparty/tvm/build/lib "$TVM_INSTALL_DIR"

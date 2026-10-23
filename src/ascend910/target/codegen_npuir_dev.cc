@@ -1047,7 +1047,7 @@ inline void CodeGenTileLangNPUIRDEV::UpdateMLIRValueMap(const mlir::Value key,
 inline std::pair<bool, mlir::Value>
 CodeGenTileLangNPUIRDEV::CheckPrimExprMap(const PrimExprNode *op) {
   mlir::Block *curr_block = builder.getInsertionBlock();
-  auto it = this->prim_expr_map.find({GetRef<PrimExpr>(op), curr_block});
+  auto it = this->prim_expr_map.find({tvm::ffi::GetRef<PrimExpr>(op), curr_block});
   if (it != this->prim_expr_map.end()) {
     return std::pair(true, it->second);
   }
@@ -1057,7 +1057,7 @@ CodeGenTileLangNPUIRDEV::CheckPrimExprMap(const PrimExprNode *op) {
 inline void CodeGenTileLangNPUIRDEV::UpdatePrimExprMap(const PrimExprNode *key,
                                                        mlir::Value val) {
   mlir::Block *curr_block = builder.getInsertionBlock();
-  this->prim_expr_map[{GetRef<PrimExpr>(key), curr_block}] = val;
+  this->prim_expr_map[{tvm::ffi::GetRef<PrimExpr>(key), curr_block}] = val;
 }
 
 // Type casting for mismatched element types

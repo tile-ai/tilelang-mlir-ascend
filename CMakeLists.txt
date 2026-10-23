@@ -197,7 +197,7 @@ endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.gitmodules" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.gitmodules" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git" AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/tvm/CMakeLists.txt")
   find_package(Git QUIET)
   if(Git_FOUND)
     execute_process(
@@ -419,6 +419,11 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/src/ascend/CMakeLists.txt")
 # Ascend 910 (A2) backend. Target registration is always compiled; the
 # MLIR code generators are gated by USE_ASCEND910.
 include("${CMAKE_CURRENT_SOURCE_DIR}/src/ascend910/CMakeLists.txt")
+
+
+# Drop legacy TLA translation units that were copied on top of v0.1.15. They
+# target the pre-tirx TVM and are not part of the A2 backend.
+list(FILTER TILE_LANG_SRCS EXCLUDE REGEX "(src/layout/swizzle\.cc|src/op/ascend\.cc|src/op/bulk_copy\.cc|src/op/elem\.cc|src/op/op\.cc|src/runtime/runtime\.cc|src/target/codegen_ascend\.cc|src/target/codegen_cpp\.cc|src/target/codegen_cuda\.cc|src/target/codegen_hip\.cc|src/target/codegen_npuir\.cc|src/target/codegen_npuir_api\.cc|src/target/codegen_npuir_api_a5\.cc|src/target/codegen_npuir_dev\.cc|src/target/codegen_npuir_dev_a5\.cc|src/target/codegen_webgpu\.cc|src/target/rt_mod_ascend\.cc|src/target/rt_mod_cpp\.cc|src/target/rt_mod_cuda\.cc|src/target/rt_mod_hip\.cc|src/target/rt_mod_npuir\.cc|src/target/utils\.cc|src/transform/cluster_planning\.cc|src/transform/eliminate_storage_sync_for_mbarrier\.cc|src/transform/inject_fence_proxy\.cc|src/transform/inject_ptx_async_copy\.cc|src/transform/inject_tma_barrier\.cc|src/transform/layout_inference\.cc|src/transform/legalize_npuir_bf16\.cc|src/transform/loop_vectorize_dynamic\.cc|src/transform/lower_device_storage_access_info\.cc|src/transform/lower_hopper_intrin\.cc|src/transform/lower_npuir_block\.cc|src/transform/multi_version_buffer_rewriter\.cc|src/transform/npu_loop_vectorize\.cc|src/transform/npu_simt_indirect_load\.cc|src/transform/storage_access\.cc|src/transform/thread_partial_sync\.cc|src/transform/warp_specialized_rewriter\.cc|src/transform/wgmma_sync_rewriter\.cc)$")
 
 list(REMOVE_DUPLICATES TILE_LANG_SRCS)
 

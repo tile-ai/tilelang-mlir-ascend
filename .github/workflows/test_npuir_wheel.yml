@@ -54,7 +54,7 @@ jobs:
         pip install uv
         uv pip install torch==2.7.1
         uv pip install torch-npu==2.7.1
-        uv pip install dist/*.whl
+        uv pip install dist/tilelang*.whl
         uv pip install pytest pytest-xdist pytest-html numpy
         uv pip install attrs decorator numpy psutil scipy
 

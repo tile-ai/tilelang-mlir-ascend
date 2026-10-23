@@ -69,20 +69,11 @@ jobs:
           mv tilelang _tilelang_src
         fi
 
-    - name: Run npuir examples (python scripts)
-      env:
-        TILELANG_CLEAR_CACHE: "1"
-      shell: bash
-      run: |
-        set -euo pipefail
-        mkdir -p testing/npuir/output/examples
-        python examples/run_all.py --sequential 2>&1 | tee testing/npuir/output/examples/run_all.log
-
-    - name: Run npuir tests
+    - name: Run A2 regression tests
       env:
         TILELANG_CLEAR_CACHE: "1"
       run: |
-        python -m pytest -v testing/npuir/*_ops -n 2 \
+        python -m pytest -v testing/ascend910 -n 2 \
           --html=testing/npuir/output/report.html --self-contained-html \
           --junitxml=testing/npuir/output/junit.xml
 

@@ -20,6 +20,10 @@ set(TILELANG_CMAKELISTS_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
 project(TILE_LANG C CXX)
 
+# v0.1.15 moved tvm/tir to tvm/tirx. Keep old backend sources building through a
+# thin include shim instead of touching every legacy translation unit.
+include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/tvm_compat)
+
 # Legacy NPUIR build compatibility. The upstream CI writes build/config.cmake and
 # enables USE_NPUIR; map that to the v0.1.15 A2 backend switch.
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/build/config.cmake)

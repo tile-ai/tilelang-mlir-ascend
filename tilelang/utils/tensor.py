@@ -49,10 +49,9 @@ def get_tensor_supply(supply_type: TensorSupplyType = TensorSupplyType.Integer):
         device = get_current_device()
 
         if hasattr(param, "shape") and not param.shape:
-            raise ValueError(
-                f"TensorType must have a shape, but got {type(param)}, "
-                "likely you are trying to generate a random tensor with a dynamic symbolic shape."
-            )
+            # Scalar kernel parameters are passed as Python ints/floats to the
+            # launcher, not as 0-d tensors.
+            return 0
 
         # Check if with dynamic symbolic shape
         for shape in param.shape:

@@ -85,6 +85,7 @@ jobs:
         SITE=$(python -c "import tilelang, os; print(os.path.dirname(tilelang.__file__))")
         cp "$GITHUB_WORKSPACE/tilelang/ascend910/adapter.py" "$SITE/ascend910/"
         cp "$GITHUB_WORKSPACE/tilelang/jit/kernel.py" "$SITE/jit/"
+        cp "$GITHUB_WORKSPACE/tilelang/utils/tensor.py" "$SITE/utils/"
         cp "$GITHUB_WORKSPACE/tilelang/utils/npu_utils.cpp" "$SITE/utils/"
         cp "$GITHUB_WORKSPACE/tilelang/utils/npu_utils.py" "$SITE/utils/"
         cd /tmp

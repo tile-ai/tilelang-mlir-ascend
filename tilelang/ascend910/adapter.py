@@ -172,11 +172,15 @@ class Ascend910KernelAdapter:
     def _grid(self):
         """Best-effort static launch grid from the lowered TIR."""
         text = ""
-        try:
-            if self.device_mod is not None:
-                text = self.device_mod.script()
-        except Exception:
-            text = ""
+        for obj in (self.func_or_mod, self.device_mod):
+            try:
+                if obj is not None:
+                    candidate = obj.script()
+                    if "thread_binding" in candidate:
+                        text = candidate
+                        break
+            except Exception:
+                continue
         grid = []
         for axis in ("x", "y", "z"):
             match = re.search(

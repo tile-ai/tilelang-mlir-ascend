@@ -83,4 +83,5 @@ jobs:
         cp "$GITHUB_WORKSPACE/tilelang/utils/npu_utils.py" "$SITE/utils/"
         cd /tmp
         export TILELANG_EXAMPLES="$GITHUB_WORKSPACE/examples/elementwise"
-        python "$GITHUB_WORKSPACE/runtime_probe.py"
+        cp "$GITHUB_WORKSPACE/runtime_probe.py" /tmp/runtime_probe.py
+        python /tmp/runtime_probe.py

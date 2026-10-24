@@ -99,7 +99,7 @@ jobs:
         TORCH_DEVICE_BACKEND_AUTOLOAD: "0"
       run: |
         cd /tmp
-        for ex in examples/elementwise/vec_add_1d.py examples/elementwise/vec_add_2d.py examples/matmul/matmul.py; do
+        for ex in examples/elementwise/vec_add_1d.py examples/elementwise/vec_add_2d.py examples/gemm/matmul.py; do
           echo "=== $ex ==="
           python - "$GITHUB_WORKSPACE/$ex" <<'PY'
         import runpy

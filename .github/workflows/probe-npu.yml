@@ -1,0 +1,49 @@
+name: Probe NPU Runtime
+
+on:
+  push:
+    branches: [probe-ci]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: linux-aarch64-a3-800i-2
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    timeout-minutes: 30
+
+    steps:
+    - name: Download arm64 wheel from green run
+      uses: actions/download-artifact@v4
+      with:
+        name: tilelang-npuir-py3.11-arm64
+        path: dist/
+        run-id: 40060438111
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install
+      run: |
+        CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+        sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+        pip config set global.index-url http://${CACHING_URL}/pypi/simple
+        pip config set global.trusted-host "${CACHING_URL}"
+        pip install uv
+        uv pip install torch==2.7.1 torch-npu==2.7.1
+        uv pip install dist/tilelang*.whl
+
+    - name: Probe torch_npu
+      run: |
+        python - <<'PY'
+        import os
+        print("before torch")
+        import torch
+        print("torch", torch.__version__)
+        try:
+            import torch_npu
+            print("torch_npu", torch_npu.__version__)
+            print("device_count", torch.npu.device_count())
+            print("is_available", torch.npu.is_available())
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+        PY

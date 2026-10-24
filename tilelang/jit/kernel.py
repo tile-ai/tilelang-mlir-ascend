@@ -550,8 +550,9 @@ class JITKernel(Generic[_P, _T]):
             func = self.adapter.func_or_mod
             params = [
                 KernelParam.from_buffer(func.buffer_map[p])
-                for p in func.params
                 if p in func.buffer_map
+                else KernelParam.from_var(p)
+                for p in func.params
             ]
         return Profiler(params or [], self.out_idx or [], tensor_supply_type).with_default_adapter(self.adapter)
 

@@ -254,9 +254,17 @@ class Ascend910KernelAdapter:
                 args[pos] = out
                 outputs.append(out)
 
+        signature = self._signature()
         tensors = []
-        for value in args:
-            if isinstance(value, torch.Tensor) and not getattr(
+        for index, value in enumerate(args):
+            kind = signature.get(index, "")
+            if (
+                not kind.startswith("*")
+                and isinstance(value, torch.Tensor)
+                and value.numel() == 1
+            ):
+                value = value.item()
+            elif isinstance(value, torch.Tensor) and not getattr(
                 value, "is_npu", False
             ):
                 value = value.npu()

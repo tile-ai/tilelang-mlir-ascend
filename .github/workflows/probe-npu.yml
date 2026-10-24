@@ -108,3 +108,11 @@ jobs:
         runpy.run_path(path, run_name="__main__")
         PY
         done
+
+    - name: Probe autotune
+      env:
+        TORCH_DEVICE_BACKEND_AUTOLOAD: "0"
+      run: |
+        cd /tmp
+        cp "$GITHUB_WORKSPACE/autotune_probe.py" /tmp/autotune_probe.py
+        python /tmp/autotune_probe.py

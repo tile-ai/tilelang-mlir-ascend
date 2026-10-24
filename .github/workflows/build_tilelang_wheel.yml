@@ -83,19 +83,33 @@ jobs:
         pip install -r requirements-build.txt
         pip install lit
 
-    - name: Build wheel with pip
+    - name: Build tilelang (cmake)
+      run: |
+        BISHENGIR_PATH="${{ github.workspace }}/${{ env.NPUIR_INSTALL_DIR }}"
+        TVM_PATH="${{ github.workspace }}/${{ env.TVM_INSTALL_DIR }}"
+        mkdir -p build
+        cp 3rdparty/tvm/cmake/config.cmake build/
+        echo "set(USE_NPUIR ON)" >> build/config.cmake
+        echo "set(BISHENGIR_ROOT_PATH ${BISHENGIR_PATH})" >> build/config.cmake
+        echo "set(USE_CUDA OFF)" >> build/config.cmake
+        echo "set(USE_ROCM OFF)" >> build/config.cmake
+        echo "set(USE_LLVM OFF)" >> build/config.cmake
+        echo "set(HIDE_PRIVATE_SYMBOLS ON)" >> build/config.cmake
+        echo "set(USE_KALLOC_ALIGNMENT 64)" >> build/config.cmake
+        cmake -B build -DMLIR_INCLUDE_TESTS=ON -DTVM_PREBUILD_PATH=${TVM_PATH} -DTVM_SOURCE_DIR=${{ github.workspace }}/3rdparty/tvm -DPython3_EXECUTABLE=$(which python3)
+        cmake --build build --config Release -j$(nproc)
+
+    - name: Run MLIR tests (lit)
+      run: |
+        lit -vv build/testing/mlir
+
+    - name: Package wheel
       env:
+        TILELANG_SKIP_BUILD: "1"
         USE_NPUIR: "true"
         BISHENGIR_PATH: ${{ github.workspace }}/npuir-prebuild
         TVM_PREBUILD_PATH: ${{ github.workspace }}/tvm-prebuild
-      run: |
-        python -m pip install --upgrade pip build
-        python -m pip wheel . -v -w dist --no-deps \
-          -C cmake.define.USE_NPUIR=ON \
-          -C cmake.define.BISHENGIR_ROOT_PATH=${BISHENGIR_PATH} \
-          -C cmake.define.TVM_PREBUILD_PATH=${TVM_PREBUILD_PATH} \
-          -C cmake.define.USE_CUDA=OFF \
-          -C cmake.define.USE_ROCM=OFF
+      run: python setup.py bdist_wheel
 
     - name: Upload wheel artifact
       uses: actions/upload-artifact@v4

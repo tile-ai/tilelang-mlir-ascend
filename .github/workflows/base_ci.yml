@@ -1,11 +1,8 @@
 name: Base CI
 
 on:
-  push:
-    branches: [ci-0.1.15]
-  workflow_dispatch:
   pull_request:
-    branches: [main, update0.1.15]
+    branches: [main]
   release:
     types: [published, prereleased]
 

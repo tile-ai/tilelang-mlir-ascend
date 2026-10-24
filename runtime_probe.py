@@ -1,10 +1,11 @@
+import os
 import sys
 from pathlib import Path
 
 import torch
 import torch_npu
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "examples" / "elementwise"))
+sys.path.insert(0, os.environ.get("TILELANG_EXAMPLES", "examples/elementwise"))
 from vec_add_1d import vec_add  # noqa: E402
 
 import tilelang  # noqa: E402

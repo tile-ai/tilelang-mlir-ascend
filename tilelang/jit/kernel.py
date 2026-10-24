@@ -545,9 +545,13 @@ class JITKernel(Generic[_P, _T]):
         """
         params = self.params
         if params is None and getattr(self.adapter, "func_or_mod", None) is not None:
+            from tilelang.engine.param import KernelParam
+
             func = self.adapter.func_or_mod
             params = [
-                func.buffer_map[p] for p in func.params if p in func.buffer_map
+                KernelParam.from_buffer(func.buffer_map[p])
+                for p in func.params
+                if p in func.buffer_map
             ]
         return Profiler(params or [], self.out_idx or [], tensor_supply_type).with_default_adapter(self.adapter)
 

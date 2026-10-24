@@ -169,11 +169,89 @@ class Ascend910KernelAdapter:
         return self.object_path, self.launcher_path
 
     # -- execution ------------------------------------------------------------
+    def _grid(self):
+        """Best-effort static launch grid from the lowered TIR."""
+        text = ""
+        try:
+            if self.device_mod is not None:
+                text = self.device_mod.script()
+        except Exception:
+            text = ""
+        grid = []
+        for axis in ("x", "y", "z"):
+            match = re.search(
+                rf'thread_binding\(([^,]+),\s*thread="blockIdx\.{axis}"', text
+            )
+            value = 1
+            if match:
+                try:
+                    value = int(match.group(1).strip())
+                except Exception:
+                    value = 1
+            grid.append(max(1, value))
+        return tuple(grid)
+
     def _call(self, *args, **kwargs):
-        raise RuntimeError(
-            "Ascend 910 device execution is not wired yet: the MLIR was compiled, "
-            "but the launch/load runtime bridge has not been connected."
+        import importlib.util
+
+        import torch
+
+        try:
+            import torch_npu  # noqa: F401
+        except Exception as exc:  # pragma: no cover - runtime only
+            raise RuntimeError("Ascend 910 execution requires torch_npu") from exc
+
+        from tilelang.utils.npu_utils import NPUUtils
+
+        if not self._compiled:
+            self.compile_artifacts()
+        if not self.launcher_path or not self.object_path:
+            raise RuntimeError("Ascend 910 launcher was not built")
+
+        device = torch.npu.current_device()
+        npu = NPUUtils.get()
+        name, mix_mode = self._metadata()
+        with open(self.object_path, "rb") as handle:
+            binary = handle.read()
+        _, function, _, _ = npu.load_binary(name, binary, 0, device, mix_mode)
+
+        spec = importlib.util.spec_from_file_location(
+            "__tilelang_launcher", self.launcher_path
         )
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+
+        if hasattr(torch_npu._C, "_npu_getCurrentRawStreamNoWait"):
+            stream = torch_npu._C._npu_getCurrentRawStreamNoWait(device)
+        elif hasattr(torch_npu._C, "_npu_getCurrentRawStream"):
+            stream = torch_npu._C._npu_getCurrentRawStream(device)
+        else:
+            stream = torch.npu.current_stream(device).npu_stream
+
+        tensors = []
+        for value in args:
+            if isinstance(value, torch.Tensor) and not getattr(
+                value, "is_npu", False
+            ):
+                value = value.npu()
+            tensors.append(value)
+
+        grid = self._grid()
+        launcher.launch(
+            grid[0],
+            grid[1],
+            grid[2],
+            stream,
+            function,
+            {"kernel_name": name, "tensor_kinds": []},
+            {},
+            None,
+            None,
+            *tensors,
+        )
+        if kwargs.get("synchronize", True):
+            torch.npu.synchronize()
+        return None
 
     def get_kernel_source(self, kernel_only: bool = True) -> str:
         return self.device_kernel_source

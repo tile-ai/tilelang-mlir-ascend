@@ -71,3 +71,15 @@ jobs:
         print("arch", NPUUtils.get().get_arch())
         print("aicore", NPUUtils.get().get_aicore_num())
         PY
+
+    - name: Probe real kernel launch
+      env:
+        TORCH_DEVICE_BACKEND_AUTOLOAD: "0"
+      run: |
+        cd /tmp
+        SITE=$(python -c "import tilelang, os; print(os.path.dirname(tilelang.__file__))")
+        cp "$GITHUB_WORKSPACE/tilelang/ascend910/adapter.py" "$SITE/ascend910/"
+        cp "$GITHUB_WORKSPACE/tilelang/utils/npu_utils.cpp" "$SITE/utils/"
+        cp "$GITHUB_WORKSPACE/tilelang/utils/npu_utils.py" "$SITE/utils/"
+        cd "$GITHUB_WORKSPACE"
+        python runtime_probe.py

@@ -318,7 +318,12 @@ def get_runtime_file_cache(source):
 @functools.lru_cache()
 def get_ascend_path() -> Path:
     """Get ASCEND_HOME_PATH root directory"""
-    path = env.ASCEND_HOME
+    path = (
+        os.environ.get("ASCEND_HOME_PATH")
+        or os.environ.get("ASCEND_TOOLKIT_HOME")
+        or getattr(env, "ASCEND_HOME", "")
+        or ""
+    )
     if path == "":
         raise EnvironmentError(
             "ASCEND_HOME_PATH is not set, source <ascend-toolkit>/set_env.sh first"

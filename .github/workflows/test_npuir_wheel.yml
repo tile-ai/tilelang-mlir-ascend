@@ -54,8 +54,8 @@ jobs:
         pip install uv
         uv pip install torch==2.7.1
         uv pip install torch-npu==2.7.1
-        uv pip install dist/tilelang*.whl
-        uv pip install pytest pytest-xdist pytest-html numpy pybind11 pyyaml
+        uv pip install dist/*.whl
+        uv pip install pytest pytest-xdist pytest-html numpy
         uv pip install attrs decorator numpy psutil scipy
 
     - name: Install clang
@@ -69,12 +69,20 @@ jobs:
           mv tilelang _tilelang_src
         fi
 
-    - name: Run A2 regression tests
+    - name: Run npuir examples (python scripts)
       env:
         TILELANG_CLEAR_CACHE: "1"
-        TORCH_DEVICE_BACKEND_AUTOLOAD: "0"
+      shell: bash
       run: |
-        python -m pytest -v testing/ascend910 -n 0 \
+        set -euo pipefail
+        mkdir -p testing/npuir/output/examples
+        python examples/run_all.py --sequential 2>&1 | tee testing/npuir/output/examples/run_all.log
+
+    - name: Run npuir tests
+      env:
+        TILELANG_CLEAR_CACHE: "1"
+      run: |
+        python -m pytest -v testing/npuir/*_ops -n 2 \
           --html=testing/npuir/output/report.html --self-contained-html \
           --junitxml=testing/npuir/output/junit.xml
 

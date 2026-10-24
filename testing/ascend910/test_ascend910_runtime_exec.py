@@ -30,3 +30,12 @@ def test_vec_add_executes_on_npu():
     torch.npu.synchronize()
 
     torch.testing.assert_close(a + b, c, rtol=1e-2, atol=1e-2)
+
+
+def test_vec_add_profiler():
+    n = 4096
+    func = vec_add(n, n)
+    kernel = tilelang.compile(func, target="ascend910")
+    profiler = kernel.get_profiler()
+    latency = profiler.do_bench(warmup=10, rep=20, backend="event")
+    assert latency >= 0

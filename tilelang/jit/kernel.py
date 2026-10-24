@@ -543,7 +543,18 @@ class JITKernel(Generic[_P, _T]):
         Profiler
             A Profiler instance for benchmarking the runtime module.
         """
-        return Profiler(self.params, self.out_idx, tensor_supply_type).with_default_adapter(self.adapter)
+        params = self.params
+        if params is None and getattr(self.adapter, "func_or_mod", None) is not None:
+            from tilelang.engine.param import KernelParam
+
+            func = self.adapter.func_or_mod
+            params = [
+                KernelParam.from_buffer(func.buffer_map[p])
+                if p in func.buffer_map
+                else KernelParam.from_var(p)
+                for p in func.params
+            ]
+        return Profiler(params or [], self.out_idx or [], tensor_supply_type).with_default_adapter(self.adapter)
 
     def get_kernel_source(self, kernel_only: bool = True) -> str:
         """

@@ -51,3 +51,18 @@ jobs:
             import traceback
             traceback.print_exc()
         PY
+
+    - name: Probe npu_utils
+      env:
+        TORCH_DEVICE_BACKEND_AUTOLOAD: "0"
+      run: |
+        SITE=$(python -c "import tilelang, os; print(os.path.dirname(tilelang.__file__))")
+        cp tilelang/utils/npu_utils.cpp "$SITE/utils/"
+        cp tilelang/utils/npu_utils.py "$SITE/utils/"
+        python - <<'PY'
+        import torch_npu
+        from tilelang.utils.npu_utils import NPUUtils
+        print("device_num", NPUUtils.get().get_device_num())
+        print("arch", NPUUtils.get().get_arch())
+        print("aicore", NPUUtils.get().get_aicore_num())
+        PY

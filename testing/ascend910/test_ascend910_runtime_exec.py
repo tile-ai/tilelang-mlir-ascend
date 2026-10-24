@@ -11,6 +11,7 @@ if not torch.npu.is_available() or torch.npu.device_count() < 1:
     pytest.skip("no Ascend NPU available", allow_module_level=True)
 
 import tilelang
+import tilelang.language as T
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "examples" / "elementwise"))
@@ -63,7 +64,6 @@ def _autotune_supply(params):
 )
 @tilelang.jit(out_idx=[-1], target="ascend910")
 def _autotune_add(n, block):
-    import tilelang.language as T
 
     @T.prim_func
     def main(

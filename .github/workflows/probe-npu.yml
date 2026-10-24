@@ -34,7 +34,7 @@ jobs:
         pip config set global.index-url http://${CACHING_URL}/pypi/simple
         pip config set global.trusted-host "${CACHING_URL}"
         pip install uv
-        uv pip install torch==2.7.1 torch-npu==2.7.1 pyyaml
+        uv pip install torch==2.7.1 torch-npu==2.7.1 pyyaml pybind11
         uv pip install dist/tilelang*.whl
 
     - name: Probe torch_npu

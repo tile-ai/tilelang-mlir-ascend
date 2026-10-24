@@ -546,6 +546,12 @@ else()
 
   if(TILELANG_ASCEND910_ENABLED)
     target_link_libraries(tilelang PRIVATE
+      # The HIVM dialect registers TypeID objects that are only referenced
+      # indirectly by the op wrappers; force the dialect archive in so the
+      # symbol survives the wheel's static link.
+      -Wl,--whole-archive
+      ${BISHENGIR_ROOT_PATH}/lib/libBiShengIRHIVMDialect.a
+      -Wl,--no-whole-archive
       -Wl,--start-group
       ${TILELANG_ASCEND910_NPUIR_LIBS}
       -Wl,--end-group

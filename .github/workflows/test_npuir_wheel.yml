@@ -74,7 +74,7 @@ jobs:
         TILELANG_CLEAR_CACHE: "1"
         TORCH_DEVICE_BACKEND_AUTOLOAD: "0"
       run: |
-        python -m pytest -v testing/ascend910 -n 2 \
+        python -m pytest -v testing/ascend910 -n 0 \
           --html=testing/npuir/output/report.html --self-contained-html \
           --junitxml=testing/npuir/output/junit.xml
 

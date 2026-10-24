@@ -22,3 +22,7 @@ kernel(a, b, c, N)
 torch.npu.synchronize()
 torch.testing.assert_close(a + b, c, rtol=1e-2, atol=1e-2)
 print("RUNTIME_OK", float((a + b - c).abs().max()))
+
+profiler = kernel.get_profiler()
+latency = profiler.do_bench(warmup=10, rep=30, backend="event")
+print("PROFILE_OK", latency)

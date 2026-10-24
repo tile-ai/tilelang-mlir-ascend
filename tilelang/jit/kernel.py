@@ -543,7 +543,13 @@ class JITKernel(Generic[_P, _T]):
         Profiler
             A Profiler instance for benchmarking the runtime module.
         """
-        return Profiler(self.params, self.out_idx or [], tensor_supply_type).with_default_adapter(self.adapter)
+        params = self.params
+        if params is None and getattr(self.adapter, "func_or_mod", None) is not None:
+            func = self.adapter.func_or_mod
+            params = [
+                func.buffer_map[p] for p in func.params if p in func.buffer_map
+            ]
+        return Profiler(params or [], self.out_idx or [], tensor_supply_type).with_default_adapter(self.adapter)
 
     def get_kernel_source(self, kernel_only: bool = True) -> str:
         """

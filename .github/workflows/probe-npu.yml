@@ -117,3 +117,6 @@ jobs:
         cd /tmp
         cp "$GITHUB_WORKSPACE/autotune_probe.py" /tmp/autotune_probe.py
         python /tmp/autotune_probe.py
+    - name: Show autotuner log
+      if: always()
+      run: cat /tmp/autotuner.log || true

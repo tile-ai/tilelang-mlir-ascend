@@ -191,6 +191,9 @@ class Ascend910KernelAdapter:
             grid.append(max(1, value))
         return tuple(grid)
 
+    def __call__(self, *args, **kwargs):
+        return self._call(*args, **kwargs)
+
     def _call(self, *args, **kwargs):
         import importlib.util
 

@@ -228,6 +228,29 @@ class Ascend910KernelAdapter:
         else:
             stream = torch.npu.current_stream(device).npu_stream
 
+        args = list(args)
+        outputs = []
+        if self.result_idx and args:
+            buffers = []
+            if self.func_or_mod is not None and hasattr(self.func_or_mod, "params"):
+                buffers = [
+                    self.func_or_mod.buffer_map[p]
+                    for p in self.func_or_mod.params
+                    if p in self.func_or_mod.buffer_map
+                ]
+            count = len(buffers) or (len(args) + len(self.result_idx))
+            for idx in self.result_idx:
+                pos = idx if idx >= 0 else count + idx
+                shape = [int(dim) for dim in buffers[pos].shape] if buffers else None
+                dtype = getattr(torch, str(buffers[pos].dtype)) if buffers else None
+                out = torch.empty(
+                    shape, dtype=dtype, device=args[0].device
+                )
+                while len(args) <= pos:
+                    args.append(None)
+                args[pos] = out
+                outputs.append(out)
+
         tensors = []
         for value in args:
             if isinstance(value, torch.Tensor) and not getattr(
@@ -251,6 +274,8 @@ class Ascend910KernelAdapter:
         )
         if kwargs.get("synchronize", True):
             torch.npu.synchronize()
+        if outputs:
+            return outputs[0] if len(outputs) == 1 else outputs
         return None
 
     def get_kernel_source(self, kernel_only: bool = True) -> str:

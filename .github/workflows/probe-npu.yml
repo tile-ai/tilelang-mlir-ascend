@@ -24,7 +24,7 @@ jobs:
       with:
         name: tilelang-npuir-py3.11-arm64
         path: dist/
-        run-id: 40060438111
+        run-id: 40074875901
         github-token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install
@@ -90,3 +90,17 @@ jobs:
         export TILELANG_EXAMPLES="$GITHUB_WORKSPACE/examples/elementwise"
         cp "$GITHUB_WORKSPACE/runtime_probe.py" /tmp/runtime_probe.py
         python /tmp/runtime_probe.py
+
+    - name: Probe more kernels
+      env:
+        TORCH_DEVICE_BACKEND_AUTOLOAD: "0"
+      run: |
+        cd /tmp
+        for ex in examples/elementwise/vec_add_1d.py examples/elementwise/vec_add_2d.py examples/matmul/matmul.py; do
+          echo "=== $ex ==="
+          python - "$GITHUB_WORKSPACE/$ex" <<'PY'
+        import runpy
+        import sys
+        runpy.run_path(sys.argv[1], run_name="__main__")
+        PY
+        done

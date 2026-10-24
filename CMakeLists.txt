@@ -544,7 +544,8 @@ else()
   add_library(tilelang SHARED $<TARGET_OBJECTS:tilelang_objs>)
   target_link_libraries(tilelang PUBLIC tvm_compiler)
 
-  if(TILELANG_ASCEND910_ENABLED)
+  if(USE_ASCEND910)
+    file(GLOB TILELANG_ASCEND910_LINK_LIBS "${BISHENGIR_ROOT_PATH}/lib/*.a")
     target_link_libraries(tilelang PRIVATE
       # The HIVM dialect registers TypeID objects that are only referenced
       # indirectly by the op wrappers; force the dialect archive in so the
@@ -553,7 +554,7 @@ else()
       ${BISHENGIR_ROOT_PATH}/lib/libBiShengIRHIVMDialect.a
       -Wl,--no-whole-archive
       -Wl,--start-group
-      ${TILELANG_ASCEND910_NPUIR_LIBS}
+      ${TILELANG_ASCEND910_LINK_LIBS}
       -Wl,--end-group
       zstd z
     )

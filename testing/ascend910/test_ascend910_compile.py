@@ -22,8 +22,8 @@ def test_compile_only():
     src = kernel.get_kernel_source()
     assert "hivm.hir.set_ffts_base_addr" in src
     assert "func.func" in src
-    with pytest.raises(RuntimeError, match="runtime bridge"):
-        kernel(None, None)
+    # Execution is covered by test_ascend910_runtime_exec.py; here we only
+    # assert that the compile-only kernel exposes its generated source.
 
 
 def test_compile_artifacts():

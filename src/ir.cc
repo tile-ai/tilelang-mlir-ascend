@@ -250,11 +250,34 @@ KernelLaunchFrame KernelLaunch(const Array<PrimExpr> &grid_size,
     n->grid_extents.push_back(grid_size[i]);
     n->frames.push_back(frame);
   }
+  // NPU (Ascend) kernels additionally run the vector part on two sub-blocks per
+  // AI core.  The legacy frontend exposed that id as ``blockIdx.z`` with extent
+  // ``grid * 2``; without it both sub-blocks compute the same tiles.
+  Var npu_sub_block_var;
+  {
+    bool is_npu_frame =
+        attrs.defined() && attrs.count("tilelang.is_npu_kernel_frame") != 0;
+    if (is_npu_frame && grid_size.size() >= 1 && grid_size.size() <= 2) {
+      PrimExpr vid_extent = grid_size[0];
+      for (size_t i = 1; i < grid_size.size(); ++i)
+        vid_extent = vid_extent * grid_size[i];
+      vid_extent = vid_extent * tvm::tirx::make_const(vid_extent.dtype(), 2);
+      ForFrame vid_frame =
+          MakeThreadBindingFrame("vid", "blockIdx.z", vid_extent);
+      npu_sub_block_var = vid_frame->vars[0];
+      n->frames.push_back(vid_frame);
+    }
+  }
   // Thread placeholders are always emitted so the body may reference a thread
   // index regardless of whether threads= was given; the backend decides what
   // they mean.
   ForFrame thread_frame = MakeLaunchThreadFrame();
   n->thread_vars = thread_frame->vars;
+  if (npu_sub_block_var.defined() && n->thread_vars.size() >= 3) {
+    Array<tvm::tirx::Var> thread_vars = n->thread_vars;
+    thread_vars.Set(2, npu_sub_block_var);
+    n->thread_vars = thread_vars;
+  }
   n->frames.push_back(thread_frame);
 
   Map<String, Any> block_annotations =

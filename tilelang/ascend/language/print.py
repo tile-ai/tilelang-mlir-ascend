@@ -37,6 +37,11 @@ def print(obj: Any = None, msg: str = "") -> None:  # noqa: A001
             message-only print.
         msg: Optional message prefix.
     """
+    if isinstance(obj, tirx.BufferRegion):
+        # ``T.print(buf[i:j, k:l])`` hands us a region; print the leading
+        # elements of the underlying buffer (debug side effect only).
+        obj = obj.buffer
+
     if isinstance(obj, tirx.Buffer):
         buffer = obj
 

@@ -74,6 +74,15 @@ class PassConfigKey(str, Enum):
     """Disable warp specialization optimization. Default: False"""
 
     TL_ENABLE_AUTO_SCHEDULE = "tl.enable_auto_schedule"
+    NPUIR_ENABLE_AUTO_MULTI_BUFFER = "tl.npuir_enable_auto_multi_buffer"
+    """Legacy A2 auto multi-buffer switch. Default: True."""
+
+    NPUIR_DISABLE_HIVM_AUTO_INJECT_SYNC = "tl.npuir_disable_hivm_auto_inject_sync"
+    """Disable HIVM automatic sync injection. Default: False."""
+
+    TL_ENABLE_PLAN_AND_UPDATE_BUFFER_ALLOCATION = "tl.enable_plan_and_update_buffer_allocation"
+    """Enable the buffer allocation placement pass. Default: True."""
+
     """Enable Ascend auto scheduling. Default: True."""
 
     TL_ENABLE_AUTO_WARP_SPECIALIZATION = "tl.enable_auto_warp_specialization"

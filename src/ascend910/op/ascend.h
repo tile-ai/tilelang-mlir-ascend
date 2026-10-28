@@ -1,0 +1,619 @@
+// Copyright (c) Tile-AI Corporation.
+// Licensed under the MIT License.
+
+/*!
+ * \file tl/op/ascend.h
+ * \brief Define ascend-related operators.
+ *
+ */
+
+#ifndef TVM_TL_OP_ELEM_H_
+#define TVM_TL_OP_ELEM_H_
+
+#include <tvm/ir/expr.h>
+#include <tvm/tirx/buffer.h>
+#include <tvm/tirx/expr.h>
+#include <tvm/tirx/stmt.h>
+#include <tvm/runtime/logging.h>
+#include <sys/types.h>
+
+#ifndef ICHECK
+#define ICHECK(x) TVM_FFI_ICHECK(x)
+#define CHECK(x) TVM_FFI_ICHECK(x)
+#define ICHECK_EQ(a, b) TVM_FFI_ICHECK_EQ(a, b)
+#define ICHECK_GE(a, b) TVM_FFI_ICHECK_GE(a, b)
+#endif
+
+namespace tvm {
+namespace tl {
+
+static constexpr const char *kEnableAutoMultiBuffer =
+    "npuir.enable_auto_multi_buffer";
+static constexpr const char *kDisableHivmAutoInjectSync =
+    "npuir.disable_hivm_auto_inject_sync";
+static constexpr const char *kEnablePlanAndUpdateBufferAllocation =
+    "tl.enable_plan_and_update_buffer_allocation";
+
+using namespace tirx;
+using tvm::ffi::Array;
+using tvm::ffi::Map;
+using BufferMap = Map<Var, Buffer>;
+
+class RegionOp {
+public:
+  RegionOp(Array<PrimExpr> args, BufferMap vmap);
+  const Buffer &GetBuffer() const { return buffer_; }
+  const Array<Range> &GetRanges() const { return ranges_; }
+  int GetAccessMask() const { return access_mask_; }
+  bool IsFullRegion() const;
+private:
+  Buffer buffer_;
+  Array<Range> ranges_;
+  int access_mask_{0};
+};
+
+
+class NpuirOperand {
+public:
+  NpuirOperand() = default;
+
+  static NpuirOperand Tensor(Buffer buffer, Array<Range> ranges) {
+    NpuirOperand op;
+    op.kind_ = Kind::kTensor;
+    op.buffer_ = std::move(buffer);
+    op.ranges_ = std::move(ranges);
+    return op;
+  }
+
+  static NpuirOperand Scalar(PrimExpr expr) {
+    NpuirOperand op;
+    op.kind_ = Kind::kScalar;
+    op.scalar_ = std::move(expr);
+    return op;
+  }
+
+  static NpuirOperand FromExpr(const PrimExpr &expr, const BufferMap &vmap);
+
+  bool IsValid() const { return kind_ != Kind::kInvalid; }
+  bool IsTensor() const { return kind_ == Kind::kTensor; }
+  bool IsScalar() const { return kind_ == Kind::kScalar; }
+
+  const Buffer &GetBuffer() const {
+    ICHECK(IsTensor()) << "Operand is not a tensor";
+    return buffer_;
+  }
+
+  const Array<Range> &GetRanges() const {
+    ICHECK(IsTensor()) << "Operand is not a tensor";
+    return ranges_;
+  }
+
+  const PrimExpr &GetExpr() const {
+    ICHECK(IsScalar()) << "Operand is not a scalar";
+    return scalar_;
+  }
+
+private:
+  enum class Kind {
+    kInvalid,
+    kTensor,
+    kScalar,
+  };
+
+  Kind kind_{Kind::kInvalid};
+
+  Buffer buffer_;
+  Array<Range> ranges_;
+  PrimExpr scalar_;
+};
+
+class AscendCopy {
+public:
+  AscendCopy(Array<PrimExpr> args, BufferMap vmap);
+
+  Array<PrimExpr> args_;
+
+  Buffer src, dst;
+
+  Array<Range> src_range, dst_range;
+};
+
+class NpuirBinaryOperator {
+public:
+  const NpuirOperand &Src0() const { return src0_; }
+  const NpuirOperand &Src1() const { return src1_; }
+  const NpuirOperand &Dst() const { return dst_; }
+
+  NpuirBinaryOperator(Array<PrimExpr> args, BufferMap vmap);
+
+protected:
+  NpuirOperand src0_;
+  NpuirOperand src1_;
+  NpuirOperand dst_;
+};
+
+#define NPUIR_BINARY_OP_CLASS(OPNAME)                                          \
+  class Npuir##OPNAME : public NpuirBinaryOperator {                           \
+  public:                                                                      \
+    using NpuirBinaryOperator::NpuirBinaryOperator;                            \
+  };
+
+NPUIR_BINARY_OP_CLASS(Add)
+NPUIR_BINARY_OP_CLASS(Sub)
+NPUIR_BINARY_OP_CLASS(Mul)
+NPUIR_BINARY_OP_CLASS(Div)
+NPUIR_BINARY_OP_CLASS(Max)
+NPUIR_BINARY_OP_CLASS(Min)
+NPUIR_BINARY_OP_CLASS(Or)
+NPUIR_BINARY_OP_CLASS(And)
+NPUIR_BINARY_OP_CLASS(Xor)
+NPUIR_BINARY_OP_CLASS(Pow)
+NPUIR_BINARY_OP_CLASS(Shl)
+NPUIR_BINARY_OP_CLASS(FloorDiv)
+
+#define NPUIR_UNARY_OP_CLASS(OPNAME)                                           \
+  class Npuir##OPNAME {                                      \
+  public:                                                                      \
+    Npuir##OPNAME(Array<PrimExpr> args, BufferMap vmap);                       \
+                                                                               \
+    std::string op_name;                                                       \
+    Buffer src, dst;                                                           \
+    Array<Range> src_range, dst_range;                                         \
+  };
+
+NPUIR_UNARY_OP_CLASS(Exp)
+NPUIR_UNARY_OP_CLASS(Ln)
+NPUIR_UNARY_OP_CLASS(Relu)
+NPUIR_UNARY_OP_CLASS(Sigmoid)
+NPUIR_UNARY_OP_CLASS(Sqrt)
+NPUIR_UNARY_OP_CLASS(Rsqrt)
+NPUIR_UNARY_OP_CLASS(Abs)
+NPUIR_UNARY_OP_CLASS(Rec)
+NPUIR_UNARY_OP_CLASS(Not)
+NPUIR_UNARY_OP_CLASS(Floor)
+
+class NpuirDot {
+public:
+  NpuirDot(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src0, src1, dst;
+
+  PrimExpr initC;
+
+  bool a_transpose, b_transpose;
+
+  Array<Range> src0_range, src1_range, dst_range;
+};
+
+/// HIVM data copy operation with on-the-fly ND to NZ layout transformation.
+class NpuirNd2nz {
+public:
+  NpuirNd2nz(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src, dst;
+
+  // stored continuously in the destination buffer.
+  bool dst_continuous;
+
+  Array<Range> src_range, dst_range;
+};
+
+/// HIVM data copy operation from L1 to Global Memory with NZ2ND conversion.
+class NpuirNz2nd {
+public:
+  NpuirNz2nd(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src, dst;
+
+  Array<Range> src_range, dst_range;
+};
+
+/// HIVM data copy operation from L0C to L1 or Global Memory via fixpipe
+/// pipeline.
+class NpuirFixpipe {
+public:
+  NpuirFixpipe(Array<PrimExpr> args, BufferMap vmap);
+
+  // src and dst are good to share the same dtype or not.
+  // If not, src to dst may enable pre-quant: S322I8, F322F16, F322BF16
+  Buffer src, dst;
+
+  bool enable_nz2nd;
+  bool channel_split;
+
+  int pre_relu_mode; // 0: no; 1: relu; 2: leaky_relu; 3: prelu.
+
+  Array<Range> src_range, dst_range;
+};
+
+enum class SyncBlockMode : uint32_t {
+  INTER_BLOCK = 0,
+  INTER_SUBBLOCK = 1,
+  INTRA_BLOCK = 2,
+};
+
+/// HIVM intra pipeline sync.
+class NpuirPipeBarrier {
+public:
+  NpuirPipeBarrier(Array<PrimExpr> args, BufferMap vmap);
+
+  std::string pipe_type;
+};
+
+/// HIVM set flag sync.
+class NpuirSetFlag {
+public:
+  NpuirSetFlag(Array<PrimExpr> args, BufferMap vmap);
+  static constexpr std::string_view op = "set";
+
+  std::string pipe1;
+  std::string pipe2;
+  PrimExpr event_id;
+};
+
+/// HIVM wait flag sync.
+class NpuirWaitFlag {
+public:
+  NpuirWaitFlag(Array<PrimExpr> args, BufferMap vmap);
+  static constexpr std::string_view op = "wait";
+
+  std::string pipe1;
+  std::string pipe2;
+  PrimExpr event_id;
+};
+
+/// HIVM cross block sync.
+class NpuirSyncBlock {
+public:
+  NpuirSyncBlock(Array<PrimExpr> args, BufferMap vmap);
+
+  SyncBlockMode mode;
+  std::string pipe_type;
+  PrimExpr flag_id;
+};
+
+/// HIVM cross block sync.
+class NpuirSyncBlockSet {
+public:
+  NpuirSyncBlockSet(Array<PrimExpr> args, BufferMap vmap);
+
+  SyncBlockMode mode;
+  std::string pipe_type;
+  PrimExpr flag_id;
+};
+
+/// HIVM cross block sync.
+class NpuirSyncBlockWait {
+public:
+  NpuirSyncBlockWait(Array<PrimExpr> args, BufferMap vmap);
+
+  std::string pipe_type;
+  PrimExpr flag_id;
+};
+
+/// HIVM vector broadcast operation
+/// Broadcast a vector or a scalar according to the broadcast axes array.
+class NpuirBrc {
+public:
+  NpuirBrc(Array<PrimExpr> args, BufferMap vmap);
+
+  PrimExpr in, out;
+  Buffer src, dst;
+
+  Array<Range> src_range, dst_range;
+};
+
+/// HIVM vector type conversion operation
+/// Performs element-wise operation on N operands and produces a single result.
+/// It may perform either transpose or broadcast along the way (but not both).
+/// Currently transpose is not supported.
+class NpuirCast {
+public:
+  NpuirCast(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src, dst;
+  std::string round_mode;
+
+  Array<Range> src_range, dst_range;
+};
+
+/// HIVM vector reduction operation
+/// Reduce one or more axes of the source vector according to the reduction axes
+/// array, starting from an init value.
+class NpuirReduce {
+public:
+  NpuirReduce(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src, dst;
+  std::string reduce_mode;
+  std::vector<int64_t> reduce_dims;
+
+  Array<Range> src_range, dst_range;
+};
+
+class NpuirCumsum {
+public:
+  NpuirCumsum(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src, dst;
+  bool reverse;
+  std::vector<int64_t> cum_dims;
+
+  Array<Range> src_range, dst_range;
+};
+
+/// HIVM vector sort operation.
+/// Sort the sorting axis of src, output sorted values and original indices.
+class NpuirSort {
+public:
+  NpuirSort(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src, dst_value, dst_index;
+  bool descending;
+  int64_t sort_axis;
+
+  Array<Range> src_range, dst_value_range, dst_index_range;
+};
+
+class NpuirAtomicAdd {
+public:
+  NpuirAtomicAdd(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer dst, src;
+  Array<Range> dst_range, src_range;
+};
+
+class NpuirSelect {
+public:
+  NpuirSelect(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer cond, src0, src1, dst;
+  Array<Range> cond_range, src0_range, src1_range, dst_range;
+};
+
+class NpuirCmp {
+public:
+  NpuirCmp(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src0, src1, dst;
+  Array<Range> src0_range, src1_range, dst_range;
+  std::string cmp_mod;
+};
+
+class NpuirShr {
+public:
+  NpuirShr(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src0, src1, dst;
+  Array<Range> src0_range, src1_range, dst_range;
+  bool round;
+};
+
+class NpuirReshape {
+public:
+  NpuirReshape(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src, dst;
+  Array<Range> src_range, dst_range;
+
+  std::vector<tvm::PrimExpr> src_shape, dst_shape;
+};
+
+/// HIVM device print operation (print var info)
+/// Device-side print for debugging
+class NpuirDevicePrintVar {
+public:
+  NpuirDevicePrintVar(Array<PrimExpr> args, BufferMap vmap);
+
+  PrimExpr src;
+  std::string prefix;
+  bool hex;
+};
+
+/// HIVM device print operation (print buffer value)
+/// Device-side print for debugging
+class NpuirDevicePrintBuf {
+public:
+  NpuirDevicePrintBuf(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src;
+  std::string prefix;
+  bool hex;
+
+  Array<Range> src_range;
+};
+
+/// HIVM vector gather operation
+/// Retrieve elements from a tensor/memref according to given indices
+class NpuirGather {
+public:
+  NpuirGather(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src, dst, indices;
+
+  Array<Range> src_range, dst_range, indices_range;
+};
+
+/// A5 phase-1 SIMT indirect load.
+/// Load X[IDX_UB[i]] from GM and materialize the result into O_UB[i].
+class NpuirIndirectLoad {
+public:
+  NpuirIndirectLoad(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src, indices_ub, dst_ub;
+  PrimExpr valid_extent;
+
+  Array<Range> src_range, indices_ub_range, dst_ub_range;
+};
+
+/// HIVM vector transpose operation
+/// Permutes the dimensions of src according to the given permutation.
+class NpuirTranspose {
+public:
+  NpuirTranspose(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src, dst;
+  std::vector<int64_t> permutation;
+
+  Array<Range> src_range, dst_range;
+};
+
+/// HIVM vector interleave operation
+/// Interleaves the values of N tensors along their last dimension.
+class NpuirInterleave {
+public:
+  NpuirInterleave(Array<PrimExpr> args, BufferMap vmap);
+
+  std::vector<Buffer> srcs;
+  Buffer dst;
+  int64_t channel_nums;
+
+  std::vector<Array<Range>> srcs_range;
+  Array<Range> dst_range;
+};
+
+/// HIVM vector deinterleave operation
+/// Deinterleave one tensor along the last dimension.
+class NpuirDeinterleave {
+public:
+  NpuirDeinterleave(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src;
+  std::vector<Buffer> dsts;
+  int64_t channel_nums;
+  std::string index_mode;
+
+  Array<Range> src_range;
+  std::vector<Array<Range>> dsts_range;
+};
+
+/// HIVM vector arange operation
+/// Fill a vector with range 0,1,2... based on strides and offset.
+class NpuirArange {
+public:
+  NpuirArange(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer dst;
+  std::vector<PrimExpr> strides;
+  PrimExpr offset;
+
+  Array<Range> dst_range;
+};
+
+/// HIVM vector concat operation
+/// Constructs a tensor out of a variadic list of input tensors, concatenated
+/// along a static dimension number.
+class NpuirConcat {
+public:
+  NpuirConcat(Array<PrimExpr> args, BufferMap vmap);
+
+  std::vector<Buffer> srcs;
+  Buffer dst;
+  int64_t dim;
+
+  std::vector<Array<Range>> srcs_range;
+  Array<Range> dst_range;
+};
+
+/// HIVM vector pad operation
+/// Pads the input operand.
+class NpuirPad {
+public:
+  NpuirPad(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src;
+  Buffer dst;
+  PrimExpr pad_value;
+  int pad_dim;
+  std::vector<PrimExpr> low;
+  std::vector<PrimExpr> high;
+  std::vector<int64_t> s_low;
+  std::vector<int64_t> s_high;
+
+  Array<Range> src_range;
+  Array<Range> dst_range;
+};
+
+/// HIVM vector flip operation
+/// Flips a tensor along the last dimension.
+class NpuirFlip {
+public:
+  NpuirFlip(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src;
+  Buffer dst;
+  u_int64_t axis;
+
+  Array<Range> src_range;
+  Array<Range> dst_range;
+};
+
+/// HIVM bitcast operation
+/// Converts a tensor/memref from one element type to another while preserving
+/// the underlying bit representation.
+class NpuirBitcast {
+public:
+  NpuirBitcast(Array<PrimExpr> args, BufferMap vmap);
+
+  Buffer src;
+  std::string dtype;
+
+  Array<Range> src_range;
+};
+
+/// HIVM vector cos operation
+/// Calculate the cos value of one tensor
+class NpuirVCos {
+public:
+  NpuirVCos(Array<PrimExpr> args, BufferMap vmap);
+
+  std::vector<Buffer> srcs;
+  Buffer dst;
+
+  std::vector<Array<Range>> srcs_range;
+  Array<Range> dst_range;
+};
+
+/// HIVM vector sin operation
+/// Calculate the sin value of one tensor
+class NpuirVSin {
+public:
+  NpuirVSin(Array<PrimExpr> args, BufferMap vmap);
+
+  std::vector<Buffer> srcs;
+  Buffer dst;
+
+  std::vector<Array<Range>> srcs_range;
+  Array<Range> dst_range;
+};
+
+/// HIVM vector erf operation
+/// Calculate the erf value of one tensor
+class NpuirVErf {
+public:
+  NpuirVErf(Array<PrimExpr> args, BufferMap vmap);
+
+  std::vector<Buffer> srcs;
+  Buffer dst;
+
+  std::vector<Array<Range>> srcs_range;
+  Array<Range> dst_range;
+};
+
+/// HIVM vector tanh operation
+/// Calculate the tanh value of one tensor
+class NpuirVTanh {
+public:
+  NpuirVTanh(Array<PrimExpr> args, BufferMap vmap);
+
+  std::vector<Buffer> srcs;
+  Buffer dst;
+
+  std::vector<Array<Range>> srcs_range;
+  Array<Range> dst_range;
+};
+
+} // namespace tl
+} // namespace tvm
+
+#endif //  TVM_TL_OP_ELEM_H_

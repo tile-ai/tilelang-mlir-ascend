@@ -396,6 +396,12 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/src/rocm/CMakeLists.txt")
 include("${CMAKE_CURRENT_SOURCE_DIR}/src/metal/CMakeLists.txt")
 include("${CMAKE_CURRENT_SOURCE_DIR}/src/webgpu/CMakeLists.txt")
 include("${CMAKE_CURRENT_SOURCE_DIR}/src/ascend/CMakeLists.txt")
+
+# Ascend 910 (A3) backend: parallel to the Ascend 950 backend above.  The
+# target kind and op registrations are always compiled; the MLIR code
+# generators are gated by USE_ASCEND910 and need an AscendNPU-IR install
+# (``-DBISHENGIR_ROOT_PATH=<AscendNPU-IR>/build/install``).
+include("${CMAKE_CURRENT_SOURCE_DIR}/src/ascend910/CMakeLists.txt")
 list(REMOVE_DUPLICATES TILE_LANG_SRCS)
 
 set(USE_Z3      ON CACHE STRING "Use Z3 SMT solver for TileLang optimizations")
@@ -514,6 +520,35 @@ if(WIN32)
 else()
   add_library(tilelang SHARED $<TARGET_OBJECTS:tilelang_objs>)
   target_link_libraries(tilelang PUBLIC tvm_compiler)
+
+  if(USE_ASCEND910 AND BISHENGIR_ROOT_PATH)
+    # LLVM/BiShengIR archives may reference zlib/zstd.  Resolve them by full
+    # path so no development package is required at build time.
+    set(TILELANG_ASCEND910_EXTRA_LIBS "")
+    foreach(_lib z zstd)
+      find_library(TILELANG_ASCEND910_LIB_${_lib}
+        NAMES ${_lib}
+        HINTS ${BISHENGIR_ROOT_PATH}/lib $ENV{CONDA_PREFIX}/lib
+        PATH_SUFFIXES lib lib64)
+      if(TILELANG_ASCEND910_LIB_${_lib})
+        list(APPEND TILELANG_ASCEND910_EXTRA_LIBS ${TILELANG_ASCEND910_LIB_${_lib}})
+      endif()
+    endforeach()
+    # The MLIR code generators construct HIVM dialect operations directly, so
+    # the dialect archives have to be linked into the shared library.  The
+    # HIVM dialect registers TypeIDs that are only referenced indirectly, hence
+    # the whole-archive for that one.
+    file(GLOB TILELANG_ASCEND910_LINK_LIBS "${BISHENGIR_ROOT_PATH}/lib/*.a")
+    target_link_libraries(tilelang PRIVATE
+      -Wl,--whole-archive
+      ${BISHENGIR_ROOT_PATH}/lib/libBiShengIRHIVMDialect.a
+      -Wl,--no-whole-archive
+      -Wl,--start-group
+      ${TILELANG_ASCEND910_LINK_LIBS}
+      -Wl,--end-group
+      ${TILELANG_ASCEND910_EXTRA_LIBS}
+    )
+  endif()
 
   # Place dev build outputs under build/lib for consistency
   set_target_properties(tilelang PROPERTIES

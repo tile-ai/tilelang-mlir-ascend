@@ -11,6 +11,39 @@ from .hoist_broadcast_values import HoistBroadcastValues  # noqa: F401
 from .decouple_type_cast import DecoupleTypeCast  # noqa: F401
 
 
+def NpuLoopVectorize():
+    """Vectorize residual parallel loops into ``tl.npuir_*`` intrinsics.
+
+    Ascend 910 only: needed by the expert/developer code generators, which
+    expect elementwise ``T.Parallel`` loops to be folded into vector ops.
+    """
+    return _ffi_api.NpuLoopVectorize()  # type: ignore
+
+
+def LegalizeNpuirBF16():
+    """Rewrite bf16 elementwise ``tl.npuir_*`` ops as fp32 compute + casts.
+
+    Ascend 910 only: the HIVM verifier rejects bf16 operands on the
+    elementwise vector ops, so the legacy backend lowered them through an
+    fp32 temporary.
+    """
+    return _ffi_api.LegalizeNpuirBF16()  # type: ignore
+
+
+def RewriteFDivToMul():
+    """Turn ``x / const`` into ``x * (1 / const)`` for exact float reciprocals.
+
+    The legacy v0.1.4 ``Simplify`` did this strength reduction and the golden
+    corpus depends on it; v0.1.15 keeps the division.
+    """
+    return _ffi_api.RewriteFDivToMul()  # type: ignore
+
+
+def LowerNpuirBlock():
+    """Strip residual TIR Block/BlockRealize shells for the Ascend 910 codegen."""
+    return _ffi_api.LowerNpuirBlock()  # type: ignore
+
+
 def get_pass_context():
     """Get the current pass context"""
     return PassContext.current()

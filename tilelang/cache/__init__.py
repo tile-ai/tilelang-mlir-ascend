@@ -96,3 +96,9 @@ def cached(
         pass_configs=pass_configs,
         compile_flags=compile_flags,
     )
+
+
+def clear_cache() -> None:
+    """Clear every registered execution-backend cache."""
+    for cache in {**_dispatch_map, **_ascend_dispatch_map}.values():
+        cache.clear_cache()

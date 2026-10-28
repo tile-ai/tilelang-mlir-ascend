@@ -143,6 +143,7 @@ _STR_TO_TVM_DTYPE_CALL = {
 }
 
 int_ = int
+float_ = float
 
 
 def __dtype_call__(self: dtype, *args, is_size_var: bool = False) -> tirx.Var:
@@ -153,6 +154,23 @@ def __dtype_call__(self: dtype, *args, is_size_var: bool = False) -> tirx.Var:
     expr = args[0] if args else None
     if isinstance(expr, int_):
         return tvm.tirx.const(expr, dtype=self)
+    if isinstance(expr, float_):
+        # ``T.float32(-inf)`` / ``T.float32(float("nan"))``: constant-fold
+        # directly, otherwise the value would be passed through the ffi builder
+        # which only accepts PrimExpr handles.
+        return tvm.tirx.const(expr, dtype=self)
+    if isinstance(expr, str):
+        # Legacy frontend accepted the textual specials ``"inf"``/``"-inf"``/
+        # ``"nan"`` for float dtype constructors.
+        _SPECIAL_FLOATS = {
+            "inf": float_("inf"),
+            "+inf": float_("inf"),
+            "-inf": float_("-inf"),
+            "nan": float_("nan"),
+        }
+        lowered = expr.strip().lower()
+        if lowered in _SPECIAL_FLOATS:
+            return tvm.tirx.const(_SPECIAL_FLOATS[lowered], dtype=self)
     if self in _STR_TO_TVM_DTYPE_CALL:
         attr = _STR_TO_TVM_DTYPE_CALL[self]
         call = getattr(tb_ffi, attr, None)

@@ -224,6 +224,7 @@ if not env.is_light_import():
     from . import tileop  # noqa: F401
     from . import cpu as cpu  # noqa: F401
     from . import ascend as ascend  # noqa: F401
+    from . import ascend910 as ascend910  # noqa: F401
     from . import cuda as cuda  # noqa: F401
     from . import rocm as rocm  # noqa: F401
     from . import metal as metal  # noqa: F401

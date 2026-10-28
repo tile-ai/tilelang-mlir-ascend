@@ -142,6 +142,11 @@ def print(obj: Any = None, msg: str = "", warp_group_id: int = 0, warp_id: int =
     Raises:
         ValueError: If the input object type is unsupported.
     """
+    if isinstance(obj, tirx.BufferRegion):
+        # ``T.print(buf[a:b])`` hands us a region; print the leading elements of
+        # the underlying buffer (debug side effect only).
+        obj = obj.buffer
+
     if isinstance(obj, tirx.Buffer):
         # Buffers must be printed in just one thread to avoid duplicate outputs.
         # Retrieve the thread bindings for thread x, y, and z.

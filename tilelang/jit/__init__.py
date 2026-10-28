@@ -138,6 +138,29 @@ def compile(
     """
 
     assert isinstance(func, PrimFunc), f"target function must be a PrimFunc but got {type(func)}"
+    # Ascend 910 backend: resolve the target through the registered normalizers
+    # so ``target="npuir"``/``"ascend910"``/``"a3"`` all map to the ``ascend910``
+    # target kind, then take the dedicated JIT path.
+    _target_obj = target
+    if _target_obj is not None and not isinstance(_target_obj, Target):
+        from tilelang.backend.target import determine_target as _determine_target
+
+        try:
+            _target_obj = _determine_target(_target_obj, return_object=True)
+        except Exception:
+            _target_obj = target
+    if isinstance(_target_obj, Target) and _target_obj.kind.name == "ascend910":
+        return JITKernel(
+            func=func,
+            out_idx=out_idx,
+            execution_backend=execution_backend or "cython",
+            target=_target_obj,
+            target_host=target_host,
+            verbose=bool(verbose),
+            pass_configs=pass_configs,
+            compile_flags=compile_flags,
+        )
+
 
     # Merge function-level attrs from PrimFunc
     func_attrs = func.attrs

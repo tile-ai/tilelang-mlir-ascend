@@ -907,6 +907,13 @@ class Builder(BaseBuilder):
 
     def rval(self, name: str | None, value: Any) -> Any:
         if self.binding_expired(name):
+            # The legacy (non-eager) frontend let plain scalar expressions
+            # outlive the region they were computed in; the A2 examples rely on
+            # that (e.g. ``tl`` computed inside ``for jp in T.serial(...)`` and
+            # used afterwards).  Only buffers and frames are region-scoped.
+            unwrapped = unwrap_expr(value)
+            if not isinstance(unwrapped, (Buffer, BufferRegion, tirx.frame.IRBuilderFrame)):
+                return unwrapped
             raise RuntimeError(
                 f"Immutable variable `{name}` is used outside its defining region!\n"
                 f"variable `{name}` is defined in frame: {self.name_inside_frame[name]}, current frames: {self.frames}."

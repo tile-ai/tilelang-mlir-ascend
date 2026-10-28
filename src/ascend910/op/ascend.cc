@@ -1,0 +1,761 @@
+// Copyright (c) Tile-AI Corporation.
+// Licensed under the MIT License.
+
+/*!
+ * \file tl/op/ascend.cc
+ *
+ * Define ascend-related operators.
+ */
+
+#include "ascend.h"
+
+#include <tvm/tirx/builtin.h>
+#include <tvm/tirx/op.h>
+#include <tvm/tirx/op_attr_types.h>
+
+#include "tvm/ir/expr.h"
+
+namespace tvm {
+namespace tl {
+
+using namespace tirx;
+using tvm::ffi::Array;
+using tvm::ffi::Map;
+using tvm::ffi::StructuralEqual;
+
+RegionOp::RegionOp(Array<PrimExpr> args, BufferMap vmap) {
+  size_t n = args.size();
+  size_t ndim = n - 2;
+  auto load = args[0].as<BufferLoadNode>();
+  ICHECK(load);
+  ICHECK(load->indices.size() == ndim);
+  buffer_ = load->buffer;
+  access_mask_ = static_cast<int>(*as_const_int(args[1]));
+  for (size_t i = 0; i < ndim; i++) {
+    PrimExpr min = load->indices[i];
+    PrimExpr extent = args[2 + i];
+    ranges_.push_back(Range::FromMinExtent(min, extent));
+  }
+}
+
+bool RegionOp::IsFullRegion() const {
+  for (size_t i = 0; i < ranges_.size(); i++) {
+    if (!is_zero(ranges_[i]->min))
+      return false;
+    if (!StructuralEqual()(ranges_[i]->extent, buffer_->shape[i]))
+      return false;
+  }
+  return true;
+}
+
+namespace {
+
+constexpr const char *kA5IndirectLoadFeature = "A5 SIMT indirect load phase 1";
+
+bool IsSharedScope(const Buffer &buffer) {
+  return buffer.scope() == "shared" || buffer.scope() == "shared.dyn";
+}
+
+void CheckRank1Region(const Array<Range> &range, const char *name) {
+  ICHECK_EQ(range.size(), 1U)
+      << kA5IndirectLoadFeature << ": expected " << name
+      << " to be a 1D region, got rank " << range.size();
+}
+
+void CheckRank1Or2Region(const Array<Range> &range, const char *name) {
+  ICHECK(range.size() == 1U || range.size() == 2U)
+      << kA5IndirectLoadFeature << ": expected " << name
+      << " to be a 1D or 2D region, got rank " << range.size();
+}
+
+bool IsGlobalOrSharedScope(const Buffer &buffer) {
+  return buffer.scope() == "global" || IsSharedScope(buffer);
+}
+
+} // namespace
+
+NpuirOperand NpuirOperand::FromExpr(const PrimExpr &expr,
+                                    const BufferMap &vmap) {
+  if (const auto *call = expr.as<CallNode>()) {
+    // CallNode should be a tensor
+    auto region = RegionOp(call->args, vmap);
+    return NpuirOperand::Tensor(region.GetBuffer(), region.GetRanges());
+  }
+  // A scalar operand may be a constant, a loop/index expression or a single
+  // element read from a buffer (e.g. ``rrms[i]``), which is a BufferLoad in the
+  // TIR.  The code generators evaluate it with ``MakeValue``.
+  if (expr.as<IntImm>() || expr.as<FloatImm>() || expr.as<tirx::VarNode>() ||
+      expr.as<tirx::BufferLoadNode>() || expr.as<tirx::CastNode>() ||
+      expr.as<tirx::NotNode>() || expr.as<tirx::AddNode>() ||
+      expr.as<tirx::SubNode>() || expr.as<tirx::MulNode>() ||
+      expr.as<tirx::DivNode>() || expr.as<tirx::FloorDivNode>() ||
+      expr.as<tirx::FloorModNode>() || expr.as<tirx::ModNode>() ||
+      expr.as<tirx::MinNode>() || expr.as<tirx::MaxNode>() ||
+      expr.as<tirx::LENode>() || expr.as<tirx::LTNode>() ||
+      expr.as<tirx::GENode>() || expr.as<tirx::GTNode>() ||
+      expr.as<tirx::EQNode>() || expr.as<tirx::NENode>() ||
+      expr.as<tirx::AndNode>() || expr.as<tirx::OrNode>() ||
+      expr.as<tirx::SelectNode>() || expr.as<tirx::CallNode>()) {
+    // If there are other types of nodes that need to be treated as scalars,
+    // please add them here.
+    return NpuirOperand::Scalar(expr);
+  }
+  LOG(FATAL) << "NpuirOperand::FromExpr cannot handle the expr with type of \""
+             << expr->GetTypeKey() << '\"';
+  __builtin_unreachable();
+}
+
+AscendCopy::AscendCopy(Array<PrimExpr> args, BufferMap vmap) : args_(args) {
+  Array<Range> rgs[2];
+  Buffer bf[2];
+  for (int i = 0; i < 2; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);
+  std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);
+}
+
+NpuirBinaryOperator::NpuirBinaryOperator(Array<PrimExpr> args, BufferMap vmap) {
+  ICHECK_GE(args.size(), 3U) << "Binary operator expects at least 3 inputs";
+  src0_ = NpuirOperand::FromExpr(args[0], vmap);
+  src1_ = NpuirOperand::FromExpr(args[1], vmap);
+  dst_ = NpuirOperand::FromExpr(args[2], vmap);
+}
+
+#define NPUIR_BINARY_OP_REGISTER(OPNAME, opname)
+
+NPUIR_BINARY_OP_REGISTER(Add, add)
+NPUIR_BINARY_OP_REGISTER(Sub, sub)
+NPUIR_BINARY_OP_REGISTER(Mul, mul)
+NPUIR_BINARY_OP_REGISTER(Div, div)
+NPUIR_BINARY_OP_REGISTER(Max, max)
+NPUIR_BINARY_OP_REGISTER(Min, min)
+NPUIR_BINARY_OP_REGISTER(Or, or)
+NPUIR_BINARY_OP_REGISTER(And, and)
+NPUIR_BINARY_OP_REGISTER(Xor, xor)
+NPUIR_BINARY_OP_REGISTER(Pow, pow)
+NPUIR_BINARY_OP_REGISTER(Shl, shl)
+NPUIR_BINARY_OP_REGISTER(FloorDiv, floordiv)
+
+#define NPUIR_UNARY_OP_CTOR(OPNAME, opname)                                    \
+  Npuir##OPNAME::Npuir##OPNAME(Array<PrimExpr> args, BufferMap vmap) {         \
+    Array<Range> rgs[2];                                                       \
+    Buffer bf[2];                                                              \
+    for (int i = 0; i < 2; i++) {                                              \
+      auto expr = args[i];                                                     \
+      auto call = expr.as<CallNode>();                                         \
+      ICHECK(call);                                                            \
+      auto region = RegionOp(call->args, vmap);                                \
+      rgs[i] = region.GetRanges();                                             \
+      bf[i] = region.GetBuffer();                                              \
+    }                                                                          \
+    std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);                   \
+    std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);     \
+    op_name = "hivm.hir.v" #opname;                                            \
+  }
+
+NPUIR_UNARY_OP_CTOR(Exp, exp)
+NPUIR_UNARY_OP_CTOR(Ln, ln)
+NPUIR_UNARY_OP_CTOR(Relu, relu)
+NPUIR_UNARY_OP_CTOR(Sigmoid, sigmoid)
+NPUIR_UNARY_OP_CTOR(Sqrt, sqrt)
+NPUIR_UNARY_OP_CTOR(Rsqrt, rsqrt)
+NPUIR_UNARY_OP_CTOR(Abs, abs)
+NPUIR_UNARY_OP_CTOR(Rec, rec)
+NPUIR_UNARY_OP_CTOR(Not, not)
+NPUIR_UNARY_OP_CTOR(Floor, floor)
+
+NpuirBrc::NpuirBrc(Array<PrimExpr> args, BufferMap vmap) {
+  in = args[0], out = args[1];
+  Array<Range> rgs[2];
+  Buffer bf[2];
+  for (int i = 0; i < 2; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    if (!call && i == 0) {
+      continue;
+    } else {
+      ICHECK(call);
+    }
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);
+  std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);
+}
+
+NpuirNd2nz::NpuirNd2nz(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[2];
+  Buffer bf[2];
+  for (int i = 0; i < 2; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);
+  std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);
+
+  dst_continuous = args[2].as<Bool>().value();
+}
+
+NpuirNz2nd::NpuirNz2nd(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[2];
+  Buffer bf[2];
+  for (int i = 0; i < 2; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);
+  std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);
+}
+
+NpuirFixpipe::NpuirFixpipe(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[2];
+  Buffer bf[2];
+  for (int i = 0; i < 2; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);
+  std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);
+
+  enable_nz2nd = args[2].as<Bool>().value();
+  channel_split = args[3].as<Bool>().value();
+  pre_relu_mode = args[4].as<IntImm>().value()->value;
+}
+
+NpuirDot::NpuirDot(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[3];
+  Buffer bf[3];
+  for (int i = 0; i < 3; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src0, this->src1, this->dst) = std::tie(bf[0], bf[1], bf[2]);
+  std::tie(this->src0_range, this->src1_range, this->dst_range) =
+      std::tie(rgs[0], rgs[1], rgs[2]);
+  initC = args[3];
+  a_transpose = args[4].as<Bool>().value();
+  b_transpose = args[5].as<Bool>().value();
+}
+
+NpuirPipeBarrier::NpuirPipeBarrier(Array<PrimExpr> args, BufferMap vmap) {
+  pipe_type = args[0].as<StringImm>().value()->value;
+}
+
+NpuirSetFlag::NpuirSetFlag(Array<PrimExpr> args, BufferMap vmap) {
+  pipe1 = args[0].as<StringImm>().value()->value;
+  pipe2 = args[1].as<StringImm>().value()->value;
+  event_id = args[2];
+}
+
+NpuirWaitFlag::NpuirWaitFlag(Array<PrimExpr> args, BufferMap vmap) {
+  pipe1 = args[0].as<StringImm>().value()->value;
+  pipe2 = args[1].as<StringImm>().value()->value;
+  event_id = args[2];
+}
+
+NpuirSyncBlock::NpuirSyncBlock(Array<PrimExpr> args, BufferMap vmap) {
+  mode = static_cast<SyncBlockMode>(args[0].as<IntImm>().value()->value);
+  pipe_type = args[1].as<StringImm>().value()->value;
+  flag_id = args[2];
+}
+
+NpuirSyncBlockSet::NpuirSyncBlockSet(Array<PrimExpr> args, BufferMap vmap) {
+  mode = static_cast<SyncBlockMode>(args[0].as<IntImm>().value()->value);
+  pipe_type = args[1].as<StringImm>().value()->value;
+  flag_id = args[2];
+}
+
+NpuirSyncBlockWait::NpuirSyncBlockWait(Array<PrimExpr> args, BufferMap vmap) {
+  pipe_type = args[0].as<StringImm>().value()->value;
+  flag_id = args[1];
+}
+
+NpuirCast::NpuirCast(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[2];
+  Buffer bf[2];
+  for (int i = 0; i < 2; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);
+  std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);
+
+  round_mode = args[2].as<StringImmNode>()->value;
+}
+
+NpuirReduce::NpuirReduce(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[2];
+  Buffer bf[2];
+  for (int i = 0; i < 2; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);
+  std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);
+
+  std::string str_reduce_dims = args[2].as<StringImmNode>()->value;
+  std::stringstream ss(str_reduce_dims);
+  std::string dim;
+  int src_rank = static_cast<int>(src->shape.size());
+  while (std::getline(ss, dim, ',')) {
+    int axis = std::stoi(dim);
+    if (axis < 0) {
+      axis += src_rank;
+    }
+    reduce_dims.push_back(axis);
+  }
+
+  reduce_mode = args[3].as<StringImmNode>()->value;
+}
+
+NpuirCumsum::NpuirCumsum(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[2];
+  Buffer bf[2];
+  for (int i = 0; i < 2; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);
+  std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);
+
+  // The legacy frontend passed the axes as a comma separated string
+  // (``T.npuir_cumsum(..., "0", reverse)``); v0.1.15's ``T.cumsum`` passes a
+  // plain integer instead.  Accept both instead of dereferencing a null
+  // StringImmNode.
+  if (const auto *str_dims = args[2].as<StringImmNode>()) {
+    std::stringstream ss(str_dims->value);
+    std::string dim;
+    while (std::getline(ss, dim, ',')) {
+      cum_dims.push_back(std::stoi(dim));
+    }
+  } else if (const auto *int_dim = args[2].as<IntImmNode>()) {
+    cum_dims.push_back(int_dim->value);
+  } else {
+    ICHECK(false) << "cumsum dim must be a StringImm or IntImm";
+  }
+  reverse = args[3].as<Bool>().value();
+}
+
+NpuirSort::NpuirSort(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[3];
+  Buffer bf[3];
+  for (int i = 0; i < 3; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src, this->dst_value, this->dst_index) =
+      std::tie(bf[0], bf[1], bf[2]);
+  std::tie(this->src_range, this->dst_value_range, this->dst_index_range) =
+      std::tie(rgs[0], rgs[1], rgs[2]);
+
+  descending = args[3].as<Bool>().value();
+  sort_axis = args[4].as<IntImmNode>()->value;
+}
+
+NpuirAtomicAdd::NpuirAtomicAdd(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[2];
+  Buffer bf[2];
+  for (int i = 0; i < 2; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->dst, this->src) = std::tie(bf[0], bf[1]);
+  std::tie(this->dst_range, this->src_range) = std::tie(rgs[0], rgs[1]);
+}
+
+NpuirSelect::NpuirSelect(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[4];
+  Buffer bf[4];
+  for (int i = 0; i < 4; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->cond, this->src0, this->src1, this->dst) =
+      std::tie(bf[0], bf[1], bf[2], bf[3]);
+  std::tie(this->cond_range, this->src0_range, this->src1_range,
+           this->dst_range) = std::tie(rgs[0], rgs[1], rgs[2], rgs[3]);
+}
+
+NpuirCmp::NpuirCmp(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[4];
+  Buffer bf[4];
+  for (int i = 0; i < 3; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src0, this->src1, this->dst) = std::tie(bf[0], bf[1], bf[2]);
+  std::tie(this->src0_range, this->src1_range, this->dst_range) =
+      std::tie(rgs[0], rgs[1], rgs[2]);
+  cmp_mod = args[3].as<StringImm>().value()->value;
+}
+
+NpuirShr::NpuirShr(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rgs[4];
+  Buffer bf[4];
+  for (int i = 0; i < 3; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+  }
+  std::tie(this->src0, this->src1, this->dst) = std::tie(bf[0], bf[1], bf[2]);
+  std::tie(this->src0_range, this->src1_range, this->dst_range) =
+      std::tie(rgs[0], rgs[1], rgs[2]);
+  round = args[3].as<Bool>().value();
+}
+
+NpuirDevicePrintVar::NpuirDevicePrintVar(Array<PrimExpr> args, BufferMap vmap) {
+  src = args[0];
+  prefix = args[1].as<StringImmNode>()->value;
+  hex = args[2].as<Bool>().value();
+}
+
+NpuirDevicePrintBuf::NpuirDevicePrintBuf(Array<PrimExpr> args, BufferMap vmap) {
+  Array<Range> rg;
+  Buffer bf;
+  auto expr = args[0];
+  auto call = expr.as<CallNode>();
+  ICHECK(call);
+  auto region = RegionOp(call->args, vmap);
+  rg = region.GetRanges();
+  bf = region.GetBuffer();
+  this->src = bf;
+  this->src_range = rg;
+
+  prefix = args[1].as<StringImmNode>()->value;
+  hex = args[2].as<Bool>().value();
+}
+
+#define NPUIR_GEN_BUF(arg)                                                     \
+  Array<Range> rg;                                                             \
+  Buffer bf;                                                                   \
+  auto expr = arg;                                                             \
+  auto call = expr.as<CallNode>();                                             \
+  ICHECK(call);                                                                \
+  auto region = RegionOp(call->args, vmap);                                    \
+  rg = region.GetRanges();                                                     \
+  bf = region.GetBuffer();
+
+#define NPUIR_SRC_DST_BUF                                                      \
+  Array<Range> rgs[2];                                                         \
+  Buffer bf[2];                                                                \
+  for (int i = 0; i < 2; i++) {                                                \
+    auto expr = args[i];                                                       \
+    auto call = expr.as<CallNode>();                                           \
+    ICHECK(call);                                                              \
+    auto region = RegionOp(call->args, vmap);                                  \
+    rgs[i] = region.GetRanges();                                               \
+    bf[i] = region.GetBuffer();                                                \
+  }                                                                            \
+  std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);                     \
+  std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);
+
+#define NPUIR_LIST_PARAM(list_param, arg_pos)                                  \
+  std::string str_##list_param = args[arg_pos].as<StringImmNode>()->value;     \
+  std::stringstream ss_##list_param(str_##list_param);                         \
+  std::string num_##list_param;                                                \
+  while (std::getline(ss_##list_param, num_##list_param, ',')) {               \
+    list_param.push_back(std::stoi(num_##list_param));                         \
+  }
+
+NpuirGather::NpuirGather(Array<PrimExpr> args, BufferMap vmap) {
+  NPUIR_SRC_DST_BUF
+
+  Array<Range> range;
+  Buffer buffer;
+  auto expr = args[2];
+  auto call = expr.as<CallNode>();
+  ICHECK(call);
+  auto region = RegionOp(call->args, vmap);
+  range = region.GetRanges();
+  buffer = region.GetBuffer();
+  this->indices = buffer;
+  this->indices_range = range;
+}
+
+NpuirIndirectLoad::NpuirIndirectLoad(Array<PrimExpr> args, BufferMap vmap) {
+  ICHECK_EQ(args.size(), 4U)
+      << kA5IndirectLoadFeature
+      << ": expected 4 arguments "
+         "(src_gm_region, indices_ub_region, dst_ub_region, valid_extent), got "
+      << args.size();
+
+  Array<Range> rgs[3];
+  Buffer bf[3];
+  constexpr const char *kArgNames[3] = {"src_gm_region", "indices_ub_region",
+                                        "dst_ub_region"};
+  for (int i = 0; i < 3; ++i) {
+    auto call = args[i].as<CallNode>();
+    ICHECK(call) << kA5IndirectLoadFeature << ": expected " << kArgNames[i]
+                 << " to be a tl.region call";
+    auto region = RegionOp(call->args, vmap);
+    rgs[i] = region.GetRanges();
+    bf[i] = region.GetBuffer();
+    if (i == 2) {
+      CheckRank1Region(rgs[i], kArgNames[i]);
+    } else {
+      CheckRank1Or2Region(rgs[i], kArgNames[i]);
+    }
+  }
+
+  std::tie(this->src, this->indices_ub, this->dst_ub) =
+      std::tie(bf[0], bf[1], bf[2]);
+  std::tie(this->src_range, this->indices_ub_range, this->dst_ub_range) =
+      std::tie(rgs[0], rgs[1], rgs[2]);
+  this->valid_extent = args[3];
+
+  ICHECK(this->valid_extent.defined())
+      << kA5IndirectLoadFeature << ": valid_extent must be defined";
+  ICHECK(IsGlobalOrSharedScope(this->src))
+      << kA5IndirectLoadFeature
+      << ": expected src buffer in global/shared/shared.dyn scope, got "
+      << this->src.scope();
+  ICHECK(IsGlobalOrSharedScope(this->indices_ub))
+      << kA5IndirectLoadFeature
+      << ": expected indices buffer in global/shared/shared.dyn scope, got "
+      << this->indices_ub.scope();
+  ICHECK(IsSharedScope(this->dst_ub))
+      << kA5IndirectLoadFeature
+      << ": expected dst buffer in shared/shared.dyn scope, got "
+      << this->dst_ub.scope()
+      << ". Materialize indirect-load results into alloc_shared before T.copy "
+         "writes back to GM.";
+  ICHECK(this->src->dtype == DataType::Float(32))
+      << kA5IndirectLoadFeature << ": expected src dtype float32, got "
+      << this->src->dtype;
+  ICHECK(this->indices_ub->dtype == DataType::Int(32))
+      << kA5IndirectLoadFeature << ": expected IDX_UB dtype int32, got "
+      << this->indices_ub->dtype;
+  ICHECK(this->dst_ub->dtype == this->src->dtype)
+      << kA5IndirectLoadFeature << ": expected O_UB dtype to match src dtype "
+      << this->src->dtype << ", got " << this->dst_ub->dtype;
+}
+
+NpuirArange::NpuirArange(Array<PrimExpr> args, BufferMap vmap) {
+  NPUIR_GEN_BUF(args[0])
+  this->dst = bf;
+  this->dst_range = rg;
+
+  int stride_num = args.size() - 2;
+  strides.reserve(stride_num);
+
+  for (int i = 0; i < stride_num; ++i) {
+    strides.push_back(args[1 + i]);
+  }
+
+  this->offset = args.back();
+}
+
+NpuirConcat::NpuirConcat(Array<PrimExpr> args, BufferMap vmap) {
+  this->dim = args[0].as<IntImm>().value()->value;
+
+  NPUIR_GEN_BUF(args[1])
+  this->dst = bf;
+  this->dst_range = rg;
+
+  size_t n_srcs = args.size() - 2;
+  for (size_t i = 0; i < n_srcs; i++) {
+    NPUIR_GEN_BUF(args[2 + i])
+    this->srcs.push_back(bf);
+    this->srcs_range.push_back(rg);
+  }
+}
+
+NpuirPad::NpuirPad(Array<PrimExpr> args, BufferMap vmap) {
+  NPUIR_SRC_DST_BUF
+
+  this->pad_value = args[2];
+
+  this->pad_dim = args[3].as<IntImm>().value()->value;
+
+  NPUIR_LIST_PARAM(s_low, 4)
+  NPUIR_LIST_PARAM(s_high, 5)
+
+  int num_dynamic_low = args[6].as<IntImm>().value()->value;
+  int num_dynamic = args.size() - 7;
+  for (int i = 0; i < num_dynamic; i++) {
+    if (i < num_dynamic_low) {
+      this->low.push_back(args[7 + i]);
+    } else {
+      this->high.push_back(args[7 + i]);
+    }
+  }
+}
+
+NpuirFlip::NpuirFlip(Array<PrimExpr> args, BufferMap vmap) {
+  NPUIR_SRC_DST_BUF
+
+  this->axis = args[2].as<IntImm>().value()->value;
+}
+
+NpuirBitcast::NpuirBitcast(Array<PrimExpr> args, BufferMap vmap) {
+  NPUIR_GEN_BUF(args[0])
+  this->src = bf;
+  this->src_range = rg;
+  this->dtype = args[1].as<StringImmNode>()->value;
+  ;
+}
+
+NpuirReshape::NpuirReshape(Array<PrimExpr> args, BufferMap vmap) {
+  Buffer bf[2];
+  Array<Range> rgs[2];
+  for (int i = 0; i < 2; i++) {
+    auto expr = args[i];
+    auto call = expr.as<CallNode>();
+    ICHECK(call);
+    auto region = RegionOp(call->args, vmap);
+    bf[i] = region.GetBuffer();
+    rgs[i] = region.GetRanges();
+  }
+  std::tie(this->src, this->dst) = std::tie(bf[0], bf[1]);
+  std::tie(this->src_range, this->dst_range) = std::tie(rgs[0], rgs[1]);
+
+  for (const auto &r : this->src_range) {
+    src_shape.push_back(r->extent);
+  }
+  for (const auto &r : this->dst_range) {
+    dst_shape.push_back(r->extent);
+  }
+}
+
+NpuirTranspose::NpuirTranspose(Array<PrimExpr> args, BufferMap vmap){
+    NPUIR_SRC_DST_BUF NPUIR_LIST_PARAM(permutation, 2)}
+
+NpuirInterleave::NpuirInterleave(Array<PrimExpr> args, BufferMap vmap) {
+  this->channel_nums = args[0].as<IntImm>().value()->value;
+
+  NPUIR_GEN_BUF(args[1])
+  this->dst = bf;
+  this->dst_range = rg;
+
+  size_t n_srcs = args.size() - 2;
+  for (size_t i = 0; i < n_srcs; i++) {
+    NPUIR_GEN_BUF(args[2 + i])
+    this->srcs.push_back(bf);
+    this->srcs_range.push_back(rg);
+  }
+}
+
+NpuirDeinterleave::NpuirDeinterleave(Array<PrimExpr> args, BufferMap vmap) {
+  this->channel_nums = args[0].as<IntImm>().value()->value;
+  this->index_mode = args[1].as<StringImmNode>()->value;
+
+  NPUIR_GEN_BUF(args[2])
+  this->src = bf;
+  this->src_range = rg;
+
+  size_t n_dsts = args.size() - 3;
+  for (size_t i = 0; i < n_dsts; i++) {
+    NPUIR_GEN_BUF(args[3 + i])
+    this->dsts.push_back(bf);
+    this->dsts_range.push_back(rg);
+  }
+}
+
+NpuirVCos::NpuirVCos(Array<PrimExpr> args, BufferMap vmap) {
+  NPUIR_GEN_BUF(args[0])
+  this->dst = bf;
+  this->dst_range = rg;
+
+  size_t n_srcs = args.size() - 1;
+  for (size_t i = 0; i < n_srcs; i++) {
+    NPUIR_GEN_BUF(args[i + 1])
+    this->srcs.push_back(bf);
+    this->srcs_range.push_back(rg);
+  }
+}
+
+NpuirVSin::NpuirVSin(Array<PrimExpr> args, BufferMap vmap) {
+  NPUIR_GEN_BUF(args[0])
+  this->dst = bf;
+  this->dst_range = rg;
+
+  size_t n_srcs = args.size() - 1;
+  for (size_t i = 0; i < n_srcs; i++) {
+    NPUIR_GEN_BUF(args[i + 1])
+    this->srcs.push_back(bf);
+    this->srcs_range.push_back(rg);
+  }
+}
+
+NpuirVErf::NpuirVErf(Array<PrimExpr> args, BufferMap vmap) {
+  NPUIR_GEN_BUF(args[0])
+  this->dst = bf;
+  this->dst_range = rg;
+
+  size_t n_srcs = args.size() - 1;
+  for (size_t i = 0; i < n_srcs; i++) {
+    NPUIR_GEN_BUF(args[i + 1])
+    this->srcs.push_back(bf);
+    this->srcs_range.push_back(rg);
+  }
+}
+
+NpuirVTanh::NpuirVTanh(Array<PrimExpr> args, BufferMap vmap) {
+  NPUIR_GEN_BUF(args[0])
+  this->dst = bf;
+  this->dst_range = rg;
+
+  size_t n_srcs = args.size() - 1;
+  for (size_t i = 0; i < n_srcs; i++) {
+    NPUIR_GEN_BUF(args[i + 1])
+    this->srcs.push_back(bf);
+    this->srcs_range.push_back(rg);
+  }
+}
+
+} // namespace tl
+} // namespace tvm

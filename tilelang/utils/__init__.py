@@ -18,5 +18,9 @@ from .language import (
     get_prim_func_name,  # noqa: F401
     side_effect,  # noqa: F401
 )
+
+# Legacy examples import the launcher builder straight from ``tilelang.utils``.
+from .npu_utils import NPUUtils  # noqa: F401
+
 from .deprecated import deprecated  # noqa: F401
 from .version import build_date  # noqa: F401

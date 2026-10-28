@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from contextlib import nullcontext
 import tilelang.transform
@@ -130,6 +131,12 @@ def lower_to_host_device_ir(
             _is_host_call = get_host_call(is_device_c=is_cpu_device_backend(target))
             _is_device_call = get_device_call(is_device_c=is_cpu_device_backend(target))
 
+            if target.kind.name == "ascend910":
+                # The A2 backend owns a single device kernel; its pipeline
+                # already materializes the launch and leaves no host PrimFunc.
+                mod = context.lower(mod)
+                return tvm.IRModule({}), mod, params, target, target_host
+
             # Run backend-independent semantic checks before target-specific lowering.
             PreLowerSemanticCheck(mod)
 
@@ -157,6 +164,31 @@ def lower_with_context(
     code is compiled at this stage; JIT adapters compile it separately by
     default.
     """
+
+    # The A2 backend lowers a single device kernel and does not use the
+    # host/device split or the CUDA-oriented parameter extraction path.
+    if context.target.kind.name == "ascend910":
+        mod = func_or_mod
+        if isinstance(func_or_mod, tirx.PrimFunc):
+            mod = tvm.IRModule({func_or_mod.attrs["global_symbol"]: func_or_mod})
+        from tilelang.ascend910.pipeline import Ascend910PassPipelineBody
+
+        mod = Ascend910PassPipelineBody(mod, context.target)
+        mode = __import__("os").environ.get("TILELANG_ASCEND_MODE", "expert").lower()
+        build_name = (
+            "target.build.tilelang_ascend910"
+            if mode in ("", "expert", "exp", "e")
+            else "target.build.tilelang_ascend910_dev"
+        )
+        codegen_mod = tvm.ffi.get_global_func(build_name)(mod, context.target)
+        return CompiledArtifact(
+            tvm.IRModule({}),
+            mod,
+            None,
+            codegen_mod.inspect_source(),
+            target=context.target,
+            target_host=context.target_host,
+        )
 
     has_session = current_compile_pass_instrumentation() is not None
     with compile_pass_instrumentation(name="lower-with-context"):

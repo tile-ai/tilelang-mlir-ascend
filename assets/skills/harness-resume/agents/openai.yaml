@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Resume"
+  short_description: "从目标、当前性能与历史实验恢复算子任务，并协调分析和调优工作"
+  default_prompt: "使用 $harness-resume 恢复当前算子任务的目标、性能与实验历史，继续下一步工作。"

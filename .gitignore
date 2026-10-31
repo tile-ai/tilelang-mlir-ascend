@@ -1,0 +1,46 @@
+# Local workspace and intermediate artifacts
+.workspace/
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Python environments, bytecode, and tooling caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.ipynb_checkpoints/
+*.egg-info/
+.eggs/
+
+# Build outputs and dependencies
+build/
+dist/
+node_modules/
+
+# Test coverage and logs
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+*.log
+
+# Local environment configuration
+.env
+.env.*
+!.env.example
+!.env.sample

@@ -108,12 +108,12 @@ jobs:
       - name: Download x64 wheel
         uses: actions/download-artifact@v4
         with:
-          name: tilelang-npuir-py3.11-x64
+          name: tilelang-npuir-py3.12-x64
           path: release-wheels
       - name: Download arm64 wheel
         uses: actions/download-artifact@v4
         with:
-          name: tilelang-npuir-py3.11-arm64
+          name: tilelang-npuir-py3.12-arm64
           path: release-wheels
       - name: Upload to Pre-release
         uses: softprops/action-gh-release@v2
@@ -136,12 +136,12 @@ jobs:
       - name: Download x64 wheel
         uses: actions/download-artifact@v4
         with:
-          name: tilelang-npuir-py3.11-x64
+          name: tilelang-npuir-py3.12-x64
           path: release-wheels
       - name: Download arm64 wheel
         uses: actions/download-artifact@v4
         with:
-          name: tilelang-npuir-py3.11-arm64
+          name: tilelang-npuir-py3.12-arm64
           path: release-wheels
       - name: Upload to Release
         uses: softprops/action-gh-release@v2

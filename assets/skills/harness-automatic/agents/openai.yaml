@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Automatic"
+  short_description: "在当前目标和预算内协调节点子 agent 连续推进，遇到完成、缺口或额度上限时收尾"
+  default_prompt: "使用 $harness-automatic 在已有目标与环境约定内自动推进当前任务。"

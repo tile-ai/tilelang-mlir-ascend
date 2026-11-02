@@ -11,7 +11,7 @@
 
 </div>
 
-> **项目状态：早期建设中。** 已提供面向 Codex 的项目初始化、已有项目接入和任务接续 skills，包含实验记录与子 agent 交接流程。算子执行适配、实卡评测、仿真 MCP 和 npm 分发仍在建设计划中；下文“目标能力”描述建设方向，具体支持范围以逐项验收结果为准。
+> **项目状态：早期建设中。** 已提供面向 Codex 的项目初始化、接入、接续，以及环境准备、算子编写、上板测试、仿真分析 skills，并提供 status、next、automatic 三种运行入口。四节点的方法、独立接续能力与模板契约见 [节点设计](docs/nodes/design.md)。算子执行适配、自动评测 gate、仿真 MCP 和 npm 分发仍待实现，技能可安装不代表已通过硬件闭环。
 
 ## 什么是 Operator Harness
 
@@ -51,7 +51,7 @@ flowchart LR
 ```
 
 1. **明确需求**：确定功能语义、动态 shape 行为、case 范围、数值要求和外部约束。
-2. **准备环境**：确认芯片、工具链与执行方式，完成最小编译和运行检查，记录环境附加限制。
+2. **准备环境**：通过问询分别确定开发、上板与仿真的环境和使用约定，完成所需能力的实际探针；后续各读各自约定，仅对变化或缺口补问。
 3. **构造标杆**：分别建立正确性参考和性能基线，固定输入、误差容限与测量协议。
 4. **编写与验证**：生成 TileLang 初版，通过实卡比较发现并修复问题。
 5. **迭代调优**：提出优化假设，必要时分析流水，修改后重新验证精度和性能。
@@ -97,19 +97,28 @@ flowchart LR
 
 ## 使用方式
 
-### 当前可用：Codex 项目初始化与接续
+### 当前可用：Codex 项目流程与节点 skills
 
-本仓库已通过 `.agents/skills/` 接入三项技能，在 Codex 中选择或输入：
+本仓库已通过 `.agents/skills/` 接入十项技能，在 Codex 中选择或输入：
 
 ```text
 $harness-new-project 为我的 TileLang 算子项目明确需求并建立路线图。
 $harness-onboard 梳理这个已有项目的代码、文档和验证方式，建立后续计划。
 $harness-resume 先恢复目标、当前性能和优化历史，再继续下一步分析或调优。
+$harness-status 查看当前进展和推荐下一步，不执行实验。
+$harness-next 直接推进一个下一步，完成后返回。
+$harness-automatic 在已有目标和预算内连续推进当前任务。
+$harness-prepare-environment 分别问清开发、上板和仿真环境的使用约定，并验证所需能力。
+$harness-develop 按需求和开发约定编写或修复 TileLang 候选。
+$harness-device-test 使用已有上板约定验证当前候选的精度和性能。
+$harness-simulate 使用独立仿真约定分析当前候选，保留原始证据与优化假设。
 ```
 
 `harness-new-project` 用于新项目的需求澄清和规划；`harness-onboard` 用于已有项目接入，这里的 onboard 不执行 NPU 上板。CLI/IDE 也可通过 `/skills` 选择技能；本项目没有注册 `/harness-*` 顶层 slash commands。若技能尚未出现在宿主中，重启会话后再检查。发现与调用方式见 [Codex 技能文档](https://learn.chatgpt.com/docs/build-skills)。
 
-两个入口共用连续追问流程：沿着回答深入，用具体场景澄清歧义，理解充分后复述并进入规划，或按用户选择继续探索。已有项目先吸收代码和文档，只追问未知项与实际冲突；明确的“直接生成”指令不再重复确认。未结束的讨论暂存在 `.workspace/drafts/`，已有阻塞问题在下次调用时继续澄清。
+四个新节点 skills 提供可执行的方法与工具路由，使用项目已验证的实际工具。环境准备将上板与仿真分别保存为独立约定，即使同机也不共享授权或已验证标记；没有可用执行工具时明确记录阻塞。后续节点读取自己的约定，不重新问整套环境。
+
+`harness-new-project` 和 `harness-onboard` 共用连续追问流程：沿着回答深入，用具体场景澄清歧义，理解充分后复述并进入规划，或按用户选择继续探索。已有项目先吸收代码和文档，只追问未知项与实际冲突；明确的“直接生成”指令不再重复确认。未结束的讨论暂存在 `.workspace/drafts/`，已有阻塞问题在下次调用时继续澄清。
 
 要在其他项目使用，从本仓库根目录执行（安装脚本使用 Python 3）：
 
@@ -117,13 +126,19 @@ $harness-resume 先恢复目标、当前性能和优化历史，再继续下一�
 python3 scripts/install_codex_skills.py --project-dir /path/to/operator-project
 ```
 
-Git 项目安装到当前 worktree 根；非 Git 项目安装到指定目录。安装器复制三项技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件存在不同内容时报告冲突。升级与卸载另按路线图建设。
+Git 项目安装到当前 worktree 根；非 Git 项目安装到指定目录。安装器复制十项技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件存在不同内容时报告冲突。升级与卸载另按路线图建设。
 
 Agent 直接维护 `.workspace/` 中的 `PROJECT.md`、`REQUIREMENTS.md`、`ROADMAP.md` 和 `STATE.md`，接入已有项目时补充 `codebase/MAP.md`。这些都是可以直接编辑的 Markdown，按项目进展逐步建立；未决问题和下一步留在状态记录中，草稿与研究材料按需保存。
 
 后续工作通过 `harness-resume` 接续：`STATE.md` 保存当前候选、最佳已验证候选、性能概况与下一步；`EXPERIMENTS.md` 记录成功、失败和无收益的尝试；`runs/<编号>/` 保存对应代码、详细结果与日志。新的 agent 先读摘要，再按需要打开相关实验。
 
-较长的调查、分析或实验可由独立上下文的子 agent 执行，主 agent 汇总结果并更新共享状态；没有委派工具时使用同样的记录直接执行。使用新机器或 worktree 时，需要带上被 Git 忽略的 `.workspace/` 记录和相关产物。具体交接方法见 [工作记录与交接](assets/skills/harness-resume/references/working-context.md)。
+允许同一会话连续执行多个节点，同时保证记录足以让全新 agent 独立接续。当前 agent 可以完成节点与共享汇总，也可按需委派；全新 agent 只接收项目根和 TASK 路径。上下文过长时只建议用户新开会话，不强制切换，也不因缺少委派工具阻塞。`automatic` 已通过当前宿主的主/子 agent 能力串行协调节点，无委派工具时明确采用 inline；不是脱离会话的后台服务。使用新机器或 worktree 时，需要带上被 Git 忽略的 `.workspace/` 记录和相关产物。具体交接方法见 [节点契约 v1 与五份模板](assets/skills/harness-resume/references/node-contract.md)。TASK 包含做什么、输入身份、工具入口/执行步骤、权限预算与完成条件；用户问询答案保存到 DECISIONS，环境预算的实时占用另记 RESOURCE_USAGE。
+
+### 查看、单步与自动推进
+
+`status` 只读汇报进展、证据、在途/阻塞与一个推荐动作。`next` 会直接做这一步并更新记录，不再问是否开始，但实际缺失的选择仍会问询。`automatic` 连续执行同一套选择逻辑，主 agent 接收每个节点的结果后才推进；复用各自环境约定，不反复访谈。
+
+自动模式记录 `.workspace/AUTOMATIC.md`。用户/已有约定的预算优先；未指定控制上限时每批默认最多 8 步，这不提供任何新增设备额度。目标达成、需要输入、预算耗尽、无可执行动作或用户要求暂停时保存结果与恢复入口。详情见 [运行模式](docs/modes/design.md)。
 
 ### 规划中：npm 分发与执行闭环
 
@@ -175,6 +190,9 @@ npx <package>@<version> doctor
 | [开发路线图](docs/ROADMAP.md) | 阶段安排、验收条件和待决事项 |
 | [需求与工作流](docs/REQUIREMENTS.md) | 算子需求清单、标杆构造、阶段检查和执行矩阵 |
 | [现有资产复用计划](docs/REUSE_PLAN.md) | Skills、simulator、Onboard 与 GSD 的检查结果和迁移方向 |
+| [四节点设计](docs/nodes/design.md) | 环境问询与分立约定、节点交接、证据身份、失败恢复和验收 |
+| [运行模式](docs/modes/design.md) | status 只读汇报、next 单步执行、automatic 有界协调与恢复 |
+| [技能参考来源](docs/nodes/skill-sources.md) | 已有和新增 skills 的固定版本、许可、采纳位置及适用边界 |
 
 ## 参与开发
 

@@ -9,7 +9,12 @@ import sys
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "assets" / "skills"
-NAMES = ("harness-new-project", "harness-onboard", "harness-resume")
+NAMES = (
+    "harness-new-project", "harness-onboard", "harness-resume",
+    "harness-prepare-environment", "harness-develop",
+    "harness-device-test", "harness-simulate",
+    "harness-status", "harness-next", "harness-automatic",
+)
 
 
 def contents(directory):

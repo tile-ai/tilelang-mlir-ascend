@@ -1,6 +1,6 @@
 # 现有资产复用与迁移计划
 
-状态：2026-10-31 源码与文档初查，未运行编译、仿真或实卡验证。本轮只建立迁移计划，没有复制或启用旧 skills，也没有修改来源仓库。
+状态：2026-10-31 初查及节点技能设计更新，未运行编译、仿真或实卡验证。已独立编写四个节点 skills，没有整体复制旧 skills，也没有修改来源仓库。
 
 ## 1. 检查范围与证据
 
@@ -105,3 +105,11 @@ RemoteRuntime.compile_tilelang
 每项资产依次经过“来源与版本明确 → 契约适配 → 单独调用验证 → harness 端到端验证”。源文件复制、配置存在或 README 声明均不单独构成支持证明。
 
 本轮先完成上述清单。服务于 TileLang 的迁移与工具封装按 [路线图](ROADMAP.md) 的 M1–M4 推进，持续记录执行组合及能力的验证状态。独立 AscendC 语言接入不纳入首批验收。
+
+## 7. 四节点设计与新增技能来源
+
+[四节点设计](nodes/design.md) 将环境准备、算子编写、上板测试与仿真分析分别交给 `harness-prepare-environment`、`harness-develop`、`harness-device-test`、`harness-simulate`。环境准备通过问询与探针建立各节点自己的约定，上板和仿真独立保存机器/容器、工具链、资源与允许操作，后续直接复用。
+
+在原有 asc-devkit 资料之外，新核对了 TileLang 上游的 `tilelang-ascend`、其 profiling reference、`tilelang-build`，以及 Hugging Face 的 `triton-kernels` 测试方法。固定版本、许可和逐项采纳边界见 [技能参考来源](nodes/skill-sources.md)。这些是方法参考，不将 CUDA/Triton 命令或机器私有配置直接迁入产品，不新增首批语言。
+
+四个新技能和共享证据约定位于 `assets/skills/`，已接入源码安装器。技能包装与场景检查不证明 Onboard/simulator 兼容或设备支持；实际适配与逐组合验收仍按上述完成标准推进。

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Develop"
+  short_description: "依据版本化需求编写或修复昇腾 TileLang 算子，并交接可重建候选与验证输入"
+  default_prompt: "使用 $harness-develop 读取需求和开发环境约定，实现当前算子并保存候选与验证输入。"

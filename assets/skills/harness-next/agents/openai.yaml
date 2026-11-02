@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Next"
+  short_description: "直接推进当前任务的一个下一步，完成结果接收和记录更新后返回进展"
+  default_prompt: "使用 $harness-next 根据当前记录直接推进下一步。"

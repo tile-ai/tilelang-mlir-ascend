@@ -4,7 +4,7 @@
 
 ## 一次执行必须能追溯的内容
 
-每次节点都按 [节点契约](node-contract.md) 实例化 TASK 与 RESULT；生成候选时增加 CANDIDATE。以下信息放入模板或其链接的真实工具 manifest，不要求再手抄一套字段：
+每次节点都按 [节点契约](node-contract.md) 实例化 TASK 与 RESULT；生成候选时增加 CANDIDATE；建立标杆时增加 BASELINE，绑定调查范围、参考/协议与选择证据。以下信息放入模板或其链接的真实工具 manifest，不要求再手抄一套字段：
 
 | 记录 | 内容 |
 | --- | --- |

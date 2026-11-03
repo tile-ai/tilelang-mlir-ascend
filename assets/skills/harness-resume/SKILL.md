@@ -5,7 +5,7 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 # Harness Resume
 
-目标是让当前 agent 与全新 agent 都能从记录理解任务、执行方式和约束。允许用户在同一会话连续完成多个节点；不强制新 agent 或新会话。先读 [节点交接契约 v1](references/node-contract.md)，按需使用五份模板。[automatic](../harness-automatic/SKILL.md) 已提供当前宿主内的连续协调模式，不把其编排策略施加到普通交互工作。
+目标是让当前 agent 与全新 agent 都能从记录理解任务、执行方式和约束。允许用户在同一会话连续完成多个节点；不强制新 agent 或新会话。先读 [节点交接契约 v1](references/node-contract.md)，按需使用六份模板。[automatic](../harness-automatic/SKILL.md) 已提供当前宿主内的连续协调模式，不把其编排策略施加到普通交互工作。
 
 已收到 TASK 的子 agent 直接执行指定节点 skill，不递归执行本技能的协调/派发步骤。委派时主 agent 负责协调，子 agent 只执行分配节点。直接交互时当前 agent 顺序完成执行、收尾检查和共享记录更新，无须额外角色审批。
 
@@ -24,9 +24,12 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 按 [TASK 模板](assets/templates/node-task.md) 为有明确目标的节点工作写记录，绑定输入快照、工具入口/步骤、环境/权限、本次预算、可写范围、交付和停止条件。短任务可以简短填写，阶段内连续操作不逐次建模板；只补齐当前工作必需的缺口。
 
 - 环境问询、能力缺口或环境变更：[harness-prepare-environment](../harness-prepare-environment/SKILL.md)。
-- 编写、修复或优化候选：[harness-develop](../harness-develop/SKILL.md)。
+- 建立、选择或更新正确性参考与性能标杆：[harness-establish-baseline](../harness-establish-baseline/SKILL.md)。
+- 首次标杆实现思路分析，或后续 kernel 问题定位、仿真和流水分析：[harness-analysis](../harness-analysis/SKILL.md)。
+- 根据已接收分析编写、修复或优化候选：[harness-develop](../harness-develop/SKILL.md)。
 - 实卡精度、性能或作业恢复：[harness-device-test](../harness-device-test/SKILL.md)。
-- 仿真、已有 trace 分析或作业恢复：[harness-simulate](../harness-simulate/SKILL.md)。
+
+标杆建立后默认进入 `analysis → develop → device-test → analysis …`，达成目标即结束。分析是否完成以其绑定的输入和已接收结果判断，旧的“下一步 develop”提示不能跳过新规则要求的首次分析；详见统一路由。
 
 解析本节点环境为确定的 ID/修订/快照；上板与仿真授权和验证状态独立。首次准备可以携带未知项，不捏造已验证环境。按资源账本分配本次额度，不能以旧环境余额覆盖实际占用。
 
@@ -46,4 +49,4 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 协调角色统一更新 STATE、EXPERIMENTS、DECISIONS、环境索引、发布约定和资源账本；委派子 agent 不直接改共享文件。接收环境提案保留旧修订，接收候选检查可重建清单，更新最佳候选须有任务要求的实际证据。
 
-完成记录后可在同一会话继续用户已授权的下一节点，或交给其他 agent。向用户说明结果、差距与下一步；记录检查不替代尚未实现的程序 gate。
+完成记录后可在同一会话继续用户已授权的下一节点，或交给其他 agent。最终回复与 RESULT 都说明结果、差距和一个主推荐：具体节点/skill、原因与证据、依赖/缺口、完成或停止条件。即使用户要求本节点后停止，也要给出建议而不执行；没有适用节点时明确指出流程缺口。记录检查不替代尚未实现的程序 gate。

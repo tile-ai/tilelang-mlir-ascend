@@ -1,4 +1,0 @@
-interface:
-  display_name: "Harness Simulate"
-  short_description: "复用独立仿真约定，检查输出和采集完整性，并从模型证据形成可验证优化假设"
-  default_prompt: "使用 $harness-simulate 按仿真专属约定分析当前候选，保留原始证据与下一步假设。"

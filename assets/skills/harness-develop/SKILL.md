@@ -9,7 +9,9 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 
 当前会话或独立 agent 均可执行本节点。已收到 TASK 的子 agent 直接按 [节点契约](../harness-resume/references/node-contract.md) 读取输入，不递归执行主 agent 的派发流程；直接交互时先按 [harness-resume](../harness-resume/SKILL.md) 恢复或补齐 TASK。记录任务理解与结果，确保不继承聊天的新 agent 也能接手。委派子 agent 只写所分配产物，由主 agent 中继问询并汇总共享记录；直接交互时当前 agent 完成同样的收尾检查后可继续后续节点，不要求新会话。
 
-按 TASK 输入清单读取当前任务、父候选和相关实验，使用 TASK 固定的 development 约定快照；实时 ENVIRONMENT 索引只检查漂移/撤权，不重新替换绑定。缺少环境信息时在 RESULT 说明缺口，建议主 agent 派发环境准备；允许继续不依赖缺失能力的离线编写，不能称为已编译或已验证。
+按 TASK 输入清单读取当前任务、已接收的 analysis 方案/诊断、父候选和相关实验，使用 TASK 固定的 development 约定快照；实时 ENVIRONMENT 索引只检查漂移/撤权，不重新替换绑定。默认由 analysis 交接首次标杆思路或后续修改假设；缺少适用分析时按统一路由先进入 [harness-analysis](../harness-analysis/SKILL.md)。用户明确只要求编写时遵循该范围并记录所据方案与未验证项。缺少环境信息时只补当前动作所需能力，允许继续授权内的离线编写。
+
+需要性能比较时，读取 TASK 固定的 BASELINE 记录，复用已验收的参考、case 和协议；缺少/失效时建议 [标杆建立](../harness-establish-baseline/SKILL.md)。仅编写或精度任务仍可在明确范围内创建独立参考，不以未测性能标杆阻塞授权内编写；不得把候选的自测时间直接发布为标杆。
 
 ## 建立可检验的起点
 
@@ -29,6 +31,6 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 
 在 `.workspace/runs/<实验编号>/` 保存 [证据记录](../harness-resume/references/execution-records.md)：候选源码快照或 commit 加补丁、依赖/配置摘要、参考/case/协议身份、命令和日志、编译产物及入口/ABI/launch 信息。多 kernel 算子记录整条调用链；JIT 首次运行会触发的编译也计入预算与记录。
 
-使用 [候选模板](../harness-resume/assets/templates/candidate.md) 交付 CANDIDATE，包含可重建源码及下一节点的具体入口。编译通过只标编译通过；在 RESULT 建议上板或仿真，由协调者记录下一任务，当前 agent 可继续或交给其他 agent。后续失败修复要引用具体反例与候选，不依赖之前聊天。
+使用 [候选模板](../harness-resume/assets/templates/candidate.md) 交付 CANDIDATE，包含可重建源码及下一节点的具体入口。正常交付后的主推荐是 [harness-device-test](../harness-device-test/SKILL.md)，验证新候选的完整输出和任务要求的性能；编译通过只标编译通过。遇到阻塞实现的构建错误或分析假设不成立时，保留日志并推荐 analysis 定位，不在本节点无依据反复调参。后续修改引用具体分析、反例与候选，不依赖之前聊天。
 
 在 RESULT 说明当前候选、尚未验证部分及下一步，由主 agent 接收后更新共享记录与最佳候选。用户只要求编写时完成候选与交接说明，不自行扩大到未授权环境操作。

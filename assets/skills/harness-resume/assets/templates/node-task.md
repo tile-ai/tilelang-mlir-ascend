@@ -2,7 +2,7 @@
 
 - contract: operator-harness/node-task@1
 - run_id: {{项目内唯一编号}}
-- node: {{prepare-environment / develop / device-test / simulate，仅一个}}
+- node: {{prepare-environment / establish-baseline / analysis / develop / device-test，仅一个；test指device-test}}
 - operation: {{本次具体操作，例如仅精度、实现初版、分析已有 trace}}
 - project_root: {{相对 TASK 所在目录的根路径（标准 runs/<id>/ 下为 ../../..），或明确的绝对路径}}
 - skill: {{项目根下的 skill 路径}}
@@ -43,7 +43,7 @@
 
 ## 必交付与接收检查
 
-{{RESULT.md 及本节点所需产物；每项路径/内容/身份要求。develop 包含 CANDIDATE，prepare 包含独立环境提案}}
+{{RESULT.md 及本节点所需产物；每项路径/内容/身份要求。analysis 包含首次标杆方案或当前kernel诊断、证据/假设和验证计划；develop 包含 CANDIDATE，prepare 包含独立环境提案，establish-baseline 包含 BASELINE、参考/case/协议及调查/测量证据}}
 
 ## 未决问题与交接
 

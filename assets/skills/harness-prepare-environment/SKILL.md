@@ -39,3 +39,5 @@ description: 通过问询分别确定算子开发、上板测试和仿真分析�
 使用 [环境索引模板](assets/templates/environment-index.md) 和 [单环境模板](assets/templates/environment.md)，在本 run 的 `environment-proposals/` 输出索引与各角色约定提案，附问询决定与探针证据。未知和未验证如实记录；上板与仿真不得合并成一份约定。
 
 在 RESULT 列出各环境已验证能力、缺口、提案和拟失效范围。协调者（直接交互时即当前 agent）核对后发布到 `.workspace/ENVIRONMENT.md` 与 `environments/`，更新共享状态并继续或委派下一节点；委派子 agent 不直接发布，不增加“是否保存”审批。仅有访谈范围时完成访谈交付，不能自行开始未授权探针。
+
+收尾时在 RESULT 和最终回复给出一个明确的下一节点建议及原因、依赖和完成条件。环境已满足当前任务需要但正确性参考或性能标杆尚未建立/失效时，推荐 [harness-establish-baseline](../harness-establish-baseline/SKILL.md)；已有可用标杆则按 [统一下一步规则](../harness-resume/references/next-action.md) 选择。用户要求到此停止时只建议，不继续执行。

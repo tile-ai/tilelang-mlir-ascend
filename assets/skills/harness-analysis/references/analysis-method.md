@@ -1,4 +1,12 @@
-# 仿真分析方法
+# 标杆、kernel 与流水分析方法
+
+## 首次标杆分析
+
+以固定版本的源码与适配为起点，列出完整算法阶段、输入输出与中间存储、工作划分及同步，说明shape分派为何成立、哪些只是待验证的性能解释。将思路映射到指定TileLang后端可用表达，输出一个可执行初版方案、关键正确性风险和验证case；不把标杆语言的API或硬件假设照搬为TileLang结论。
+
+首次可以只有源码、case与已有测量，不必有目标kernel或新trace。后续分析读取对应测试结果，聚焦一个需要解释的错误或性能差距；已有分析可以引用，但必须核对标杆、候选与测试身份。
+
+## 仿真与流水证据
 
 按需参考固定版本的 [TileLang profiling](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/.agents/skills/tilelang-ascend/references/profiling.md)。其 npusim recipe 与项目 simulator 不是同一接口，不能直接互换命令；事件单位、配对以及 dispatch/completion 的含义须按本次实际模型和解析器核实。
 
@@ -22,6 +30,6 @@
 
 ## 结果格式
 
-`RESULT.md` 写清：问题、来源候选与产物、simulation 约定快照、覆盖范围、输出比较、trace 完整性、主要观测及原始位置、解释与限制、建议实验。
+`RESULT.md` 写清：首次/后续分析、问题、确切标杆/候选与测试身份、实际使用的环境或历史产物、覆盖范围、主要观测及原始位置、解释与限制、交给develop的方案/假设和验证计划。执行仿真时补充simulation约定、输出比较和trace完整性；没有采集时如实写not_run/not_applicable。
 
 例如“在所采集 core 的区间中观察到等待事件，怀疑生产/消费同步导致空泡；改变一个流水参数后重验”，是可执行假设。没有全范围数据时，不写“整个算子受同步限制”。cycle 下降也不能写成已取得同幅度实卡加速。

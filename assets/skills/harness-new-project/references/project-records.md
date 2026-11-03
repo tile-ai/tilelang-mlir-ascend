@@ -9,6 +9,7 @@
 | `ROADMAP.md` | 按依赖组织阶段，关联需求并说明阶段完成条件 |
 | `STATE.md` | 当前进展、当前候选与最佳已验证候选、性能概况、待决问题和下一步 |
 | `EXPERIMENTS.md` | 开始分析或调优后，按实验记录尝试、结果、取舍和产物链接 |
+| `BASELINE.md` | 协调者接收后发布的标杆索引，指向 run 内确切 BASELINE 修订、参考/case/协议与测量证据 |
 | `ENVIRONMENT.md` | 环境准备后建立的节点绑定索引，指向 development/device/simulation 各自约定 |
 | `environments/<id>.md` | 单个节点的环境、使用约定、修订与能力验证证据，上板与仿真分别保存 |
 | `DECISIONS.md` | 实际用户回答、问题 ID、作用域、日期与替代关系；主 agent 维护 |
@@ -28,4 +29,6 @@
 
 进入实验前用 [环境准备](../../harness-prepare-environment/SKILL.md) 补齐实际环境选择并验证。初始化阶段已确定的答案直接沿用；这里不提前生成未经问询或验证的环境。
 
-同一会话可以连续执行四节点，也可以由全新 agent 接续。进入节点前按 [节点契约与模板](../../harness-resume/references/node-contract.md) 写完整 TASK，把初始化问询中会影响后续执行的决定与范围落盘；不能只依赖当前聊天。需求文件无固定标题要求，但 TASK 引用的算子语义、验收规则和未知项必须可明确定位。
+环境已具备当前任务所需能力后，需要建立参考或相对性能标杆时显式读取 [标杆建立](../../harness-establish-baseline/SKILL.md)，不要在初始化中用猜测性能补齐基线。
+
+同一会话可以连续执行五节点，也可以由全新 agent 接续。进入节点前按 [节点契约与模板](../../harness-resume/references/node-contract.md) 写完整 TASK，把初始化问询中会影响后续执行的决定与范围落盘；不能只依赖当前聊天。需求文件无固定标题要求，但 TASK 引用的算子语义、验收规则和未知项必须可明确定位。

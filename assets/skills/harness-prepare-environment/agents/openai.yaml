@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Prepare Environment"
+  short_description: "分别问清开发、上板与仿真的环境约定，验证后供后续实验直接复用"
+  default_prompt: "使用 $harness-prepare-environment 准备本项目的开发、上板与仿真环境，分别问清约定并验证。"

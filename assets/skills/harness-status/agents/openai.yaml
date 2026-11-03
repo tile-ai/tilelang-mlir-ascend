@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Status"
+  short_description: "只读汇报当前算子任务进展、候选证据与阻塞，并推荐一个有依据的下一步"
+  default_prompt: "使用 $harness-status 查看当前任务进展及推荐下一步，不执行实验。"

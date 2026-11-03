@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Onboard"
+  short_description: "梳理已有算子项目的代码与验证依据，并建立可接续的工作流记录"
+  default_prompt: "使用 $harness-onboard 梳理当前项目并在 .workspace 中建立接入记录。"

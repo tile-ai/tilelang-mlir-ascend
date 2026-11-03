@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Establish Baseline"
+  short_description: "按任务与环境筛选参考实现，验证正确性并固定可复现的性能标杆"
+  default_prompt: "使用 $harness-establish-baseline 根据本项目任务和环境建立正确性参考与性能标杆，记录选择依据和下一节点建议。"

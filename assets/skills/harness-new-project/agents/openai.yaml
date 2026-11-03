@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness New Project"
+  short_description: "明确昇腾 TileLang 项目需求，并在本地工作区建立可恢复的计划"
+  default_prompt: "使用 $harness-new-project 为当前算子项目梳理需求并建立 .workspace 项目记录。"

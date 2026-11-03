@@ -2,13 +2,13 @@
 
 ## 首次标杆分析
 
-以固定版本的源码与适配为起点，列出完整算法阶段、输入输出与中间存储、工作划分及同步，说明shape分派为何成立、哪些只是待验证的性能解释。将思路映射到指定TileLang后端可用表达，输出一个可执行初版方案、关键正确性风险和验证case；不把标杆语言的API或硬件假设照搬为TileLang结论。
+以本任务选定并记录身份的源码与适配为起点，列出完整算法阶段、输入输出与中间存储、工作划分及同步，说明shape分派为何成立、哪些只是待验证的性能解释。将思路映射到指定TileLang后端可用表达，输出一个可执行初版方案、关键正确性风险和验证case；不把标杆语言的API或硬件假设照搬为TileLang结论。
 
 首次可以只有源码、case与已有测量，不必有目标kernel或新trace。后续分析读取对应测试结果，聚焦一个需要解释的错误或性能差距；已有分析可以引用，但必须核对标杆、候选与测试身份。
 
 ## 仿真与流水证据
 
-按需参考固定版本的 [TileLang profiling](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/.agents/skills/tilelang-ascend/references/profiling.md)。其 npusim recipe 与项目 simulator 不是同一接口，不能直接互换命令；事件单位、配对以及 dispatch/completion 的含义须按本次实际模型和解析器核实。
+按需在任务所选的 [TileLang 仓库](https://github.com/tile-ai/tilelang) checkout 中查找 profiling 资料，例如 `.agents/skills/tilelang-ascend/references/profiling.md`；路径和方法以当前版本为准。其 npusim recipe 与项目 simulator 不是同一接口，不能直接互换命令；事件单位、配对以及 dispatch/completion 的含义须按本次实际模型和解析器核实。
 
 ## 先限定能回答什么
 

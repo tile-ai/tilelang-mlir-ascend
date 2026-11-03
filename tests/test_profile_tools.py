@@ -1,4 +1,4 @@
-"""CPU-only checks for the measured profiler format and collection protocol."""
+"""Synthetic CPU-only checks for the profiler format and collection protocol."""
 
 import contextlib
 import json
@@ -80,12 +80,12 @@ class ProfileToolsTest(unittest.TestCase):
                 frequency=lambda: next(readings),
                 check_reservation=lambda: events.append('reservation'),
                 verify_profile=verify or (lambda path, parsed: None),
-                protocol='test-v1', expected_frequency=(1650, 1650),
+                protocol='test-v1', expected_frequency=(1000, 1200),
                 flush_bytes=1024, warmup=1, repeats=2)
         return result, events
 
     def test_success_stays_provisional_and_preserves_samples(self):
-        result, events = self.measure([(1650, 1650)] * 4)
+        result, events = self.measure([(1000, 1200)] * 4)
         self.assertEqual(result['status'], 'pending_guard_receipt')
         self.assertEqual(result['samples_ms'], [.001, .001])
         self.assertEqual(events.count('call'), 3)
@@ -96,7 +96,7 @@ class ProfileToolsTest(unittest.TestCase):
 
     def test_frequency_drift_preserves_failure_without_success_summary(self):
         with self.assertRaisesRegex(RuntimeError, 'frequency mismatch'):
-            self.measure([(1650, 1650), (100, 1650)])
+            self.measure([(1000, 1200), (999, 1200)])
         failure = json.loads((self.root / 'measurement/failure.json').read_text())
         self.assertFalse(failure['performance_valid'])
         self.assertEqual(failure['completed_samples'], 0)
@@ -107,7 +107,7 @@ class ProfileToolsTest(unittest.TestCase):
             raise RuntimeError('missing operator stage')
 
         with self.assertRaisesRegex(RuntimeError, 'missing operator stage'):
-            self.measure([(1650, 1650)] * 2, verify=reject)
+            self.measure([(1000, 1200)] * 2, verify=reject)
         self.assertFalse((self.root / 'measurement/summary.json').exists())
 
 

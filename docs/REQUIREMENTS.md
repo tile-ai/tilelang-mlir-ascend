@@ -15,7 +15,7 @@
 - 首个宿主为 Codex。项目初始化与已有项目接入借鉴 GSD 流程，使用本项目的 `harness-new-project`、`harness-onboard` 名称，运行记录统一放入 `.workspace/`。
 - 延续独立分发目标，通过 `npx` 初始化和使用，宿主、设备路径与工具链配置不能绑定开发者机器。
 
-当前 TileLang 上游的 [Ascend 文档](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/tilelang/ascend/README.md)面向 Ascend 950。具体支持的芯片与 CANN/TileLang 版本组合仍需实际验证，不能从“面向昇腾”推导出全部芯片可用。
+TileLang 的 Ascend 支持范围以用户所选仓库版本的文档和实际验证为准。具体芯片与 CANN/TileLang 组合由任务环境配置，不能从“面向昇腾”推导出全部芯片可用。
 
 ## 2. 算子需求需要收集什么
 
@@ -136,7 +136,7 @@ flowchart TD
 
 ## 5. GSD 的取舍
 
-[GSD Core 的阶段流程](https://github.com/open-gsd/gsd-core/blob/1ec5c812b79dc1cc487d0873d18b03449b11c106/docs/explanation/the-phase-loop.md)提供 Discuss、Plan、Execute、Verify、Ship 的组织方式，以及跨会话保存决策和验证结果的方法。该资料用于流程参考，本项目尚未安装或验证 GSD 集成。
+[GSD Core 的阶段流程](https://github.com/open-gsd/gsd-core)提供 Discuss、Plan、Execute、Verify、Ship 的组织方式，以及跨会话保存决策和验证结果的方法。该资料用于流程参考，本项目尚未安装或验证 GSD 集成。
 
 已独立实现两个初始化入口，使用方式见 [README](../README.md#使用方式)。这次借鉴限定在需求澄清、代码现状梳理、计划与恢复，不预先决定后续执行阶段是否整体接入 GSD。
 

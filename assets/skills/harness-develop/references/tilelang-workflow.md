@@ -4,9 +4,9 @@
 
 先在本次环境绑定的 checkout 内找到 Ascend 文档、相近示例和真实 API 定义，记录路径/revision；文档冲突时看同版本实现并通过最小编译核实。无法访问对应版本资料时明确未知，不能把互相矛盾的示例拼成一个 API。
 
-可参考上游 [Ascend 文档](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/tilelang/ascend/README.md)。这是来源快照，不是所有环境的固定依赖；实际安装版本决定语法和能力。硬件事实以对应 SDK 和架构资料核对，不能从产品别名推导指令或资源上限。
+从 [TileLang 上游仓库](https://github.com/tile-ai/tilelang) 或用户指定的仓库获取资料，在实际使用的 checkout 中查找 `tilelang/ascend/README.md`、相近示例及 API 定义。仓库布局可能变化，按当前源码检索；本 skill 不指定固定 commit 或要求升级到某个版本。硬件事实以对应 SDK 和架构资料核对。
 
-需要更详细的开发方法时按需查阅同版本 [tilelang-ascend skill](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/.agents/skills/tilelang-ascend/SKILL.md)，不要求全局安装它，也不自动执行其示例。该资料用于补充检索与诊断，不覆盖本任务的环境约定。
+需要更详细方法时，按需读取所选版本中的 `.agents/skills/tilelang-ascend/SKILL.md`（若存在），不要求全局安装，不自动执行示例，也不以外部资料覆盖任务环境约定。
 
 已有环境安装了 `asc-search`、`asc-npu-arch` 等工具时可按其实际入口查询，并记录知识源版本；缺失时直接查所选 SDK 的文档或源码。这些外部技能不是产品运行的隐含必需依赖。
 

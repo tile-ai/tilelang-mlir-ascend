@@ -1,46 +1,38 @@
 # 节点技能的参考来源
 
-本项目独立维护节点技能。下面的资料用于方法参考和按需核对，不表示已整体安装、复制或验证上游技能。检查日期：2026-10-31；首批语言为 TileLang。
+本项目独立维护节点技能。外部资料用于方法参考，不构成固定版本依赖。实际 API、目录布局和支持范围以用户选定的仓库及运行环境为准；需要引用实现时，在任务自己的私有记录中保存实际版本和证据。
 
-## 主要参考：TileLang 上游
+## TileLang
 
-固定 revision：`0176ba1465b12758f41802bf838ddd68d43c9ee9`。
+来源：[TileLang 上游仓库](https://github.com/tile-ai/tilelang)。在所选 checkout 中按需查找以下资料；文件不存在时检索当前版本的对应文档，不回退到文档中写死的 commit。
 
-| 实际技能或关联文档 | 采纳位置 | 采纳的方法 |
+| 资料入口 | 采纳位置 | 参考方法 |
 | --- | --- | --- |
-| [tilelang-ascend/SKILL.md](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/.agents/skills/tilelang-ascend/SKILL.md) | `harness-develop` | 按目标版本检索 Ascend dialect、存储与同步规则；保留 DSL 到生成代码的关系；检查边界 case 和原调用接口 |
-| [tilelang-ascend/references/profiling.md](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/.agents/skills/tilelang-ascend/references/profiling.md) | `harness-device-test`、`harness-analysis` | 固定比较边界；区分设备耗时、仿真周期和模型参数；核对采集身份、完整性、事件语义及参与核，再提出可验证假设 |
-| [tilelang-build/SKILL.md](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/.agents/skills/tilelang-build/SKILL.md) | `harness-prepare-environment` | 核对 Python/native 来源与构建状态，避免源码版本与实际加载库错配 |
+| `tilelang/ascend/README.md`、Ascend 示例及 API 定义 | `harness-develop` | 按目标版本确认 dialect、存储、同步和生成代码，检查边界及调用接口 |
+| `tilelang-ascend` skill 的 profiling 资料（若提供） | `harness-device-test`、`harness-analysis` | 固定比较边界，区分设备时间、仿真周期和模型参数，核对事件及阶段覆盖 |
+| `tilelang-build` skill（若提供） | `harness-prepare-environment` | 核对 Python/native 的实际来源与构建状态，避免源码与加载库错配 |
 
-[上游 LICENSE](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/LICENSE) 标题为 MIT，并保留历史 Microsoft 合作期说明。GitHub 许可元数据为 `NOASSERTION`，本项目据原文件记录来源。此处没有复制技能正文；未来若分发上游文件或实质片段，应保留适用的许可和声明。
+上游的 CUDA 默认值和 GPU 测试命令不能直接作为 Ascend 环境命令。npusim recipe 与其他 simulator 接口分别核对；多个 kernel duration 的求和不自动等于完整算子延迟。引用或分发外部文件时核对所选版本的许可证并保留适用声明。
 
-需要适配的边界：
+## 测试方法
 
-- 构建技能包含 CUDA 默认值和 GPU 测试示例，不能直接作为 Ascend 安装或验收脚本。
-- 上游版本中的 API、示例、调度约束与所选 CANN/TileLang 组合需要对应，不能从文档存在推断所有芯片可用。
-- 上游 `npusim` recipe 与本项目拟复用的 simulator 执行入口不是同一接口；需独立验证适配。
-- 计时方法必须匹配用户约定的算子边界。多个 kernel duration 的聚合不自动等于存在重叠时的完整算子延迟。
-- trace 的单位、事件配对与完成含义按实际工具版本核对；分析结果不能替代实卡精度和性能验收。
+来源：[Hugging Face kernels](https://github.com/huggingface/kernels)。按需查找其算子测试及 triton-kernels 资料，借鉴独立参考、边界 shape、先验证再计时和工作量单位说明。
 
-## 补充参考：测试方法
+这些方法用于 `harness-develop` 与 `harness-device-test`；不迁入其他硬件的命令、调参假设或支持结论，也不据此增加首批语言范围。连续性、累加类型和分块约束由算子需求确定。
 
-[huggingface/kernels 的 triton-kernels/SKILL.md](https://github.com/huggingface/kernels/blob/633d1faef0caea5f2b9acf447e17ad5f840a52d1/kernel-builder/skills/triton-kernels/SKILL.md)，固定 revision `633d1faef0caea5f2b9acf447e17ad5f840a52d1`，根许可为 [Apache-2.0](https://github.com/huggingface/kernels/blob/633d1faef0caea5f2b9acf447e17ad5f840a52d1/LICENSE)。
+## AscendC 与架构资料
 
-只借鉴独立参考、非整齐 shape、先验证再计时及工作量单位说明，用于 `harness-develop` 与 `harness-device-test` 的测试检查。原文面向 NVIDIA/AMD，不迁入其 CUDA/Triton 命令、调参启发式或硬件结论，也不引入 Triton 作为首批语言。连续性、累加类型和归约分块必须服从算子需求，不能把示例约束改写成通用规则。
+来源：[cann/asc-devkit](https://gitcode.com/cann/asc-devkit)。以用户所选 SDK/仓库中的实际资料为准，技能路径、API范围和许可证在使用或分发时核对。
 
-## 已有 AscendC 资料
-
-来源：[cann/asc-devkit](https://gitcode.com/cann/asc-devkit)，检查 revision `5dd381e37e134445ae3ef160320f3a7fb7d7986d`。技能位于 `.agent/skills/`；根许可为 CANN Open Software License Agreement Version 2.0。详细迁移评估见 [复用计划](../REUSE_PLAN.md)。
-
-| 技能 | 可复用内容 | 适用范围 |
+| 技能或能力 | 可参考内容 | 边界 |
 | --- | --- | --- |
-| `asc-ar-dev` | 新 API 的文档、声明和样例核验 | 辅助理解生成 AscendC；不能替代 TileLang 语言规范 |
-| `asc-npu-arch` | 结构化架构事实与能力边界 | 绑定实际软件版本、实卡产品或仿真模型 |
-| `asc-search` | 文档范围、版本筛选与索引新鲜度 | 当前范围为 SIMD C API，不能当作全量 TileLang/Ascend API 检索 |
-| `ascendc-api-kernel-debug` | 调试输出链路与 instrumentation 清理 | 不等于流水 profiling；迁移前修正其关联技能路由 |
+| `asc-ar-dev` | API文档、声明与样例核验 | 辅助理解生成AscendC，不替代TileLang规范 |
+| `asc-npu-arch` | 架构与资源能力 | 绑定实际SDK和产品/仿真模型 |
+| `asc-search` | 文档范围、版本筛选与索引新鲜度 | 先核对查询范围，不当作全量语言API检索 |
+| `ascendc-api-kernel-debug` | 调试输出和instrumentation清理 | 不等同流水profiling，外部技能缺失时直接查源码/文档 |
 
-## 环境与验证边界
+详细适配方向见 [复用计划](../REUSE_PLAN.md)。这些外部技能不是用户必须预装的隐含依赖。
 
-环境准备分别收集并验证 device 和 simulation 的记录，二者可以使用不同机器或容器。上板节点读取 device 约定，analysis执行新仿真时读取simulation约定；只读源码/已有trace使用其已有身份；工具版本、路径、资源限制、允许动作和授权范围各自生效，互不继承。语言版本和 case 可以共享引用，但执行可用性与验收状态分别记录。
+## 环境边界
 
-本轮只核对上述技能正文、相关参考和许可，没有运行其示例，没有安装全局技能，没有验证 Onboard/simulator 的端到端兼容性。选择依据是任务适配和可核查内容，安装数或星数不构成 NPU 支持证明。节点的成功判定仍需对应的编译、实卡比较或完整仿真产物。
+开发、device和simulation分别配置与验证。版本、路径、设备映射、资源限制和授权按当前任务环境生效；上板成功不等于仿真可用，文档存在也不等于编译或运行通过。具体机器和运行记录不写入产品资源。

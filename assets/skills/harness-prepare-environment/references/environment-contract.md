@@ -27,7 +27,7 @@
 
 开发至少检查语言身份、依赖和必要 lowering/编译能力。上板分别检查构建、运行与输出比较、常规计时、可选实卡 profile。仿真分别检查构建、运行与输出比较、可选流水采集/解析。正式候选实验依赖的能力全部 verified 才能开始执行；环境准备中的验证探针可以从 unverified/stale 开始，前提是探针本身在该环境已约定的权限与预算内。缺少计时不抹去已取得的精度证据。环境探针不代表目标算子通过。
 
-核对 Python 模块与 native library 的实际加载位置，而不只读取版本字符串，避免源码与旧构建错配。可参考上游 [tilelang-build](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/.agents/skills/tilelang-build/SKILL.md) 的构建诊断方法；其中 CUDA 默认值和 GPU 全测试不作为本项目环境命令，实际步骤以对应 Ascend 文档和本环境额度为准。
+核对 Python 模块与 native library 的实际加载位置，而不只读取版本字符串，避免源码与旧构建错配。可参考所选 [TileLang 仓库](https://github.com/tile-ai/tilelang) 版本中 `tilelang-build` skill（若存在）的构建诊断方法；其中 CUDA 默认值和 GPU 全测试不作为本项目环境命令，实际步骤以对应 Ascend 文档和本环境额度为准。
 
 ## 复用、轻量复查与例外问询
 

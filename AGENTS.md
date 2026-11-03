@@ -2,6 +2,8 @@
 
 本仓库的开发限于 `harness` 分支及其派生分支。开发文档放在 `docs/`，中间产物放在 `.workspace/`。对外技能维护在 `assets/skills/`，`.agents/skills/` 通过软链接使用同一份内容。
 
+产品资源不得包含具体工作记录、私人机器路径或写死的外部仓库 commit。外部版本由用户项目选择；任务的实际版本与测量记录保存在私有运行产物中，通用模板和版本一致性检查仍需保留。
+
 <!-- operator-harness -->
 ## Operator Harness
 

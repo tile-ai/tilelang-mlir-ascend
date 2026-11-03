@@ -11,7 +11,7 @@
 
 </div>
 
-> **项目状态：早期建设中。** 已提供面向 Codex 的项目初始化、接入、接续，以及环境准备、标杆建立、分析、算子编写、上板测试 skills，并提供 status、next、automatic 三种运行入口。五节点的方法、独立接续能力与模板契约见 [节点设计](docs/nodes/design.md)。已完成 MoEPermuteAlignFwdOp 的真实工作流试用，包含标杆测量、候选精度/性能测试及独立节点接续；全部性能目标尚未达成。通用执行适配、程序 gate、MCP 和 npm 分发仍待实现，见 [试用总结](docs/workflow-trial.md)。
+> **项目状态：早期建设中。** 已提供面向 Codex 的初始化、接入、接续及五个节点 skills，以及 status、next、automatic 入口。另有 torch_npu 性能采集方法和解析脚本。节点职责见 [节点设计](docs/nodes/design.md)；通用执行适配、程序 gate、MCP 和 npm 分发见 [路线图](docs/ROADMAP.md)。
 
 ## 什么是 Operator Harness
 
@@ -123,7 +123,7 @@ $harness-device-test 使用已有上板约定验证当前候选的精度和性�
 要在其他项目使用，从本仓库根目录执行（安装脚本使用 Python 3）：
 
 ```bash
-python3 scripts/install_codex_skills.py --project-dir /path/to/operator-project
+python3 scripts/install_codex_skills.py --project-dir operator-project
 ```
 
 Git 项目安装到当前 worktree 根；非 Git 项目安装到指定目录。安装器复制十一项技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件存在不同内容时报告冲突。升级与卸载另按路线图建设。
@@ -194,7 +194,7 @@ npx <package>@<version> doctor
 | [现有资产复用计划](docs/REUSE_PLAN.md) | Skills、simulator、Onboard 与 GSD 的检查结果和迁移方向 |
 | [五节点设计](docs/nodes/design.md) | 环境问询与分立约定、节点交接、证据身份、失败恢复和验收 |
 | [运行模式](docs/modes/design.md) | status 只读汇报、next 单步执行、automatic 有界协调与恢复 |
-| [技能参考来源](docs/nodes/skill-sources.md) | 已有和新增 skills 的固定版本、许可、采纳位置及适用边界 |
+| [技能参考来源](docs/nodes/skill-sources.md) | 外部资料入口、许可核对、采纳位置及适用边界 |
 
 ## 参与开发
 
@@ -206,4 +206,4 @@ npx <package>@<version> doctor
 
 ## 设计参考
 
-项目参考 [GSD Core](https://github.com/open-gsd/gsd-core) 的阶段化工作方式与持久状态组织，围绕算子需求、标杆、实卡验证和调优迭代建立自己的完成条件。首批两个入口已借鉴其流程并独立实现，不依赖 GSD runtime；[固定版本来源与许可](assets/skills/harness-new-project/references/provenance.md) 随技能保留。后续执行流是否整体引入 GSD 仍待评估。
+项目参考 [GSD Core](https://github.com/open-gsd/gsd-core) 的阶段化工作方式与持久状态组织，围绕算子需求、标杆、实卡验证和调优迭代建立自己的完成条件。首批两个入口已借鉴其流程并独立实现，不依赖 GSD runtime；[参考来源与许可](assets/skills/harness-new-project/references/provenance.md) 随技能保留。后续执行流是否整体引入 GSD 仍待评估。

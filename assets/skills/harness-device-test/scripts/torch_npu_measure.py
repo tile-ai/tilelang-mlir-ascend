@@ -1,6 +1,6 @@
 """Collect full-call NPU device intervals; external runner validates guard receipt.
 
-Profiler configuration and interval parser follow the measured 950DT path.
+Validate profiler configuration and raw record format against the task toolchain.
 No NPU imports or initialization occur at module import time.
 """
 

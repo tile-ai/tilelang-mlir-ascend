@@ -36,7 +36,7 @@ EXPERIMENTS 按运行记录目标/假设、父候选、改变、精度/性能或
 派发前已创建完整 TASK。消息只需：
 
 ```text
-项目根：/path/to/operator-project
+项目根：{{用户指定的项目根目录}}
 任务文件：.workspace/runs/E004/TASK.md
 读取任务及其指定 skill，执行本节点并将结果写回指定目录。
 ```

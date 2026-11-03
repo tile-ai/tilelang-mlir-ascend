@@ -1,6 +1,6 @@
 # 实卡验证协议
 
-方法参考：[TileLang profiling](https://github.com/tile-ai/tilelang/blob/0176ba1465b12758f41802bf838ddd68d43c9ee9/.agents/skills/tilelang-ascend/references/profiling.md) 与 [Hugging Face triton-kernels](https://github.com/huggingface/kernels/blob/633d1faef0caea5f2b9acf447e17ad5f840a52d1/kernel-builder/skills/triton-kernels/SKILL.md)。只借鉴测量边界、独立参考和边界 case 方法；不引入 CUDA/Triton 命令或硬件假设。实际计时实现要核对当前版本，kernel duration 的聚合不自动代表完整算子墙钟延迟。
+方法参考：[TileLang](https://github.com/tile-ai/tilelang) 的 profiling 资料与 [Hugging Face kernels](https://github.com/huggingface/kernels) 的测试方法；在任务所选版本中检索对应文件，不绑定特定 commit。只借鉴测量边界、独立参考和边界 case 方法；不引入 CUDA/Triton 命令或硬件假设。实际计时实现要核对当前版本，kernel duration 的聚合不自动代表完整算子墙钟延迟。
 
 ## 正确性
 

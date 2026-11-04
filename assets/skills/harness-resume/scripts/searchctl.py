@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 
 
@@ -59,7 +60,7 @@ def now():
 
 
 def atomic(path, value, immutable=False):
-    data = encoded(value)
+    data = value if isinstance(value, bytes) else encoded(value)
     if immutable and path.exists():
         require(path.read_bytes() == data, f"immutable record conflict: {path.name}")
         return
@@ -105,6 +106,12 @@ class Store:
     def reference(self, path):
         file = self.local(path)
         return {"path": path, "sha256": digest(file.read_bytes())}
+
+    def snapshot(self, source):
+        data = self.local(source).read_bytes()
+        path = f".workspace/knowledge/evidence/{digest(data)}.snapshot"
+        atomic(self.local(path), data, immutable=True)
+        return self.reference(path)
 
     def verify_ref(self, ref):
         require(isinstance(ref, dict), "invalid artifact reference")
@@ -273,7 +280,8 @@ class Store:
                     "stale hot revision")
             hot = {name: op[name] for name in ("id", "kind", "statement", "applicability", "limitations", "nodes")}
             hot["revision"] = len(revisions) + 1
-            hot["evidence"] = [self.reference(path) for path in op["evidence"]]
+            hot["evidence"] = [self.snapshot(path) for path in op["evidence"]]
+            hot["evidence_sources"] = op["evidence"]
             self.validate_hot(hot, tree)
             # Content addressing allows safe retry after a crash before index commit.
             path = self.local(f".workspace/knowledge/hot/{key}/{digest(encoded(hot))}.json")
@@ -295,6 +303,9 @@ class Store:
         text = self.local(ref["path"]).read_text(encoding="utf-8")
         for key, value in expected.items():
             values = re.findall(rf"^- {re.escape(key)}: (.*?)\s*$", text, re.M)
+            if key == "parent_candidate" and value == "not_applicable":
+                values = [re.sub(r"^not_applicable\s*[:：]\s*.+$", "not_applicable", item)
+                          for item in values]
             require(values == [value], f"manifest {key} must be exactly {value}")
 
     def terminal(self, ref):
@@ -307,18 +318,20 @@ class Store:
         warnings = []
         for binding in tree["cooled_inputs"]:
             ref = binding["artifact"]
+            notices = []
             try:
-                self.latest_cooled(ref)
+                self.latest_cooled(ref, notices)
                 require(read(self.local(ref["path"]))["status"] == "active", "cooled version is not active")
             except Invalid as exc:
                 warnings.append({"search_node_id": binding["search_node_id"],
                                  "artifact": ref["path"], "reason": str(exc)})
+            warnings.extend({"search_node_id": binding["search_node_id"], **notice} for notice in notices)
         return warnings
 
     def review(self):
         tree = self.load()
         return {"operator": tree["operator"], "task_contract": tree["task_contract"],
-                "candidates": [{"hot": read(self.local(refs[-1]["path"])), "artifact": refs[-1]}
+                "latest_hot": [{"hot": read(self.local(refs[-1]["path"])), "artifact": refs[-1]}
                                for refs in tree["hot"].values()],
                 "instruction": "Select exact revisions at delivery; human approval is required. No automatic promotion."}
 
@@ -353,19 +366,45 @@ class Store:
                       "approval_sha256": source["sha256"]}
             validate_cooled(cooled)
             directory = self.local(output)
-            require(not directory.is_relative_to(self.root / ".workspace"), "cooled output must be outside .workspace")
+            require(not directory.is_relative_to((self.root / ".workspace").resolve()),
+                    "cooled output must be outside .workspace")
             path = directory / f"{key}--{decision['id']}.json"
             require(path.exists() or revision == len(revisions), "approval refers to stale hot revision")
             with lock(directory):
+                items, notices = self.collection(directory)
+                require(not notices, "cannot check decision uniqueness: unreadable/non-object collection entries")
+                for _, item in items:
+                    review = item.get("review")
+                    if isinstance(review, dict) and review.get("id") == decision["id"]:
+                        require(all(item.get(field) == cooled[field] for field in (
+                            "review", "provenance", "approval_sha256", "statement", "kind",
+                            "applicability", "limitations", "evidence_summary")),
+                            "decision ID already binds a different approval")
                 if not path.exists():
                     require(revision == len(revisions), "approval refers to stale hot revision")
                 atomic(path, cooled, immutable=True)
             return str(path.relative_to(self.root))
 
-    def latest_cooled(self, ref):
+    def collection(self, directory):
+        items, notices = [], []
+        for path in sorted(directory.glob("*.json")):
+            try:
+                item = read(path)
+                require(isinstance(item, dict), "expected a JSON object")
+                items.append((path, item))
+            except (OSError, ValueError) as exc:
+                notices.append({"artifact": str(path.relative_to(self.root)), "reason": str(exc)})
+        return items, notices
+
+    def latest_cooled(self, ref, notices=None):
         # A directory is one knowledge collection; distribute its full history.
-        for path in self.local(ref["path"]).parent.glob("*.json"):
-            item = read(path)
+        items, problems = self.collection(self.local(ref["path"]).parent)
+        if notices is not None:
+            notices.extend(problems)
+        else:
+            for problem in problems:
+                print(f"searchctl warning: {problem['artifact']}: {problem['reason']}", file=sys.stderr)
+        for _, item in items:
             if item.get("supersedes_sha256") == ref["sha256"]:
                 raise Invalid("cooled version has a successor; inspect its status before reuse")
 

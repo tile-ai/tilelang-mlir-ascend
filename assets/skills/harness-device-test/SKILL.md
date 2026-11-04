@@ -46,3 +46,5 @@ description: 使用已绑定的上板环境约定，执行昇腾算子的实卡�
 按 RESULT 模板写本次结果，由主 agent 接收并更新实验记录。所有必选 case 达标才宣称目标达成；预算耗尽交付当前最好证据与差距。候选修改后旧通过标记不适用于新候选。
 
 测试完成且需继续改进时，主推荐 analysis，交接确切候选、失败输入/日志、逐 case 性能差距及已有流水证据，形成 `analysis → develop → device-test → analysis` 循环。若本次仅为 analysis 请求的实卡采集，交回原分析问题，不自动进入 develop。目标已达成时推荐结束/交付；用户要求停止或预算不足时记录边界，不为循环新增任务。
+
+启用搜索树时，沿用 TASK 的 `search_node_id`，在 RESULT（以及 develop 生成的候选清单）保留同一归属；阶段执行者不自行切换策略节点。将可复用发现与证据交给协调者归入关联节点的 hot，区分观测、假设和结论。见 [搜索与知识](../harness-resume/references/search-knowledge.md)。

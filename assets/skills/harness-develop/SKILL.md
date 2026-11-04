@@ -34,3 +34,5 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 使用 [候选模板](../harness-resume/assets/templates/candidate.md) 交付 CANDIDATE，包含可重建源码及下一节点的具体入口。正常交付后的主推荐是 [harness-device-test](../harness-device-test/SKILL.md)，验证新候选的完整输出和任务要求的性能；编译通过只标编译通过。遇到阻塞实现的构建错误或分析假设不成立时，保留日志并推荐 analysis 定位，不在本节点无依据反复调参。后续修改引用具体分析、反例与候选，不依赖之前聊天。
 
 在 RESULT 说明当前候选、尚未验证部分及下一步，由主 agent 接收后更新共享记录与最佳候选。用户只要求编写时完成候选与交接说明，不自行扩大到未授权环境操作。
+
+启用搜索树时，沿用 TASK 的 `search_node_id`，在 RESULT（以及 develop 生成的候选清单）保留同一归属；阶段执行者不自行切换策略节点。将可复用发现与证据交给协调者归入关联节点的 hot，区分观测、假设和结论。见 [搜索与知识](../harness-resume/references/search-knowledge.md)。

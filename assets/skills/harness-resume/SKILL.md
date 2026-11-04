@@ -13,6 +13,10 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 仅查看进展用 [status](../harness-status/SKILL.md)，只读且推荐下一步；直接推进一次用 [next](../harness-next/SKILL.md)；连续推进当前目标用 [automatic](../harness-automatic/SKILL.md)。三者共用 [下一步选择](references/next-action.md)，不复制选题规则。resume 继续作为恢复、执行和接收的共用流程，节点子 agent 不调用协调入口递归编排。
 
+## 搜索树与知识
+
+算子探索使用 [搜索树与 hot/cooled 知识](references/search-knowledge.md)：策略节点包含多轮 analysis/develop/device-test，阶段 node 与 search_node_id 分开。协调者用随包 searchctl.py 维护树和证据引用；新任务初始化，已有任务在无在途工作时接入，不伪造历史。交付时整理 hot，只有真实人工批准的准确修订可以晋升 cooled；发布独立授权。
+
 ## 恢复与选题
 
 从 `.workspace/STATE.md` 开始，按链接读取需求、相关实验、决定和在途任务。用 [工作记录与交接](references/working-context.md) 区分当前候选、最佳已验证候选和未验证项，不从源码推断历史结果。

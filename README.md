@@ -142,6 +142,12 @@ Agent 直接维护 `.workspace/` 中的 `PROJECT.md`、`REQUIREMENTS.md`、`ROAD
 
 自动模式记录 `.workspace/AUTOMATIC.md`。用户/已有约定的预算优先；未指定控制上限时每批默认最多 8 步，这不提供任何新增设备额度。目标达成、需要输入、预算耗尽、无可执行动作或用户要求暂停时保存结果与恢复入口。详情见 [运行模式](docs/modes/design.md)。
 
+### 搜索树与 hot/cooled 知识
+
+单个算子的优化方向组织成多层搜索树，每个节点可以经历多轮分析、编写、测试；候选谱系、当前/最佳候选和资源预算仍独立管理。Hot 关联一个或多个节点并保留证据与修订；交付时整理筛选，经真实人工审批后生成可版本管理的 cooled 知识，供后续探索按需引用。
+
+随 harness-resume 安装的 Python 标准库工具 `searchctl.py` 提供原子记录、幂等恢复、引用校验及知识晋升/失效管理，不启动实验或自动发布。见 [架构示例](docs/search/design.md) 和 [CLI 与契约](assets/skills/harness-resume/references/search-knowledge.md)。
+
 ### 规划中：npm 分发与执行闭环
 
 计划通过 npm 分发 CLI，让用户在自己的算子项目中初始化 harness，再通过所选 coding agent 开始工作。以下为接口示意，包名尚未确定，不能直接执行：

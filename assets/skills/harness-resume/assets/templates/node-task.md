@@ -1,6 +1,7 @@
 # 节点任务
 
 - contract: operator-harness/node-task@1
+- search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - run_id: {{项目内唯一编号}}
 - node: {{prepare-environment / establish-baseline / analysis / develop / device-test，仅一个；test指device-test}}
 - operation: {{本次具体操作，例如仅精度、实现初版、分析已有 trace}}

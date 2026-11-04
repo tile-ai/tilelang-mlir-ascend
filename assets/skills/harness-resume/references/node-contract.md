@@ -99,3 +99,7 @@ RESULT 作为当前检查点可以更新；覆盖前将已交接或用于问询�
 - 委派时协调者记录派发状态：`prepared / dispatched / accepted / rejected / blocked`；直接交互则在 EXPERIMENTS 写本节点接收结论，不需虚构派发状态。没有通过接收检查的结果不能作为下游的“已验证”输入。
 
 模板标识 `operator-harness/<record>@1`。v1 增加可选字段不改变既有语义，必填字段或含义改变则升主版本；不理解版本时停止并报告。已有记录迁移只补缺失事实与引用，保留旧证据；没有历史信息就标 unknown，不补造身份或许可。当前按此契约人工/agent 检查；未来程序校验首先验证这些稳定字段与引用，不另造第二套事实源。
+
+## 搜索树兼容扩展
+
+TASK、RESULT、candidate 的 v1 格式新增可选 `search_node_id`；未启用树的旧记录仍有效。启用树后的新探索记录必须填写准确策略节点 ID。原 `node` 始终是工作流阶段，run_id 是阶段执行身份，candidate_id 是代码候选身份；三者都不代替搜索节点。参见 [搜索与知识](search-knowledge.md)。

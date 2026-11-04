@@ -9,4 +9,5 @@
 允许同一会话连续完成多个节点；项目记录须足以让全新 agent 独立接续。按 `harness-resume` 的节点契约记录 TASK/RESULT；委派时仅传项目根和任务路径，子 agent 写所属产物，主 agent 汇总。单 agent 可自行完成执行与汇总。上下文过长时仅建议新开会话，不强制切换或因没有隔离工具阻塞；automatic 使用当前宿主的主/子 agent 协调能力，无委派工具可明确 inline 执行。
 
 查看进展与建议使用 `harness-status`（只读）；直接推进一个下一步使用 `harness-next`；按目标和预算连续推进使用 `harness-automatic`。automatic 遇到真实缺口时问询、遇到完成或上限时收尾，不重复提交状态未知的作业。
+算子探索的策略树与 hot/cooled 知识由 harness-resume 的 `references/search-knowledge.md` 和 `scripts/searchctl.py` 管理。策略节点包含多轮阶段执行，不替代现有 TASK/RESULT 或候选谱系；知识冷却须有交付时的真实人工批准，远端发布另行授权。
 <!-- /operator-harness -->

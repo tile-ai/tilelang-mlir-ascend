@@ -10,7 +10,6 @@ import torch
 from ..engine import lower
 from ..utils import (
     NPUUtils,
-    get_npucompiler_path,
     get_bisheng_path,
     build_npu_ext,
     precompile_npu_ext,
@@ -18,6 +17,7 @@ from ..utils import (
     get_npu_launcher_header,
     safe_copy,
 )
+from ..contrib import bishengir
 
 from tilelang.tvm import tir
 from tilelang.tvm.tir import PrimFunc
@@ -1864,74 +1864,29 @@ class compiler_npu:
             bin_path = os.path.join(tmpdir, "kernel.o")
             so_path = os.path.join(tmpdir, "libkernel.so")
 
-            npu_compiler_path = get_npucompiler_path()
+            # Resolve the toolchain before the try block so that a missing
+            # compiler still surfaces its original error type.
+            npu_compiler_path = bishengir.find_bishengir_compile()
             # TileLang Ascend JIT Runtime now follows Triton JIT style.
             # bishengir-compile --enable-triton-kernel-compile=true make sure the way.
-
-            _compile_option_list = []
-            pass_configs = getattr(self, "pass_configs", {})
-
-            if _is_a5_device():
-                # === A5 compile options ===
-                env_arch = os.getenv("TRITON_ASCEND_ARCH", "")
-                target_arch = env_arch if env_arch else _ARCH_CACHE
-                _compile_option_list = [
-                    f"--target={target_arch}",
-                    "--enable-auto-multi-buffer=true",
-                    "--disable-ffts",
-                    "--enable-triton-kernel-compile=true",
-                    "--enable-hivm-compile=true",
-                    "--enable-vf-merge-level=1",
-                    "--enable-hfusion-compile=true",
-                    "--enable-auto-bind-sub-block=true",
-                ]
-            else:
-                # === Non-A5 compile options ===
-                enable_auto_multi_buffer = pass_configs.get(
-                    "npuir.enable_auto_multi_buffer",
-                    True,
-                )
-                _compile_option_list.append(
-                    f"--enable-auto-multi-buffer={str(enable_auto_multi_buffer).lower()}"
-                )
-                disable_hivm_auto_inject_sync = pass_configs.get(
-                    "npuir.disable_hivm_auto_inject_sync",
-                    False,
-                )
-                _compile_option_list.append(
-                    f"--disable-hivm-auto-inject-sync={str(disable_hivm_auto_inject_sync).lower()}"
-                )
-                _compile_option_list.append("--enable-triton-kernel-compile=true")
-                _compile_option_list.append("--enable-hivm-compile=true")
-
-            TILELANG_ASCEND_MODE = os.environ.get("TILELANG_ASCEND_MODE")
-            if TILELANG_ASCEND_MODE is None or TILELANG_ASCEND_MODE.lower().strip() in [
-                "expert",
-                "exp",
-                "e",
-            ]:
-                _compile_option_list.append("--disable-hivm-tensor-compile=true")
-
-            cmd_list = (
-                [npu_compiler_path, ttadapter_path]
-                + _compile_option_list
-                + ["-o", bin_file]
-            )
             try:
-                ret = subprocess.run(
-                    cmd_list, capture_output=True, check=True, text=True
+                ret = bishengir.compile_mlir(
+                    ttadapter_path,
+                    bin_file,
+                    pass_configs=getattr(self, "pass_configs", {}),
+                    compiler=npu_compiler_path,
                 )
                 print("AscendNPU IR compile success:", ret.stdout)
-            except subprocess.CalledProcessError as e:
+            except bishengir.BishengIRError as e:
                 # print ir
                 print("AscendNPU IR:\n")
                 print(self.mlir_content)
                 # print error info
-                print("err cmd:", " ".join(cmd_list))
+                print("err cmd:", " ".join(e.command))
                 print(f"err code: {e.returncode}")
                 raise RuntimeError(f"NPU IR opt failed: {e.stderr}") from e
             except Exception as e:
-                raise RuntimeError(f"NPU IR opt failed: {e.stderr}") from e
+                raise RuntimeError(f"NPU IR opt failed: {e}") from e
             result = self._get_workspace_size(
                 so_path, "_infer_workspace_shape_function"
             )
@@ -1941,7 +1896,7 @@ class compiler_npu:
                 err_lines = [
                     "AscendNPU IR compile reported success but output object was not generated.",
                     f"Expected output: {bin_path}",
-                    f"cmd: {' '.join(cmd_list)}",
+                    f"cmd: {' '.join(ret.command)}",
                 ]
                 if ret.stdout:
                     err_lines.append(f"stdout:\n{ret.stdout}")

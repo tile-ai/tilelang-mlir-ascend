@@ -80,6 +80,14 @@ jobs:
           --html=testing/npuir/output/report.html --self-contained-html \
           --junitxml=testing/npuir/output/junit.xml
 
+    - name: Run contrib unit tests
+      env:
+        TILELANG_CLEAR_CACHE: "1"
+      run: |
+        python -m pytest -v testing/python/contrib \
+          --html=testing/npuir/output/contrib_report.html --self-contained-html \
+          --junitxml=testing/npuir/output/contrib_junit.xml
+
     - name: Upload test report
       if: always()
       uses: actions/upload-artifact@v4

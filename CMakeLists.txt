@@ -216,6 +216,7 @@ if(USE_NPUIR)
       src/target/codegen_npuir.cc
       src/target/codegen_npuir_api_a5.cc
       src/target/codegen_npuir_dev_a5.cc
+      src/target/codegen_tlir.cc
       src/target/rt_mod_npuir.cc
     )
   else()
@@ -223,6 +224,7 @@ if(USE_NPUIR)
       src/target/codegen_npuir.cc
       src/target/codegen_npuir_api.cc
       src/target/codegen_npuir_dev.cc
+      src/target/codegen_tlir.cc
       src/target/rt_mod_npuir.cc
     )
   endif()
@@ -330,8 +332,14 @@ target_link_libraries(
   z
 )
 if(USE_NPUIR)
-  # TODO: Use Tilelangir Dialect in tilelang_module
-  # target_include_directories(tilelang_objs PRIVATE ${PROJECT_SOURCE_DIR}/tilelangir/include)
+  target_include_directories(tilelang_objs PRIVATE
+    ${PROJECT_SOURCE_DIR}/tilelangir/include
+    ${CMAKE_BINARY_DIR}/tilelangir/include
+  )
+  add_dependencies(tilelang_objs tilelangir_tl_incgen)
+  target_link_libraries(tilelang PRIVATE tilelangir_tl_dialect)
+  target_link_libraries(tilelang_module PRIVATE tilelangir_tl_dialect)
+  set_source_files_properties(src/target/codegen_tlir.cc PROPERTIES COMPILE_OPTIONS -frtti)
 
   if(MLIR_INCLUDE_TESTS)
     add_definitions(-DMLIR_INCLUDE_TESTS)

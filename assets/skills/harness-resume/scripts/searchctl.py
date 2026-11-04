@@ -1,0 +1,446 @@
+#!/usr/bin/env python3
+"""Single-operator search and knowledge records. Python 3.9+, POSIX, stdlib only.
+
+This is a metadata ledger, not an executor or an authentication service.
+"""
+
+import argparse
+from contextlib import contextmanager
+from copy import deepcopy
+from datetime import datetime, timezone
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import tempfile
+
+
+class Invalid(ValueError):
+    pass
+
+
+def require(condition, message):
+    if not condition:
+        raise Invalid(message)
+
+
+def nonempty(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def fields(record, *names):
+    require(isinstance(record, dict), "expected an object")
+    for name in names:
+        require(nonempty(record.get(name)), f"missing/non-string {name}")
+
+
+def identifier(value):
+    require(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,95}", value),
+            "invalid identifier")
+    return value
+
+
+def encoded(value):
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def read(path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def atomic(path, value, immutable=False):
+    data = encoded(value)
+    if immutable and path.exists():
+        require(path.read_bytes() == data, f"immutable record conflict: {path.name}")
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix=".pending-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
+@contextmanager
+def lock(directory):
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / ".lock").open("a") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        yield
+
+
+class Store:
+    def __init__(self, project):
+        self.root = Path(project).resolve()
+        require(self.root.is_dir(), "project directory must exist")
+        self.directory = self.root / ".workspace/search"
+        self.path = self.directory / "tree.json"
+
+    def local(self, relative):
+        require(nonempty(relative) and not Path(relative).is_absolute(), "expected project-relative path")
+        path = (self.root / relative).resolve()
+        require(path.is_relative_to(self.root), "path escapes project")
+        return path
+
+    def reference(self, path):
+        file = self.local(path)
+        return {"path": path, "sha256": digest(file.read_bytes())}
+
+    def verify_ref(self, ref):
+        require(isinstance(ref, dict), "invalid artifact reference")
+        require(self.reference(ref["path"]) == ref, f"artifact changed: {ref['path']}")
+
+    def load(self):
+        tree = read(self.path)
+        self.validate(tree)
+        return tree
+
+    def validate(self, tree):
+        require(isinstance(tree, dict), "expected a search object")
+        require(tree["schema"] == "operator-harness/search@1", "unsupported search schema")
+        fields(tree, "operator", "task_contract")
+        nodes = tree["nodes"]
+        require(tree["current_node"] in nodes, "unknown current node")
+        roots = [key for key, node in nodes.items() if node["parent"] is None]
+        require(len(roots) == 1, "tree must have one root")
+        for key, node in nodes.items():
+            identifier(key)
+            fields(node, "hypothesis", "scope")
+            require(node["status"] in ("open", "parked", "closed"), "invalid node status")
+            seen = set()
+            cursor = key
+            while cursor is not None:
+                require(cursor in nodes and cursor not in seen, "missing parent or tree cycle")
+                seen.add(cursor)
+                cursor = nodes[cursor]["parent"]
+        for key, candidate in tree["candidates"].items():
+            identifier(key)
+            require(candidate["search_node_id"] in nodes, "unknown candidate node")
+            self.verify_ref(candidate["manifest"])
+            self.markdown(candidate["manifest"], candidate_id=key,
+                          search_node_id=candidate["search_node_id"])
+            seen = set()
+            cursor = key
+            while cursor is not None:
+                require(cursor in tree["candidates"] and cursor not in seen, "invalid candidate lineage")
+                seen.add(cursor)
+                cursor = tree["candidates"][cursor]["parent_candidate"]
+            parent = candidate["parent_candidate"]
+            self.markdown(candidate["manifest"], parent_candidate=(
+                tree["candidates"][parent]["manifest"]["path"] if parent else "not_applicable"))
+        for key, run in tree["runs"].items():
+            identifier(key)
+            require(run["search_node_id"] in nodes, "unknown run node")
+            require(run["stage"] in ("analysis", "develop", "device-test"), "invalid workflow stage")
+            self.verify_ref(run["task"])
+            self.markdown(run["task"], run_id=key, node=run["stage"],
+                          search_node_id=run["search_node_id"])
+            candidate = run["candidate_id"]
+            require(candidate is None or candidate in tree["candidates"], "unknown input candidate")
+            if run.get("result"):
+                self.verify_ref(run["result"])
+                self.markdown(run["result"], run_id=key, node=run["stage"],
+                              search_node_id=run["search_node_id"])
+                self.terminal(run["result"])
+        for key, revisions in tree["hot"].items():
+            identifier(key)
+            require(bool(revisions), "empty hot history")
+            for revision, ref in enumerate(revisions, 1):
+                self.verify_ref(ref)
+                hot = read(self.local(ref["path"]))
+                require(hot["id"] == key and hot["revision"] == revision, "invalid hot revision")
+                self.validate_hot(hot, tree)
+        for binding in tree["cooled_inputs"]:
+            require(binding["search_node_id"] in nodes, "unknown knowledge consumer")
+            fields(binding, "reason")
+            self.verify_ref(binding["artifact"])
+            validate_cooled(read(self.local(binding["artifact"]["path"])))
+
+    def validate_hot(self, hot, tree):
+        fields(hot, "statement", "applicability", "limitations")
+        require(hot["kind"] in ("observation", "hypothesis", "conclusion"), "invalid knowledge kind")
+        require(isinstance(hot["nodes"], list) and bool(hot["nodes"]), "hot needs source nodes")
+        require(len(set(hot["nodes"])) == len(hot["nodes"]) and
+                all(node in tree["nodes"] for node in hot["nodes"]), "invalid hot nodes")
+        require(isinstance(hot["evidence"], list) and bool(hot["evidence"]), "hot needs evidence")
+        for ref in hot["evidence"]:
+            self.verify_ref(ref)
+
+    def init(self, operator, task_contract, hypothesis, scope):
+        with lock(self.directory):
+            require(not self.path.exists(), "tree already initialized")
+            tree = {"schema": "operator-harness/search@1", "operator": operator,
+                    "task_contract": task_contract, "current_node": "N0",
+                    "nodes": {"N0": {"parent": None, "hypothesis": hypothesis,
+                                      "scope": scope, "status": "open"}},
+                    "candidates": {}, "runs": {}, "hot": {}, "cooled_inputs": [],
+                    "events": []}
+            self.validate(tree)
+            atomic(self.path, tree)
+            return tree
+
+    def apply(self, operation):
+        """One idempotent, serialized operation; immutable blobs precede its index."""
+        with lock(self.directory):
+            tree = self.load()
+            event_id = identifier(operation["event_id"])
+            for event in tree["events"]:
+                if event["operation"]["event_id"] == event_id:
+                    require(event["operation"] == operation, "event ID reused with different content")
+                    return tree
+            self.mutate(tree, operation)
+            self.validate(tree)
+            tree["events"].append({"at": now(), "operation": deepcopy(operation)})
+            atomic(self.path, tree)
+            return tree
+
+    def mutate(self, tree, op):
+        action = op["op"]
+        if action == "add-node":
+            key = identifier(op["id"])
+            require(key not in tree["nodes"], "node already exists")
+            require(op["parent"] in tree["nodes"], "unknown parent")
+            fields(op, "hypothesis", "scope")
+            tree["nodes"][key] = {name: op[name] for name in ("parent", "hypothesis", "scope")}
+            tree["nodes"][key]["status"] = "open"
+        elif action in ("select", "node-status"):
+            require(op["id"] in tree["nodes"], "unknown node")
+            fields(op, "reason")
+            if action == "select":
+                require(tree["nodes"][op["id"]]["status"] == "open", "reopen node before selecting")
+                require(all(run.get("result") for run in tree["runs"].values()),
+                        "accept outstanding runs before switching strategy")
+                tree["current_node"] = op["id"]
+            else:
+                require(op["status"] in ("open", "parked", "closed"), "invalid status")
+                require(op["status"] == "open" or all(
+                    run.get("result") or run["search_node_id"] != op["id"]
+                    for run in tree["runs"].values()), "node has outstanding runs")
+                tree["nodes"][op["id"]]["status"] = op["status"]
+        elif action == "candidate":
+            key = identifier(op["id"])
+            require(key not in tree["candidates"], "candidate already registered")
+            require(op["search_node_id"] in tree["nodes"], "unknown node")
+            ref = self.reference(op["manifest"])
+            self.markdown(ref, candidate_id=key, search_node_id=op["search_node_id"])
+            parent = op["parent_candidate"]
+            if parent is not None:
+                require(parent in tree["candidates"], "unknown parent candidate")
+            self.markdown(ref, parent_candidate=(tree["candidates"][parent]["manifest"]["path"]
+                                                if parent else "not_applicable"))
+            tree["candidates"][key] = {"search_node_id": op["search_node_id"],
+                                       "parent_candidate": parent, "manifest": ref}
+        elif action == "run":
+            key = identifier(op["id"])
+            require(key not in tree["runs"], "run already registered")
+            require(op["search_node_id"] == tree["current_node"], "run must use selected node")
+            require(tree["nodes"][tree["current_node"]]["status"] == "open", "node is not open")
+            ref = self.reference(op["task"])
+            self.markdown(ref, run_id=key, node=op["stage"], search_node_id=op["search_node_id"])
+            tree["runs"][key] = {"search_node_id": op["search_node_id"], "stage": op["stage"],
+                                  "candidate_id": op["candidate_id"], "task": ref, "result": None}
+        elif action == "accept":
+            run = tree["runs"][op["id"]]
+            require(run["result"] is None, "run already accepted")
+            ref = self.reference(op["result"])
+            self.markdown(ref, run_id=op["id"], node=run["stage"], search_node_id=run["search_node_id"])
+            self.terminal(ref)
+            run["result"] = ref
+        elif action == "hot":
+            key = identifier(op["id"])
+            revisions = tree["hot"].setdefault(key, [])
+            require(type(op["base_revision"]) is int and op["base_revision"] == len(revisions),
+                    "stale hot revision")
+            hot = {name: op[name] for name in ("id", "kind", "statement", "applicability", "limitations", "nodes")}
+            hot["revision"] = len(revisions) + 1
+            hot["evidence"] = [self.reference(path) for path in op["evidence"]]
+            self.validate_hot(hot, tree)
+            # Content addressing allows safe retry after a crash before index commit.
+            path = self.local(f".workspace/knowledge/hot/{key}/{digest(encoded(hot))}.json")
+            atomic(path, hot, immutable=True)
+            revisions.append(self.reference(str(path.relative_to(self.root))))
+        elif action == "use-cooled":
+            fields(op, "reason")
+            ref = self.reference(op["artifact"])
+            cooled = read(self.local(ref["path"]))
+            validate_cooled(cooled)
+            require(cooled["status"] == "active", "cooled knowledge needs revalidation or is superseded")
+            self.latest_cooled(ref)
+            tree["cooled_inputs"].append({"search_node_id": op["search_node_id"],
+                                           "artifact": ref, "reason": op["reason"]})
+        else:
+            raise Invalid(f"unknown operation: {action}")
+
+    def markdown(self, ref, **expected):
+        text = self.local(ref["path"]).read_text(encoding="utf-8")
+        for key, value in expected.items():
+            values = re.findall(rf"^- {re.escape(key)}: (.*?)\s*$", text, re.M)
+            require(values == [value], f"manifest {key} must be exactly {value}")
+
+    def terminal(self, ref):
+        text = self.local(ref["path"]).read_text(encoding="utf-8")
+        values = re.findall(r"^- status: (.*?)[ \t]*$", text, re.M)
+        require(values in (["completed"], ["failed"]),
+                "only terminal results may be accepted; checkpoints remain outstanding")
+
+    def warnings(self, tree):
+        warnings = []
+        for binding in tree["cooled_inputs"]:
+            ref = binding["artifact"]
+            try:
+                self.latest_cooled(ref)
+                require(read(self.local(ref["path"]))["status"] == "active", "cooled version is not active")
+            except Invalid as exc:
+                warnings.append({"search_node_id": binding["search_node_id"],
+                                 "artifact": ref["path"], "reason": str(exc)})
+        return warnings
+
+    def review(self):
+        tree = self.load()
+        return {"operator": tree["operator"], "task_contract": tree["task_contract"],
+                "candidates": [{"hot": read(self.local(refs[-1]["path"])), "artifact": refs[-1]}
+                               for refs in tree["hot"].values()],
+                "instruction": "Select exact revisions at delivery; human approval is required. No automatic promotion."}
+
+    def promote(self, decision, output):
+        # The caller records a real human decision; this CLI cannot authenticate people.
+        with lock(self.directory):
+            tree = self.load()
+            require(decision["schema"] == "operator-harness/cooling-decision@1", "unsupported decision")
+            fields(decision, "id", "reviewer", "reviewed_at", "delivery", "approval_source")
+            require(decision["approved"] is True, "explicit human approval required")
+            identifier(decision["id"])
+            source = self.reference(decision["approval_source"])
+            key = identifier(decision["hot_id"])
+            revisions = tree["hot"][key]
+            revision = decision["revision"]
+            require(type(revision) is int and 1 <= revision <= len(revisions), "invalid hot revision")
+            ref = revisions[revision - 1]
+            hot = read(self.local(ref["path"]))
+            require(decision["hot_sha256"] == ref["sha256"], "approval does not bind exact hot content")
+            fields(decision, "evidence_summary")
+            # No local paths or full private approval transcript in the shared package.
+            cooled = {"schema": "operator-harness/cooled@1", "id": key,
+                      "version": decision["id"], "status": "active",
+                      "kind": hot["kind"], "statement": hot["statement"],
+                      "applicability": hot["applicability"], "limitations": hot["limitations"],
+                      "evidence_summary": decision["evidence_summary"],
+                      "provenance": {"operator": tree["operator"], "task_contract": tree["task_contract"],
+                                     "hot_id": key, "revision": hot["revision"],
+                                     "hot_sha256": ref["sha256"], "nodes": hot["nodes"],
+                                     "evidence_sha256": [item["sha256"] for item in hot["evidence"]]},
+                      "review": {name: decision[name] for name in ("id", "reviewer", "reviewed_at", "delivery")},
+                      "approval_sha256": source["sha256"]}
+            validate_cooled(cooled)
+            directory = self.local(output)
+            require(not directory.is_relative_to(self.root / ".workspace"), "cooled output must be outside .workspace")
+            path = directory / f"{key}--{decision['id']}.json"
+            require(path.exists() or revision == len(revisions), "approval refers to stale hot revision")
+            with lock(directory):
+                if not path.exists():
+                    require(revision == len(revisions), "approval refers to stale hot revision")
+                atomic(path, cooled, immutable=True)
+            return str(path.relative_to(self.root))
+
+    def latest_cooled(self, ref):
+        # A directory is one knowledge collection; distribute its full history.
+        for path in self.local(ref["path"]).parent.glob("*.json"):
+            item = read(path)
+            if item.get("supersedes_sha256") == ref["sha256"]:
+                raise Invalid("cooled version has a successor; inspect its status before reuse")
+
+    def invalidate_cooled(self, artifact, status, version, reason):
+        require(status in ("needs_revalidation", "superseded"), "invalidation cannot grant active status")
+        identifier(version)
+        require(nonempty(reason), "invalidation needs a reason")
+        file = self.local(artifact)
+        with lock(file.parent):
+            ref = self.reference(artifact)
+            cooled = read(file)
+            validate_cooled(cooled)
+            updated = deepcopy(cooled)
+            updated.update(version=version, status=status, supersedes_sha256=ref["sha256"], reason=reason)
+            path = file.parent / f"{identifier(cooled['id'])}--{version}.json"
+            require(path != file, "invalidation must create a new version")
+            if not path.exists():
+                self.latest_cooled(ref)
+            atomic(path, updated, immutable=True)
+            return str(path.relative_to(self.root))
+
+
+def validate_cooled(cooled):
+    require(isinstance(cooled, dict), "expected a cooled object")
+    require(cooled["schema"] == "operator-harness/cooled@1", "unsupported cooled schema")
+    fields(cooled, "id", "version", "statement", "applicability", "limitations", "evidence_summary")
+    require(cooled["status"] in ("active", "needs_revalidation", "superseded"), "invalid cooled status")
+    require(cooled["kind"] in ("observation", "hypothesis", "conclusion"), "invalid cooled kind")
+    fields(cooled["review"], "id", "reviewer", "reviewed_at", "delivery")
+    fields(cooled["provenance"], "operator", "task_contract", "hot_id", "hot_sha256")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--project-dir", default=".")
+    commands = parser.add_subparsers(dest="command", required=True)
+    init = commands.add_parser("init")
+    for flag in ("operator", "task-contract", "hypothesis", "scope"):
+        init.add_argument("--" + flag, required=True)
+    commands.add_parser("show")
+    commands.add_parser("check")
+    commands.add_parser("review")
+    apply = commands.add_parser("apply")
+    apply.add_argument("record", type=Path)
+    promote = commands.add_parser("promote")
+    promote.add_argument("decision", type=Path)
+    promote.add_argument("--output-dir", default="knowledge/cooled")
+    invalidate = commands.add_parser("invalidate-cooled")
+    invalidate.add_argument("artifact")
+    invalidate.add_argument("--status", choices=("needs_revalidation", "superseded"), required=True)
+    invalidate.add_argument("--version", required=True)
+    invalidate.add_argument("--reason", required=True)
+    args = parser.parse_args()
+    try:
+        store = Store(args.project_dir)
+        if args.command == "init":
+            result = store.init(args.operator, args.task_contract, args.hypothesis, args.scope)
+        elif args.command == "apply":
+            result = store.apply(read(args.record))
+        elif args.command == "promote":
+            result = {"artifact": store.promote(read(args.decision), args.output_dir)}
+        elif args.command == "review":
+            result = store.review()
+        elif args.command == "invalidate-cooled":
+            result = {"artifact": store.invalidate_cooled(args.artifact, args.status, args.version, args.reason)}
+        else:
+            result = store.load()
+            warnings = store.warnings(result)
+            if args.command == "check":
+                result = {"valid": True}
+            result["cooled_warnings"] = warnings
+        print(encoded(result).decode(), end="")
+    except (Invalid, OSError, ValueError, KeyError, TypeError) as exc:
+        parser.exit(1, f"searchctl: {exc}\n")
+
+
+if __name__ == "__main__":
+    main()

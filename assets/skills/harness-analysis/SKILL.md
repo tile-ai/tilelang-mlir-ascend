@@ -54,3 +54,5 @@ description: 首次分析标杆的实现思路并形成 TileLang 开发方案；
 RESULT 记录分析类型、确切输入身份、源码/测试/trace 证据、观察与推断、具体方案或修改假设、未决问题、验证 case 和完成/停止条件；纯源码分析将仿真与 trace 判定写为 not_run 或 not_applicable，不能伪造采集。
 
 正常完成后的主推荐是 [harness-develop](../harness-develop/SKILL.md)，交接上述方案/假设；确有必需采集或能力缺口时，推荐具体 device-test 采集或 prepare-environment 补齐动作，并说明返回本 analysis 的条件。用户要求本节点后停止时只给推荐。已接收且输入仍适用的分析不重复做，下一步按 [统一路由](../harness-resume/references/next-action.md) 选择。
+
+启用搜索树时，沿用 TASK 的 `search_node_id`，在 RESULT（以及 develop 生成的候选清单）保留同一归属；阶段执行者不自行切换策略节点。将可复用发现与证据交给协调者归入关联节点的 hot，区分观测、假设和结论。见 [搜索与知识](../harness-resume/references/search-knowledge.md)。

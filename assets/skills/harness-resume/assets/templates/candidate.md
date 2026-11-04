@@ -1,6 +1,7 @@
 # 候选清单
 
 - contract: operator-harness/candidate@1
+- search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - candidate_id: {{项目内唯一候选编号}}
 - producer_run: {{产生此候选的 run/TASK}}
 - parent_candidate: {{父候选清单；初版写 not_applicable}}

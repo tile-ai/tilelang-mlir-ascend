@@ -1,6 +1,7 @@
 # 节点结果 / 检查点
 
 - contract: operator-harness/node-result@1
+- search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - run_id: {{与 TASK 一致}}
 - node: {{与 TASK 一致}}
 - task: {{冻结 TASK 的路径与摘要}}

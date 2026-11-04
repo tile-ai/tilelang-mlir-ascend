@@ -48,3 +48,7 @@ EXPERIMENTS 按运行记录目标/假设、父候选、改变、精度/性能或
 [执行记录](execution-records.md) 规定实际命令、候选、环境、输入与原始输出之间的关联。源码快照或 commit 加完整补丁必须包含实际构建输入；多 case 比较保留全部结果。仿真 cycle、设备时间与端到端延迟分开。
 
 中断时节点 RESULT 留下最后完成步骤、实际 job、产物位置、剩余额度和恢复命令。主 agent 先确认原 agent/job 状态，再由当前或新的 agent 接续；未结束任务可以沿用原 run，接管前确认原执行者不再写入。不能把启动新上下文当作重跑许可。
+
+## 搜索与知识索引
+
+启用搜索树后，STATE 链接 `.workspace/search/tree.json` 并摘要 current_node；详细策略、run 和候选归属以树为准，当前/最佳候选仍按已有验收规则更新。EXPERIMENTS 继续记录实验，不承担树结构。节点内读取相关 hot 和准确版本的 cooled；恢复时校验引用摘要，后继版本/工具链变化触发适用性复核。详见 [搜索与知识](search-knowledge.md)。

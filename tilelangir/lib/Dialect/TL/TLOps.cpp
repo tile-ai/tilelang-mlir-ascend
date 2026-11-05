@@ -40,3 +40,15 @@ LogicalResult AddOp::verify() {
     return emitOpError("operand shapes must match");
   return success();
 }
+
+LogicalResult ShrOp::verify() {
+  auto lhs = llvm::cast<MemRefType>(getLhs().getType());
+  auto rhs = llvm::cast<MemRefType>(getRhs().getType());
+  auto out = llvm::cast<MemRefType>(getOut().getType());
+  if (lhs.getElementType() != rhs.getElementType() ||
+      lhs.getElementType() != out.getElementType())
+    return emitOpError("operand element types must match");
+  if (lhs.getShape() != rhs.getShape() || lhs.getShape() != out.getShape())
+    return emitOpError("operand shapes must match");
+  return success();
+}

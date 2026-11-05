@@ -45,4 +45,23 @@ def TL_AddOp : TL_Op<"add", [
   let hasVerifier = 1;
 }
 
+def TL_ShlOp : TL_Op<"shl", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["lhs", "out"]>
+]> {
+  let summary = "Elementwise left-shift of a tile buffer by a scalar";
+  let description = [{
+    Destination-style vector shift-left: out = lhs << rhs. lhs and out share
+    shape and element type (integer only: i16/i32/i64, per HIVM vshl
+    constraints). rhs is a scalar shift amount, not a tile buffer, matching
+    the HIVM ScalarOnlyHWTrait constraint on vshl's second operand.
+    Example:
+      tl.shl ins(%a, %shift) outs(%c) : memref<64xi32>, i32
+  }];
+  let arguments = (ins AnyMemRef:$lhs, AnyType:$rhs, AnyMemRef:$out);
+  let assemblyFormat =
+      "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` attr-dict `:` type($lhs) `,` type($rhs)";
+  let hasVerifier = 1;
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

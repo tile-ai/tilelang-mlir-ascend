@@ -45,4 +45,22 @@ def TL_AddOp : TL_Op<"add", [
   let hasVerifier = 1;
 }
 
+def TL_AndOp : TL_Op<"and", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["lhs", "rhs", "out"]>
+]> {
+  let summary = "Elementwise bitwise AND of two tile buffers";
+  let description = [{
+    Destination-style vector and: out = lhs & rhs. All operands share shape
+    and element type.
+
+    Example:
+      tl.and ins(%a, %b) outs(%c) : memref<64xf32>
+  }];
+  let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out);
+  let assemblyFormat =
+      "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` attr-dict `:` type($lhs)";
+  let hasVerifier = 1;
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

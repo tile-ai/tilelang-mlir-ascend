@@ -11,8 +11,8 @@
 | `STATE.md` | 当前进展、当前候选与最佳已验证候选、性能概况、待决问题和下一步 |
 | `EXPERIMENTS.md` | 开始分析或调优后，按实验记录尝试、结果、取舍和产物链接 |
 | `BASELINE.md` | 协调者接收后发布的标杆索引，指向 run 内确切 BASELINE 修订、参考/case/协议与测量证据 |
-| `ENVIRONMENT.md` | 环境准备后建立的节点绑定索引，指向 development/device/simulation 各自约定 |
-| 工作目录 `.workspace/environments/<id>.md` | 共享环境描述与确切修订；项目 ENVIRONMENT.md 只选择和绑定，不复制全套共享信息 |
+| `ENVIRONMENT.md` | 环境准备后建立的执行阶段绑定与项目使用约定；开发/上板可共用环境描述 |
+| 工作目录 `.workspace/environments/onboard/<id>/` | 共享上板环境的描述修订与证据；项目只引用事实，另保留本项目授权和资源约定 |
 | `DECISIONS.md` | 实际用户回答、问题 ID、作用域、日期与替代关系；主 agent 维护 |
 | `AUTOMATIC.md` | 自动模式启用时的批次、控制步数、协调者与停止原因，status 只读，普通项目无需空建 |
 | `RESOURCE_USAGE.md` | 资源额度预留、消耗与未知作业占用；与环境约定修订分离 |

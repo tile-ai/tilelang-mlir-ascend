@@ -23,7 +23,9 @@
 | [标杆记录](../../harness-establish-baseline/assets/templates/baseline.md) | 本 run 的 `BASELINE.md`；共享 `.workspace/<project>/BASELINE.md` 仅索引确切记录 | establish-baseline 生成，主 agent 接收后发布索引 |
 | [候选清单](../assets/templates/candidate.md) | 产生候选的运行目录 `CANDIDATE.md` | develop；其他节点产生的构建物另存清单，不改候选 |
 | [环境索引](../../harness-prepare-environment/assets/templates/environment-index.md) | `.workspace/<project>/ENVIRONMENT.md` | 主 agent 接收环境结果后更新 |
-| [单环境约定](../../harness-prepare-environment/assets/templates/environment.md) | `.workspace/environments/<id>.md` | prepare 在自己的输出目录生成提案，主 agent 接收后发布 |
+| [共享上板环境描述](../../harness-prepare-environment/assets/templates/environment.md) | `.workspace/environments/onboard/<id>/revisions/<revision>.md` | prepare 生成提案，协调者接收后发布；项目绑定按 v2 模板引用 |
+
+环境描述与项目绑定新模板使用 environment@2 / environment-index@2，分别保存共享上板事实与项目使用约定；development/device 可引用同一描述。v1 旧记录保留原角色语义，兼容与 simulator 边界见 [环境契约](../../harness-prepare-environment/references/environment-contract.md)。
 
 automatic 另按其 [控制模板](../../harness-automatic/assets/templates/automatic.md) 保存批次、步数与停止原因，不改变六份节点记录的职责。status 不创建这些文件，next 仅在执行需要时建立记录。
 
@@ -49,7 +51,7 @@ live 记录允许正常追加，不以整个文件摘要变化判定候选失效
 
 | 节点 | 除公共字段外必须提供 | 必交付 |
 | --- | --- | --- |
-| prepare-environment | 本任务计划启用的能力、已知环境事实/选择、各侧已有权限来源、尚未解决的问题；允许只做访谈 | RESULT；各角色约定提案和索引提案；实际探针证据或逐能力未测原因 |
+| prepare-environment | 本任务计划启用的能力、已知环境事实/选择、各侧已有权限来源、尚未解决的问题；允许只做访谈 | RESULT；Python、TileLang/torch/torch_npu 与 CANN 选择及来源；共享上板描述与项目绑定提案；实际探针证据或未测原因 |
 | establish-baseline | 语义与必选 case、正确性参考或允许创建范围、目标/实现限制、调查与选择规则、已有标杆与变更原因；实测绑定 development/device 约定和测量协议（允许在 run 内先生成并冻结） | RESULT；BASELINE；可重建参考/适配、case/协议快照、候选调查/排除理由、全部必需正确性与原始性能证据或逐项缺口；复测入口 |
 | analysis | 首次：确切标杆/参考、实现源码与适配、case/契约、测量边界、目标TileLang能力；后续：当前候选、最新测试结果、具体问题及已有分析；新仿真另绑定simulation约定/模型/配置，旧trace绑定历史身份 | RESULT；首次实现思路与开发方案，或当前kernel问题诊断；源码/测试/trace证据与限制、观察/解释/可验证假设、交给develop的修改及验证计划；无采集时如实注明 |
 | develop | 可执行语义与输入输出、边界/动态约束、case/参考/容限、性能目标或本次不测、已接收analysis方案/诊断、父候选与前序失败、开发约定；显式仅编写任务注明所据方案；初版无参考时明确创建范围与独立检查 | RESULT；可重建源码；CANDIDATE；已做编译检查及未验证项；device-test入口 |
@@ -75,7 +77,7 @@ live 记录允许正常追加，不以整个文件摘要变化判定候选失效
 
 ### 资源余额单独记账
 
-环境约定只保存预算政策与上限，实时余额不属于环境身份。主 agent 在 `.workspace/<project>/RESOURCE_USAGE.md` 维护最小账本：`reservation_id、环境/共享资源ID、run_id、额度单位与预留量、已结算量、未决占用、状态、job/RESULT依据`。STATE 链接账本，TASK 固定本次 reservation 和分配额度。节点只能在已分配额度内执行，并在 RESULT 报告增量消耗，不能把旧环境快照中的“剩余”当作可用余额。
+项目环境使用约定只保存预算政策与上限，共享环境描述不授予项目额度；实时余额不属于环境身份。主 agent 在 `.workspace/<project>/RESOURCE_USAGE.md` 维护最小账本：`reservation_id、环境/共享资源ID、run_id、额度单位与预留量、已结算量、未决占用、状态、job/RESULT依据`。STATE 链接账本，TASK 固定本次 reservation 和分配额度。节点只能在已分配额度内执行，并在 RESULT 报告增量消耗，不能把旧环境快照中的“剩余”当作可用余额。
 
 首次预留前创建账本，协调者执行/派发前串行预留，按实际结果结算；unknown 作业保留未决占用，新的恢复任务引用同一作业与预留，不重新释放后再分配。共享物理资源另受已有锁/队列约束，本账本不替代跨进程设备锁。仅余额变化不递增环境修订、不使探针失效；预算政策/授权范围变化才更新约定，并检查受影响的在途任务。
 

@@ -12,7 +12,7 @@ TASK v2 的路径字段相对 workspace_root；Markdown 链接仍相对所在文
 workspace/
   .agents/skills/
   .workspace/
-    environments/             # 共享环境描述，具体节点改造另行设计
+    environments/             # onboard/<id>/ 保存共享上板描述；simulator 后续设计
     example/
       project.json            # 身份、状态、owner、仓库清单、生命周期事件
       PROJECT.md              # 目标、集成规则、检查计划与交付约定
@@ -112,7 +112,7 @@ jobs/unsettled_resources/open_runs 列出尚未解决的事项，未知也必须
 
 ## 共享信息与旧布局
 
-共享环境描述位于 `.workspace/environments/`；每项目的 ENVIRONMENT.md 仍只绑定本项目选择的角色/ID/修订与能力。共享环境不继承另一个项目的许可或设备预算。本轮只改位置边界，不新增跨项目环境发布、额度调度或探针策略。项目 RESOURCE_USAGE 与已有物理设备锁仍分别生效。
+共享上板环境位于 `.workspace/environments/onboard/<id>/`；项目 ENVIRONMENT.md 绑定执行阶段、描述修订与能力，保存本项目使用约定。按 [环境契约](../../harness-prepare-environment/references/environment-contract.md) 复用事实与证据，不继承其他项目的许可或预算。共享发布目前由协调者检查执行，没有新增自动注册器或调度服务；旧环境记录不自动迁移。
 
 项目私有知识放 `knowledge/hot/`。共享 cooled 按现有人工批准与发布规则生成到工作目录 `knowledge/cooled/<project>/`，不把另一个项目的内部证据路径当成自己的候选来源。
 

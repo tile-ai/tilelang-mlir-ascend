@@ -50,7 +50,7 @@ flowchart LR
 ```
 
 1. **明确需求**：确定功能语义、动态 shape 行为、case 范围、数值要求和外部约束。
-2. **准备环境**：通过问询分别确定开发、上板与仿真的环境和使用约定，完成所需能力的实际探针；后续各读各自约定，仅对变化或缺口补问。
+2. **准备环境**：多轮确定 Python、TileLang、torch/torch_npu 与 CANN，准备并验证共享上板环境；后续复用确切绑定，只补变化或缺口。simulator 接入另行设计。
 3. **构造标杆**：分别建立正确性参考和性能基线，固定输入、误差容限与测量协议。
 4. **首次分析与实现**：analysis 分析标杆的算法、布局、并行与适配思路，交给 develop 编写 TileLang 初版，再由 device-test 验证。
 5. **迭代调优**：测试后需要改进时回到 analysis，通过反例、仿真和流水证据定位问题，形成修改假设，按 develop → device-test 再验证。
@@ -109,7 +109,7 @@ $harness-archive-project 冻结或归档项目，保存可恢复现场。
 $harness-restore-project 检查并恢复被冻结或归档的项目。
 $harness-next 直接推进一个下一步，完成后返回。
 $harness-automatic 在已有目标和预算内连续推进当前任务。
-$harness-prepare-environment 分别问清开发、上板和仿真环境的使用约定，并验证所需能力。
+$harness-prepare-environment 多轮确定 Python、TileLang 配套与 CANN，准备并验证本项目使用的上板环境。
 $harness-establish-baseline 根据已绑定环境调查参考实现，验证并固定正确性参考和性能标杆。
 $harness-analysis 首次分析标杆实现思路，后续通过仿真和流水分析定位当前 kernel 的问题。
 $harness-develop 按已接收的分析方案和开发约定编写或修复 TileLang 候选。
@@ -118,7 +118,7 @@ $harness-device-test 使用已有上板约定验证当前候选的精度和性�
 
 `harness-new-project` 用于新项目的需求澄清和规划；`harness-onboard` 用于已有项目接入，这里的 onboard 不执行 NPU 上板。CLI/IDE 也可通过 `/skills` 选择技能；本项目没有注册 `/harness-*` 顶层 slash commands。若技能尚未出现在宿主中，重启会话后再检查。发现与调用方式见 [Codex 技能文档](https://learn.chatgpt.com/docs/build-skills)。
 
-五个节点 skills 提供可执行的方法与工具路由，使用项目已验证的实际工具。环境准备将上板与仿真分别保存为独立约定，即使同机也不共享授权或已验证标记；没有可用执行工具时明确记录阻塞。后续节点读取自己的约定，不重新问整套环境。
+五个节点 skills 提供方法与工具路由，使用已核实的实际工具。环境准备先确定 conda/venv 等 Python 方案、TileLang 与 torch/torch_npu 版本，再与 CANN 的复用或安装方案核对；已有选择不重复问。共享上板描述位于 `.workspace/environments/onboard/<id>/`，项目绑定确切修订及自身使用约定。simulator 新接入后续设计，旧仿真约定仍可读取；上板验证不等于仿真验证。详见 [环境契约](assets/skills/harness-prepare-environment/references/environment-contract.md)。
 
 `harness-new-project` 和 `harness-onboard` 共用连续追问流程：沿着回答深入，用具体场景澄清歧义，理解充分后复述并进入规划，或按用户选择继续探索。已有项目先吸收代码和文档，只追问未知项与实际冲突；明确的“直接生成”指令不再重复确认。未结束的讨论暂存在 `.workspace/<project>/drafts/`，已有阻塞问题在下次调用时继续澄清。
 

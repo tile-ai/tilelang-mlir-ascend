@@ -9,7 +9,7 @@
 1. `STATE.md`：当前任务与待派发/在途 run、实际 agent ID、下一步。
 2. `REQUIREMENTS.md`：语义、case、精度与性能验收；执行前读取 PROJECT 的适用契约修订，按需展开 ROADMAP。
 3. `DECISIONS.md`：已回答的问题、作用域、来源及替代关系；没有新决定时不创建空文件。
-4. `ENVIRONMENT.md`：development/device/simulation 到各自约定的绑定。
+4. `ENVIRONMENT.md`：执行阶段到确切环境修订的绑定、本项目使用约定；development/device 可共用 onboard 描述，仿真按其独立约定。
 5. `RESOURCE_USAGE.md`：首次预留资源前建立的预留、消耗、未结算作业账本。
 6. `EXPERIMENTS.md`：只展开与当前任务有关的实验和证据。
 7. `BASELINE.md`（相关时）：标杆索引，解析到确切 run 的参考/测量记录与摘要。

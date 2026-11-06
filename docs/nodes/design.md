@@ -20,7 +20,7 @@
 
 ```mermaid
 flowchart TD
-    R[任务与已有记录] --> E[环境准备：独立开发/设备/仿真约定]
+    R[任务与已有记录] --> E[环境准备：多轮选择与共享上板绑定]
     E --> B[标杆建立：固定实现/case/协议]
     B --> A[analysis：首次标杆思路与开发方案]
     A --> D[develop：实现或修改候选]
@@ -41,15 +41,13 @@ flowchart TD
 
 入口为 `harness-prepare-environment`。读取需求、已知配置与历史决定，先查可检测事实，再问用户独有的选择和约束。对已有项目只补缺口，未回答的问题不能按超时自动采用推荐值。
 
-分别确认 development、device、simulation 三条执行链。每条链包括 frontend lowering、设备编译、实际运行/分析的位置；其中适用的每一步独立声明 local/remote 与 host/docker。上板编译可以在客户端或远端，仿真也可以有独立编译链，不能将“远程运行”理解为本地无需 SDK。
+环境按 onboard/simulator 两类规划，development、device、simulation 表示执行阶段。当前先提供共享上板环境的指示与模板；开发与上板可以绑定同一描述，也可按实际 lowering/编译/运行位置分别绑定。每个位置明确 local/remote 与 host/container。
 
-问询内容与记录见 [环境约定](../../assets/skills/harness-prepare-environment/references/environment-contract.md)。重点是：目标/工具版本、访问与容器/挂载、产物回收、允许动作与禁止事项、资源和超时、设备共享规则、依赖变更范围。每轮围绕实际缺口，沿用明确答案，不把表格变成固定问卷。
+按 [上板环境问询](../../assets/skills/harness-prepare-environment/references/onboard-questioning.md) 多轮收敛：先确定 conda/venv 等 Python 环境、复用或新建及版本，再明确 TileLang、torch、torch_npu 的版本与来源，结合 CANN 的复用或安装方案核对兼容性。没有 CANN 时与用户讨论安装方式；依赖这些选择的安装不能先行。已有选择与授权直接复用，不用一张预填配置表代替交互。
 
-先问清本任务计划使用哪些能力。已启用且影响后续实验的能力必须验证；明确不需要的能力记 disabled，可选但暂缓准备的仿真记 deferred。不能用一个整体 ready 掩盖某一侧未就绪。
+按 [环境契约](../../assets/skills/harness-prepare-environment/references/environment-contract.md) 保存共享事实、项目使用约定和实际验证证据。一条适用的小型自校验路径可覆盖依赖加载、编译、设备运行与输出比较；计时按需求验证，不强制逐项拆成独立探针。普通环境通过后即可交接，机器特例只在其环境描述中处理。
 
-验证按身份/连接与路径、依赖、最小编译、最小运行逐级进行。device 需实际输出比较和所需计时能力；simulation 需独立模拟运行、模型错误检查、输出比较及本次所需 trace 解析。每个探针都在本环境自己的授权与预算内，可从 unverified/stale 能力状态执行；verified 门槛用于正式候选实验，不阻断首次验证探针。只允许读取的环境保持相应运行能力 unverified，不把版本输出当作完整可用证明。
-
-环境准备不隐含重建系统、升级 SDK 或扩大资源的许可。已有授权覆盖的补齐动作直接进行，超出约定才针对具体动作问询。设备忙采用已约定的队列/锁与有限等待，不转用其他机器。
+simulator 完整接入另行设计，已有仿真约定与证据保留原语义；上板准备不填造仿真 verified。环境验证不代替目标算子验收，资源与权限沿用项目实际约定。
 
 ### 4.2 标杆建立
 
@@ -141,8 +139,8 @@ flowchart TD
 | --- | --- |
 | `.workspace/<project>/STATE.md` | 当前任务、下一步、当前/最佳候选，由主 agent 汇总 |
 | `.workspace/<project>/BASELINE.md` | 主 agent 发布的轻量索引，指向 run 内不可变标杆版本、来源/case/协议及证据 |
-| `.workspace/<project>/ENVIRONMENT.md` | development/device/simulation 绑定与状态摘要，主 agent 接收环境提案后发布，无公共执行许可 |
-| `.workspace/environments/<id>.md` | 一份节点专属约定、修订、能力与探针链接 |
+| `.workspace/<project>/ENVIRONMENT.md` | 执行阶段绑定与本项目使用约定，协调者接收后发布，无公共执行许可 |
+| `.workspace/environments/onboard/<id>/` | 共享上板描述索引、不可变修订和能力证据；旧单文件约定只读兼容 |
 | `.workspace/<project>/runs/<run-id>/` | 本次请求、候选与约定快照、原始结果、摘要 |
 | `.workspace/<project>/EXPERIMENTS.md` | 成功、失败与无收益实验索引 |
 | `.workspace/<project>/DECISIONS.md` | 问题 ID、真实用户回答、作用域与替代关系，主 agent 维护 |

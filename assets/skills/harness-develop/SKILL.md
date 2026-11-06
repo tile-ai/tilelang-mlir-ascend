@@ -23,6 +23,8 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 
 ## 按目标版本编写
 
+先读取 TASK 固定的 [项目契约](../harness-new-project/references/project-contract.md)，遵守本次目标仓库的 API、注册、lint、测试/打包与依赖功能约束。规则与当前源码冲突时保留依据并交协调者修订，不能等到发布前才调查基本集成要求。
+
 使用 [TileLang 开发与定位](references/tilelang-workflow.md)，以环境中绑定的 TileLang 仓库/revision、Ascend dialect、目标架构及后端为依据查 API 和示例。首批语言来源是 tile-ai/tilelang；不要默用旧 NPUIR 分支、OpenTile 方言或其他后端同名 API。
 
 先实现覆盖契约的最小版本。资源布局、尾部 mask、同步、Cube/Vector 分工和 launch 参数都必须与所选目标一致。一次优化围绕一个可验证假设，记录父候选、改变和预期影响。重试受任务预算限制；只有新证据或条件变化时才重复失败路线。
@@ -30,6 +32,8 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 编译/lowering 必须按本次开发约定执行。目标产物若需要在上板或仿真环境编译，交给相应节点，并携带其环境绑定；开发环境的成功不能替代另一工具链编译。无需每次重新询问已确定的环境。
 
 ## 交付候选与验证任务
+
+首次候选交给 device-test 前完成项目检查计划中适用的低成本项，按 [PRECHECK 模板](assets/templates/precheck.md) 保存输入身份、实际命令、判定与日志；后续只重跑受改动影响的检查。失败/未运行/工具缺失不写通过，自动修复改动后重新固定候选。CPU 可发现的集成错误先修复；必须先设备诊断的例外在 TASK 说明范围，不将诊断当发布验收。高成本检查仍受环境和预算约束。
 
 在 `.workspace/<project>/runs/<实验编号>/` 保存 [证据记录](../harness-resume/references/execution-records.md)：候选源码快照或 commit 加补丁、依赖/配置摘要、参考/case/协议身份、命令和日志、编译产物及入口/ABI/launch 信息。多 kernel 算子记录整条调用链；JIT 首次运行会触发的编译也计入预算与记录。
 

@@ -23,6 +23,20 @@
 
 工作树创建先保存准备意图，再执行 Git，最后登记实际身份。响应丢失时用原参数核对已有 worktree，不创建第二份或自动删掉冲突目录。未提交的源仓库改动不会自动进入新 worktree。
 
+## 项目契约与交付
+
+[项目契约](../../assets/skills/harness-new-project/references/project-contract.md) 将目标仓库的 API、lint、依赖和测试要求前移到 new-project/onboard。它由 agent 按实际来源填写，已有回答直接复用；未知项只阻塞依赖它的动作，不要求用户逐格填表。
+
+| 记录 | 模板 | 职责 |
+| --- | --- | --- |
+| PROJECT.md | [项目模板](../../assets/skills/harness-new-project/assets/templates/project.md) | 目标、规范来源、检查计划、必需/诊断证据与授权引用；不重复维护进度或阈值 |
+| runs/<run-id>/PRECHECK.md | [预检模板](../../assets/skills/harness-develop/assets/templates/precheck.md) | 正式设备验收前适用低成本检查的实际输入、命令、判定和日志 |
+| deliveries/<delivery-id>/DELIVERY.md | [交付模板](../../assets/skills/harness-resume/assets/templates/delivery.md) | 发布版与实测版差异、证据复用/补测/未验证范围及实际发布回执 |
+
+PROJECT 的 draft/ready 只描述计划完整性；TASK 固定契约修订，变更保留旧快照和影响说明。发布前目标 base、源码、依赖或调用路径有变化时重新判断证据适用范围。静态等价不代表新版本已实卡验证，诊断附件缺失也不自动否定已有验收结果。
+
+这些是 skill 执行的检查规则，没有新增自动评测 gate。项目生命周期工具不解析 PROJECT 的自然语言，也不凭 ready 授予推送或合并权限。
+
 ## 生命周期
 
 ```mermaid
@@ -49,3 +63,5 @@ TASK/RESULT/candidate 使用包含 project_id 的 v2 模板；TASK 明确 worksp
 ## 验收范围
 
 CPU 测试使用临时 Git 仓库验证多项目 worktree 隔离、保留脏文件、准备中断恢复、会话冲突、生命周期阻塞、暂停 run 恢复、legacy 只读与独立目录安装。搜索测试验证各项目账本与证据引用隔离、生命周期写入检查和原有幂等/知识修订行为。此类测试不替代外部作业或实卡能力验证。
+
+项目契约的工作流审阅场景：完整规则与匹配的预检可交接设备验收；明确的导入错误先回 develop；发布前 host 调用或依赖能力变化须说明受影响项并补测，未测不得宣称通过；仅缺诊断附件保留限制；已授权推送不重复询问，未授权合并不执行。此类静态审阅与安装检查不等同自动 gate 测试或实卡验证。

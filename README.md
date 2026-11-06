@@ -132,6 +132,8 @@ python3 scripts/install_codex_skills.py --workspace operator-workspace
 
 Agent 在选定项目的 `.workspace/<project>/` 中维护 `PROJECT.md`、`REQUIREMENTS.md`、`ROADMAP.md` 和 `STATE.md`，接入已有项目时补充 `codebase/MAP.md`。这些都是可以直接编辑的 Markdown，按项目进展逐步建立；未决问题和下一步留在状态记录中，草稿与研究材料按需保存。
 
+PROJECT 使用 [项目模板](assets/skills/harness-new-project/assets/templates/project.md) 固定目标仓库规范、早期检查和交付条件。develop 记录适用预检；收尾使用 [交付模板](assets/skills/harness-resume/assets/templates/delivery.md) 对照发布版与实测版，逐项说明证据可复用、需补测或未验证。详见 [项目契约](assets/skills/harness-new-project/references/project-contract.md)。
+
 标杆建立由 `harness-establish-baseline` 完成：明确比较语义、调查候选及版本、先验证正确性再测量性能，输出 run 内的 `BASELINE.md` 和原始证据。协调者发布 `.workspace/<project>/BASELINE.md` 索引，下游固定具体修订复用。只调查可以完成任务但不等于标杆 ready；“最快”仅指声明的调查范围和实测条件。节点收尾在最终回复与记录中都给出一个具体下一步建议，用户要求停止时不继续执行。
 
 后续工作通过 `harness-resume` 接续：`STATE.md` 保存当前候选、最佳已验证候选、性能概况与下一步；`EXPERIMENTS.md` 记录成功、失败和无收益的尝试；`runs/<编号>/` 保存对应代码、详细结果与日志。新的 agent 先读摘要，再按需要打开相关实验。

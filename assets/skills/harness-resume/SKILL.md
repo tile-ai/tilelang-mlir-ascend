@@ -23,6 +23,8 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 从 `.workspace/<project>/STATE.md` 开始，按链接读取需求、相关实验、决定和在途任务。用 [工作记录与交接](references/working-context.md) 区分当前候选、最佳已验证候选和未验证项，不从源码推断历史结果。
 
+读取 [项目契约](../harness-new-project/references/project-contract.md) 的确切修订，检查本次仓库规则、早期检查、交付证据与授权范围；旧 PROJECT 只补当前动作必需的缺口，不重新询问已有决定。
+
 先确认已有执行者和外部 job 是否仍活跃，未确认结束不得重复执行或提交。根据目标和预算选择下一项具体工作；重复失败路线需要新的依据或条件变化。用户指令改变范围时先写入项目决定和相关需求，不能让后续执行者依赖聊天。
 
 ## 准备并执行节点
@@ -50,6 +52,8 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 模式切换先落盘再等待，暂停须传给活跃节点；接管协调者与替换节点是两件事，按 [共用切换规则](references/next-action.md#6-模式切换与接管) 处理。检查点恢复与接收中断分别按节点契约恢复执行或补齐对账，不能重复派发、结算。
 
 ## 收尾与下一步
+
+项目交付时按 [DELIVERY 模板](assets/templates/delivery.md) 保存 `.workspace/<project>/deliveries/<delivery-id>/DELIVERY.md`，逐仓库对照实测输入与最终发布输入，列出可复用、待补测、未验证的范围及理由。静态一致不冒充发布版实卡重测；目标 base 更新要检查集成影响。提前约定的 required/diagnostic 分类继续有效，不能无依据追加附件门槛。先完成授权内可审阅的源码、检查和 PR/MR 正文，发布动作分别核对已有授权；缺许可只阻塞对应动作，不重复问已有许可。
 
 按 TASK 完成条件检查 RESULT、产物与身份。委派时由主 agent 接收，直接交互由当前 agent 完成同样检查；completed 不等于精度或性能通过。缺失或矛盾时保留原结果，建立具体补充任务，不用换 agent 来代替修复信息缺口。
 

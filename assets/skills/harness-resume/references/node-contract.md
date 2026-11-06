@@ -36,6 +36,7 @@ automatic 另按其 [控制模板](../../harness-automatic/assets/templates/auto
 - 契约版本、唯一 run ID、节点和本次操作范围、项目根定位方式、父运行或首次任务说明。
 - 本次目标、完成条件、明确不包含的动作；只有“继续优化”不够，须有具体问题与停止条件。
 - 有顺序的输入清单：STATE 导航、任务需求、用户决定、候选/参考/case/协议、节点环境、相关前序结果；每项写作用、路径、读取策略与身份。候选/需求/参考/case/协议/环境约定使用 snapshot，固定 revision/摘要或不可变副本；STATE 导航、DECISIONS 增量与 RESOURCE_USAGE 使用 live，记录派发时水位和实际读取版本。可变候选指针须在派发前解析成具体输入。
+- PROJECT 按 [项目契约](../../harness-new-project/references/project-contract.md) 固定适用修订/摘要或不可变副本，提供本次集成规则、检查计划与交付条件；已有 PRECHECK 需绑定实际候选，缺失则列出本次适用检查。
 - 操作步骤与已知工具入口：启动位置、实际工具/脚本、命令或参数来源、依赖、预期产物与成功检查、状态查询/回收/取消入口；不知道接口时把“查清接口”明确为任务，不能派发假定可直接上板的任务。
 - 授权来源与作用域、预算计数和本次分配额度、排他资源/锁、可改文件、只读文件、输出目录、在途作业。
 - 必交付文件与证据、未决问题、受阻时可以独立做的工作，以及下一节点所需信息。
@@ -105,3 +106,7 @@ TASK、RESULT、candidate 新模板分别使用 `operator-harness/node-task@2`�
 ## 搜索树兼容扩展
 
 TASK、RESULT、candidate 的 search_node_id 在未启用树时可省略；未启用树的旧记录仍可读取。启用树后的新探索记录必须填写准确策略节点 ID。原 `node` 始终是工作流阶段，run_id 是阶段执行身份，candidate_id 是代码候选身份；三者都不代替搜索节点。参见 [搜索与知识](search-knowledge.md)。
+
+## 项目交付记录
+
+项目级 [PROJECT](../../harness-new-project/assets/templates/project.md)、开发 run 内 [PRECHECK](../../harness-develop/assets/templates/precheck.md) 和收尾时 [DELIVERY](../assets/templates/delivery.md) 补充上述节点记录，不新增节点。PROJECT 定义规则，PRECHECK 保存实际检查，DELIVERY 对照最终发布版与实测版并说明证据适用范围；详细规则见 [项目契约与交付检查](../../harness-new-project/references/project-contract.md)。

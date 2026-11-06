@@ -15,7 +15,7 @@ workspace/
     environments/             # 共享环境描述，具体节点改造另行设计
     example/
       project.json            # 身份、状态、owner、仓库清单、生命周期事件
-      PROJECT.md              # 目标、范围、仓库选择与环境引用
+      PROJECT.md              # 目标、集成规则、检查计划与交付约定
       STATE.md
       REQUIREMENTS.md
       ROADMAP.md
@@ -27,11 +27,14 @@ workspace/
       sources/                # 必要时获取的项目专属依赖源仓库
       builds/                 # 项目自己的构建和可变缓存
       runs/
+      deliveries/             # 按需保存最终版本对照与交付证据
       search/
       knowledge/hot/
 ```
 
 按需创建内容，不预填整套空文档。project.json 只放发现、归属和生命周期信息，STATE 保存开发进展，不在两处维护当前最佳候选。
+
+PROJECT 使用 [项目契约](project-contract.md) 与 [模板](../assets/templates/project.md)，定义开发与交付约定。其 draft/ready 表示计划完整性，与 project.json 的生命周期、环境可用性、测试结论及发布权限分别判断。
 
 ## 选择项目
 

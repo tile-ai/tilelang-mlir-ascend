@@ -5,7 +5,7 @@
 | 文件 | 内容 |
 | --- | --- |
 | `project.json` | projectctl 管理的身份、生命周期、owner 与仓库清单；不手工改状态绕过检查 |
-| `PROJECT.md` | 为什么做、使用场景、本期范围、重要约束和决定 |
+| `PROJECT.md` | 版本化项目契约：目标/范围、仓库集成规范、依赖能力、早期检查、交付证据与授权引用；使用 [项目模板](../assets/templates/project.md) |
 | `REQUIREMENTS.md` | 具体需求及可观察的完成条件；用简短 ID 便于引用 |
 | `ROADMAP.md` | 按依赖组织阶段，关联需求并说明阶段完成条件 |
 | `STATE.md` | 当前进展、当前候选与最佳已验证候选、性能概况、待决问题和下一步 |
@@ -17,8 +17,12 @@
 | `AUTOMATIC.md` | 自动模式启用时的批次、控制步数、协调者与停止原因，status 只读，普通项目无需空建 |
 | `RESOURCE_USAGE.md` | 资源额度预留、消耗与未知作业占用；与环境约定修订分离 |
 | `codebase/MAP.md` | 已有项目的代码现状与有用的文件入口，由 onboard 维护 |
+| `runs/<run-id>/PRECHECK.md` | develop 的实际低成本检查、输入身份与日志；计划仍在 PROJECT |
+| `deliveries/<delivery-id>/DELIVERY.md` | 最终发布版与实测版的差异、证据覆盖、补测/未验证项及发布动作 |
 
 按对话进展逐步建立这些记录，不为凑齐文件写空模板。定位、隔离与归档遵循 [项目管理契约](project-management.md)。同一项信息放在最适合的位置，其他文档引用即可。研究材料和临时笔记只在需要时写入 `research/`、`drafts/`。
+
+[项目契约](project-contract.md) 规定 PROJECT 的必需信息、修订和早期检查；它不与 project.json 生命周期、REQUIREMENTS 验收细则或 STATE 进展重复记账。模板是 agent 编写辅助，不要求用户自行填写。
 
 更新前读取相关文档，保留仍然有效的内容并直接修改变化部分。人工编辑是正常输入。未决问题说明影响什么、下一步怎么处理；不妨碍当前工作的细节可以留到后续阶段。
 

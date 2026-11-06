@@ -7,7 +7,7 @@
 先按 [项目管理契约](../../harness-new-project/references/project-management.md) 选择项目，以 `.workspace/<project>/` 为记录根：
 
 1. `STATE.md`：当前任务与待派发/在途 run、实际 agent ID、下一步。
-2. `REQUIREMENTS.md`：语义、case、精度与性能验收；按需读 PROJECT/ROADMAP。
+2. `REQUIREMENTS.md`：语义、case、精度与性能验收；执行前读取 PROJECT 的适用契约修订，按需展开 ROADMAP。
 3. `DECISIONS.md`：已回答的问题、作用域、来源及替代关系；没有新决定时不创建空文件。
 4. `ENVIRONMENT.md`：development/device/simulation 到各自约定的绑定。
 5. `RESOURCE_USAGE.md`：首次预留资源前建立的预留、消耗、未结算作业账本。
@@ -16,6 +16,8 @@
 8. `AUTOMATIC.md`（如有）：当前自动批次、协调者、已用步数、在途步骤与停止原因，避免重复协调。
 
 多算子项目由 STATE 指向本任务的需求与记录，不混用候选。记录与产物通常被 Git 忽略，迁移 worktree/机器必须携带相关输入和证据。
+
+PROJECT 按 [项目契约](../../harness-new-project/references/project-contract.md) 保存集成规则、检查计划与交付要求，TASK 固定适用修订。实际早期检查位于 run 内 PRECHECK.md，最终版本对照位于 deliveries/<delivery-id>/DELIVERY.md；STATE 只链接这些事实，不复制检查结果。
 
 ## 节点的读取入口
 

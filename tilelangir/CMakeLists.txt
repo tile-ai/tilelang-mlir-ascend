@@ -23,8 +23,11 @@ elseif(BISHENGIR_ROOT_PATH)
 endif()
 set(TILELANGIR_SYSTEM_LIBS z zstd dl m rt)
 
+enable_testing()
+
 # Add subdirectories
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(tools)
 add_subdirectory(python)
+add_subdirectory(test)

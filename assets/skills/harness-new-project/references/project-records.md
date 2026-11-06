@@ -1,9 +1,10 @@
 # 项目记录
 
-项目记录直接使用 Markdown，用户和 agent 都可以编辑。所有流程产物放在目标项目 `.workspace/`，与 harness 仓库自身的开发文档 `docs/` 分开。
+项目记录直接使用 Markdown，用户和 agent 都可以编辑。项目流程产物放在工作目录的 `.workspace/<project>/`，与 harness 仓库自身的开发文档 `docs/` 分开。
 
 | 文件 | 内容 |
 | --- | --- |
+| `project.json` | projectctl 管理的身份、生命周期、owner 与仓库清单；不手工改状态绕过检查 |
 | `PROJECT.md` | 为什么做、使用场景、本期范围、重要约束和决定 |
 | `REQUIREMENTS.md` | 具体需求及可观察的完成条件；用简短 ID 便于引用 |
 | `ROADMAP.md` | 按依赖组织阶段，关联需求并说明阶段完成条件 |
@@ -11,13 +12,13 @@
 | `EXPERIMENTS.md` | 开始分析或调优后，按实验记录尝试、结果、取舍和产物链接 |
 | `BASELINE.md` | 协调者接收后发布的标杆索引，指向 run 内确切 BASELINE 修订、参考/case/协议与测量证据 |
 | `ENVIRONMENT.md` | 环境准备后建立的节点绑定索引，指向 development/device/simulation 各自约定 |
-| `environments/<id>.md` | 单个节点的环境、使用约定、修订与能力验证证据，上板与仿真分别保存 |
+| 工作目录 `.workspace/environments/<id>.md` | 共享环境描述与确切修订；项目 ENVIRONMENT.md 只选择和绑定，不复制全套共享信息 |
 | `DECISIONS.md` | 实际用户回答、问题 ID、作用域、日期与替代关系；主 agent 维护 |
 | `AUTOMATIC.md` | 自动模式启用时的批次、控制步数、协调者与停止原因，status 只读，普通项目无需空建 |
 | `RESOURCE_USAGE.md` | 资源额度预留、消耗与未知作业占用；与环境约定修订分离 |
 | `codebase/MAP.md` | 已有项目的代码现状与有用的文件入口，由 onboard 维护 |
 
-按对话进展逐步建立这些记录，不为凑齐文件写空模板。同一项信息放在最适合的位置，其他文档引用即可。研究材料和临时笔记只在需要时写入 `research/`、`drafts/`。
+按对话进展逐步建立这些记录，不为凑齐文件写空模板。定位、隔离与归档遵循 [项目管理契约](project-management.md)。同一项信息放在最适合的位置，其他文档引用即可。研究材料和临时笔记只在需要时写入 `research/`、`drafts/`。
 
 更新前读取相关文档，保留仍然有效的内容并直接修改变化部分。人工编辑是正常输入。未决问题说明影响什么、下一步怎么处理；不妨碍当前工作的细节可以留到后续阶段。
 

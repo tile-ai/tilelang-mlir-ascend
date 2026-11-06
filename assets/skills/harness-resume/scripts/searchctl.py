@@ -15,6 +15,10 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "harness-new-project/scripts"))
+import projectctl
 
 
 class Invalid(ValueError):
@@ -90,16 +94,35 @@ def lock(directory):
 
 
 class Store:
-    def __init__(self, project):
+    def __init__(self, project, project_id=None, owner=None, legacy=False):
         self.root = Path(project).resolve()
         require(self.root.is_dir(), "project directory must exist")
-        self.directory = self.root / ".workspace/search"
+        self.workspace = projectctl.Workspace(self.root)
+        self.legacy = legacy
+        self.owner = owner
+        require(not (legacy and project_id), "legacy and named project are mutually exclusive")
+        self.project_id = None if legacy else self.workspace.resolve(project_id)
+        self.records = self.root / ".workspace" if legacy else self.workspace.project(self.project_id)
+        self.directory = (self.records / "search" if legacy else
+                          self.workspace.local(self.project_id, "search"))
         self.path = self.directory / "tree.json"
+
+    @contextmanager
+    def write(self, closing=False):
+        require(not self.legacy, "legacy search is read-only; explicitly migrate before writing")
+        states = ("active", "freezing") if closing else ("active",)
+        with self.workspace.edit(self.project_id, self.owner, states):
+            with lock(self.directory):
+                yield
 
     def local(self, relative):
         require(nonempty(relative) and not Path(relative).is_absolute(), "expected project-relative path")
         path = (self.root / relative).resolve()
         require(path.is_relative_to(self.root), "path escapes project")
+        if not self.legacy and path.is_relative_to(self.root / ".workspace"):
+            require(path.is_relative_to(self.records) or
+                    path.is_relative_to(self.root / ".workspace/environments"),
+                    "reference belongs to another project")
         return path
 
     def reference(self, path):
@@ -118,6 +141,8 @@ class Store:
     def validate(self, tree):
         require(isinstance(tree, dict), "expected a search object")
         require(tree["schema"] == "operator-harness/search@1", "unsupported search schema")
+        if not self.legacy:
+            require(tree.get("project_id") == self.project_id, "search project identity mismatch")
         fields(tree, "operator", "task_contract")
         nodes = tree["nodes"]
         require(tree["current_node"] in nodes, "unknown current node")
@@ -187,9 +212,9 @@ class Store:
             self.verify_ref(ref)
 
     def init(self, operator, task_contract, hypothesis, scope):
-        with lock(self.directory):
+        with self.write():
             require(not self.path.exists(), "tree already initialized")
-            tree = {"schema": "operator-harness/search@1", "operator": operator,
+            tree = {"schema": "operator-harness/search@1", "project_id": self.project_id, "operator": operator,
                     "task_contract": task_contract, "current_node": "N0",
                     "nodes": {"N0": {"parent": None, "hypothesis": hypothesis,
                                       "scope": scope, "status": "open"}},
@@ -201,7 +226,7 @@ class Store:
 
     def apply(self, operation):
         """One idempotent, serialized operation; immutable blobs precede its index."""
-        with lock(self.directory):
+        with self.write(closing=operation.get("op") == "accept"):
             tree = self.load()
             event_id = identifier(operation["event_id"])
             for event in tree["events"]:
@@ -276,7 +301,7 @@ class Store:
             hot["evidence"] = [self.reference(path) for path in op["evidence"]]
             self.validate_hot(hot, tree)
             # Content addressing allows safe retry after a crash before index commit.
-            path = self.local(f".workspace/knowledge/hot/{key}/{digest(encoded(hot))}.json")
+            path = self.workspace.local(self.project_id, f"knowledge/hot/{key}/{digest(encoded(hot))}.json")
             atomic(path, hot, immutable=True)
             revisions.append(self.reference(str(path.relative_to(self.root))))
         elif action == "use-cooled":
@@ -293,6 +318,8 @@ class Store:
 
     def markdown(self, ref, **expected):
         text = self.local(ref["path"]).read_text(encoding="utf-8")
+        if not self.legacy:
+            expected = {"project_id": self.project_id, **expected}
         for key, value in expected.items():
             values = re.findall(rf"^- {re.escape(key)}: (.*?)\s*$", text, re.M)
             require(values == [value], f"manifest {key} must be exactly {value}")
@@ -324,7 +351,7 @@ class Store:
 
     def promote(self, decision, output):
         # The caller records a real human decision; this CLI cannot authenticate people.
-        with lock(self.directory):
+        with self.write():
             tree = self.load()
             require(decision["schema"] == "operator-harness/cooling-decision@1", "unsupported decision")
             fields(decision, "id", "reviewer", "reviewed_at", "delivery", "approval_source")
@@ -370,6 +397,10 @@ class Store:
                 raise Invalid("cooled version has a successor; inspect its status before reuse")
 
     def invalidate_cooled(self, artifact, status, version, reason):
+        with self.write():
+            return self._invalidate_cooled(artifact, status, version, reason)
+
+    def _invalidate_cooled(self, artifact, status, version, reason):
         require(status in ("needs_revalidation", "superseded"), "invalidation cannot grant active status")
         identifier(version)
         require(nonempty(reason), "invalidation needs a reason")
@@ -400,7 +431,11 @@ def validate_cooled(cooled):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project-dir", default=".")
+    parser.add_argument("--workspace", "--project-dir", dest="workspace", required=True,
+                        help="workspace root, not a source worktree or project record directory")
+    parser.add_argument("--project")
+    parser.add_argument("--owner")
+    parser.add_argument("--legacy", action="store_true", help="read old .workspace/search without migration")
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init")
     for flag in ("operator", "task-contract", "hypothesis", "scope"):
@@ -412,7 +447,7 @@ def main():
     apply.add_argument("record", type=Path)
     promote = commands.add_parser("promote")
     promote.add_argument("decision", type=Path)
-    promote.add_argument("--output-dir", default="knowledge/cooled")
+    promote.add_argument("--output-dir", help="default: knowledge/cooled/<project>")
     invalidate = commands.add_parser("invalidate-cooled")
     invalidate.add_argument("artifact")
     invalidate.add_argument("--status", choices=("needs_revalidation", "superseded"), required=True)
@@ -420,13 +455,14 @@ def main():
     invalidate.add_argument("--reason", required=True)
     args = parser.parse_args()
     try:
-        store = Store(args.project_dir)
+        require(not args.legacy or args.command in ("show", "check", "review"), "legacy mode is read-only")
+        store = Store(args.workspace, args.project, args.owner, args.legacy)
         if args.command == "init":
             result = store.init(args.operator, args.task_contract, args.hypothesis, args.scope)
         elif args.command == "apply":
             result = store.apply(read(args.record))
         elif args.command == "promote":
-            result = {"artifact": store.promote(read(args.decision), args.output_dir)}
+            result = {"artifact": store.promote(read(args.decision), args.output_dir or f"knowledge/cooled/{store.project_id}")}
         elif args.command == "review":
             result = store.review()
         elif args.command == "invalidate-cooled":

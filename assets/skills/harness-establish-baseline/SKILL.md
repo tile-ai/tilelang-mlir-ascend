@@ -5,6 +5,8 @@ description: 根据任务与已绑定环境建立或更新算子的正确性参�
 
 # Harness Establish Baseline
 
+先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+
 把“和谁比、怎么比、在哪个环境比”落实为下游可直接复用的标杆。正确性参考负责定义正确输出，性能标杆负责提供比较时间，两者可以是不同实现；现有环境探针和算子候选都不能自动充当标杆。
 
 ## 进入节点
@@ -45,6 +47,6 @@ description: 根据任务与已绑定环境建立或更新算子的正确性参�
 
 使用 [BASELINE 模板](assets/templates/baseline.md)，在本 run 输出 `BASELINE.md`，连同 RESULT、可重建参考/适配代码、case/协议快照、构建与运行命令、原始输出/样本及日志交付。`readiness: ready` 仅表示该修订满足声明的全部使用条件，不表示目标算子达标；只调查可完成本次 TASK，但标杆保持 draft。没有全部必需证据时，明确缺口与可执行的后续动作。
 
-协调者检查后，在 `.workspace/BASELINE.md` 发布轻量索引，指向本 run 的不可变基线记录与证据，并更新 STATE/EXPERIMENTS；子 agent 不直接发布。下游 TASK 必须将索引解析为确切的 baseline ID/修订/摘要，不在执行中跟随可变指针。变更参考/case、来源/构建、执行环境或测量协议时，先判断影响范围，保留旧版并更新受影响的基线证据。
+协调者检查后，在 `.workspace/<project>/BASELINE.md` 发布轻量索引，指向本 run 的不可变基线记录与证据，并更新 STATE/EXPERIMENTS；子 agent 不直接发布。下游 TASK 必须将索引解析为确切的 baseline ID/修订/摘要，不在执行中跟随可变指针。变更参考/case、来源/构建、执行环境或测量协议时，先判断影响范围，保留旧版并更新受影响的基线证据。
 
 最终回复与 RESULT 都应给出**一个主推荐**：具体节点/skill、原因与证据、依赖或缺口、完成/停止条件。标杆 ready 后通常推荐 [harness-analysis](../harness-analysis/SKILL.md)，读取冻结标杆的实现与测量边界，形成首次开发方案；已有分析时按 [统一路由](../harness-resume/references/next-action.md) 检查受影响部分，复用仍适用的结论。环境不足则推荐 prepare-environment 的具体补齐动作。用户要求本节点后停止时仍给建议，但不执行下一节点。

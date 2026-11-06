@@ -20,7 +20,8 @@ class SearchToolsTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.store = search.Store(self.root)
+        search.projectctl.Workspace(self.root).create("example", "Example", "session")
+        self.store = search.Store(self.root, "example", "session")
         self.store.init("example", "requirements-v1", "initial implementation", "all cases")
         self.sequence = 0
 
@@ -38,21 +39,21 @@ class SearchToolsTest(unittest.TestCase):
         return self.apply("add-node", id=key, parent=parent, hypothesis="reuse loads", scope="large cases")
 
     def candidate(self, key, node="N0", parent=None):
-        path = f".workspace/candidates/{key}.md"
-        parent_path = f".workspace/candidates/{parent}.md" if parent else "not_applicable"
-        self.write(path, f"- candidate_id: {key}\n- search_node_id: {node}\n- parent_candidate: {parent_path}\n")
+        path = f".workspace/example/candidates/{key}.md"
+        parent_path = f".workspace/example/candidates/{parent}.md" if parent else "not_applicable"
+        self.write(path, f"- project_id: example\n- candidate_id: {key}\n- search_node_id: {node}\n- parent_candidate: {parent_path}\n")
         return self.apply("candidate", id=key, search_node_id=node, parent_candidate=parent, manifest=path)
 
     def record_run(self, key, stage="analysis", node="N0", candidate=None, finish=True):
-        text = f"- run_id: {key}\n- node: {stage}\n- search_node_id: {node}\n"
-        task = self.write(f".workspace/runs/{key}/TASK.md", text)
+        text = f"- project_id: example\n- run_id: {key}\n- node: {stage}\n- search_node_id: {node}\n"
+        task = self.write(f".workspace/example/runs/{key}/TASK.md", text)
         self.apply("run", id=key, search_node_id=node, stage=stage, candidate_id=candidate, task=task)
         if finish:
-            result = self.write(f".workspace/runs/{key}/RESULT.md", text + "- status: completed\n")
+            result = self.write(f".workspace/example/runs/{key}/RESULT.md", text + "- status: completed\n")
             self.apply("accept", id=key, result=result)
 
     def hot(self, revision=0, nodes=None):
-        evidence = self.write(f".workspace/evidence/{revision}.md", f"measured sample {revision}\n")
+        evidence = self.write(f".workspace/example/evidence/{revision}.md", f"measured sample {revision}\n")
         return self.apply("hot", id="H1", base_revision=revision, kind="observation",
                           statement="load duration decreased", applicability="synthetic test conditions",
                           limitations="end-to-end benefit unverified", nodes=nodes or ["N0"], evidence=[evidence])
@@ -60,7 +61,7 @@ class SearchToolsTest(unittest.TestCase):
     def decision(self):
         ref = self.store.load()["hot"]["H1"][-1]
         hot = search.read(self.store.local(ref["path"]))
-        approval = self.write(".workspace/decisions/review.md", "Synthetic approval fixture, not a real approval.\n")
+        approval = self.write(".workspace/example/decisions/review.md", "Synthetic approval fixture, not a real approval.\n")
         return {"schema": "operator-harness/cooling-decision@1", "id": "review1", "approved": True,
                 "reviewer": "test-reviewer", "reviewed_at": "2026-01-01T00:00:00Z", "delivery": "test-delivery",
                 "approval_source": approval, "hot_id": "H1", "revision": hot["revision"],
@@ -79,7 +80,7 @@ class SearchToolsTest(unittest.TestCase):
         self.record_run("branch-test", "device-test", "N2", "C2")
         self.apply("select", id="N0", reason="revisit initial hypothesis")
         self.record_run("retest", "device-test", candidate="C1")
-        tree = search.Store(self.root).load()
+        tree = search.Store(self.root, "example").load()
         self.assertEqual(len(tree["nodes"]), 3)
         self.assertEqual(len(tree["runs"]), 8)
         self.assertEqual(tree["candidates"]["C2"]["parent_candidate"], "C0")
@@ -92,8 +93,8 @@ class SearchToolsTest(unittest.TestCase):
             self.apply("select", id="N1", reason="switch")
         with self.assertRaisesRegex(search.Invalid, "outstanding"):
             self.apply("node-status", id="N0", status="closed", reason="done")
-        result = self.write(".workspace/runs/r1/RESULT.md",
-                            "- run_id: r1\n- node: analysis\n- search_node_id: N0\n- status: interrupted\n")
+        result = self.write(".workspace/example/runs/r1/RESULT.md",
+                            "- project_id: example\n- run_id: r1\n- node: analysis\n- search_node_id: N0\n- status: interrupted\n")
         with self.assertRaisesRegex(search.Invalid, "terminal"):
             self.apply("accept", id="r1", result=result)
         self.assertIsNone(self.store.load()["runs"]["r1"]["result"])
@@ -122,10 +123,10 @@ class SearchToolsTest(unittest.TestCase):
 
     def test_manifest_mismatch_and_tampering_fail(self):
         self.candidate("C0")
-        path = self.write("wrong.md", "- candidate_id: C1\n- search_node_id: N2\n")
+        path = self.write("wrong.md", "- project_id: example\n- candidate_id: C1\n- search_node_id: N2\n")
         with self.assertRaisesRegex(search.Invalid, "search_node_id"):
             self.apply("candidate", id="C1", search_node_id="N0", parent_candidate=None, manifest=path)
-        self.write(".workspace/candidates/C0.md", "changed after registration\n")
+        self.write(".workspace/example/candidates/C0.md", "changed after registration\n")
         with self.assertRaisesRegex(search.Invalid, "artifact changed"):
             self.store.load()
 
@@ -153,7 +154,7 @@ class SearchToolsTest(unittest.TestCase):
                 self.hot()
         self.assertEqual(self.store.load()["hot"], {})
         self.hot()
-        self.assertEqual(len(list((self.root / ".workspace/knowledge/hot/H1").glob("*.json"))), 1)
+        self.assertEqual(len(list((self.root / ".workspace/example/knowledge/hot/H1").glob("*.json"))), 1)
         self.assertEqual(len(self.store.load()["hot"]["H1"]), 1)
 
     def test_promotion_requires_exact_approved_revision_and_retains_hot(self):
@@ -206,7 +207,7 @@ class SearchToolsTest(unittest.TestCase):
             self.store.local("escape/file")
 
     def cli(self, *args, script=SCRIPT):
-        return subprocess.run([sys.executable, str(script), "--project-dir", str(self.root), *args],
+        return subprocess.run([sys.executable, str(script), "--workspace", str(self.root), "--project", "example", "--owner", "session", *args],
                               text=True, capture_output=True)
 
     def test_read_commands_do_not_write_and_missing_tree_does_not_initialize(self):
@@ -232,7 +233,7 @@ class SearchToolsTest(unittest.TestCase):
             file = self.root / f"{key}.json"
             file.write_text(json.dumps(operation))
             processes.append(subprocess.Popen(
-                [sys.executable, str(SCRIPT), "--project-dir", str(self.root), "apply", str(file)],
+                [sys.executable, str(SCRIPT), "--workspace", str(self.root), "--project", "example", "--owner", "session", "apply", str(file)],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
         for process in processes:
             _, error = process.communicate(timeout=10)

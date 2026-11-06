@@ -5,11 +5,13 @@ description: 使用已绑定的上板环境约定，执行昇腾算子的实卡�
 
 # Harness Device Test
 
+先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+
 ## 节点执行边界
 
 当前会话或独立 agent 均可执行本节点。已收到 TASK 的子 agent 直接按 [节点契约](../harness-resume/references/node-contract.md) 读取输入，不递归执行主 agent 的派发流程；直接交互时先按 [harness-resume](../harness-resume/SKILL.md) 恢复或补齐 TASK。记录任务理解与结果，确保不继承聊天的新 agent 也能接手。委派子 agent 只写所分配产物，由主 agent 中继问询并汇总共享记录；直接交互时当前 agent 完成同样的收尾检查后可继续后续节点，不要求新会话。
 
-读取 `.workspace/STATE.md`、任务契约、候选与 [证据记录](../harness-resume/references/execution-records.md)，使用 TASK 固定的 **device 专属约定快照**；实时 ENVIRONMENT 索引只核对漂移/撤权，不替换本次绑定。按 [环境复用规则](../harness-prepare-environment/references/environment-contract.md) 检查必需能力、身份、预算与设备队列/锁，沿用已确定的连接、容器和限制，不重新问整套环境。
+读取 `.workspace/<project>/STATE.md`、任务契约、候选与 [证据记录](../harness-resume/references/execution-records.md)，使用 TASK 固定的 **device 专属约定快照**；实时 ENVIRONMENT 索引只核对漂移/撤权，不替换本次绑定。按 [环境复用规则](../harness-prepare-environment/references/environment-contract.md) 检查必需能力、身份、预算与设备队列/锁，沿用已确定的连接、容器和限制，不重新问整套环境。
 
 仿真或开发环境的许可不能授权本节点。缺少上板约定或必要能力时，在 RESULT 提出对应缺口，由主 agent 派发环境准备；不能静默改用另一环境。默认按约定串行测量共享设备，发现忙时执行约定的有限等待或报告 blocked。
 

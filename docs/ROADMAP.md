@@ -16,11 +16,13 @@
 
 ## 2. 当前状态与开发约定
 
+项目管理已支持同工作目录下多个目标、独立源码 worktree、会话归属和冻结/归档/恢复；实现边界见 [多项目管理](projects/design.md)。共享环境节点的进一步改造与子项目机制另行设计。
+
 - 已完成：`harness` 分支初始化，建立 `.gitignore` 和 README。
 - 当前阶段：Codex 项目初始化 skills、本地源码安装器及性能采集方法/脚本已有实现；npm CLI、通用执行适配器与自动评测系统仍待建设。
 - 已补充 `harness-resume` 的实验记录与子 agent 交接流程，安装器接入项目 `AGENTS.md`。
 - 已补充 [五节点设计](nodes/design.md) 与环境准备、标杆建立、分析、算子编写、上板测试 skills；环境问询分别形成上板和仿真约定，后续各自复用。新增 [技能来源评估](nodes/skill-sources.md)。这些技能定义节点方法与交接方式；通用执行适配器、程序 gate 和任务级验收仍待建设。
-- 交接设计支持全新 agent 仅靠记录接续，同时允许同会话连续工作；补充六份节点模板和 [节点契约 v1](../assets/skills/harness-resume/references/node-contract.md)，明确问询中继、共享记录所有权和预算账本。已补充 [status/next/automatic](modes/design.md) 三项 skill 与有界宿主内协调；自动程序 gate、独立后台调度服务仍未实现。
+- 交接设计支持全新 agent 仅靠记录接续，同时允许同会话连续工作；补充六份节点模板和 [节点契约](../assets/skills/harness-resume/references/node-contract.md)，明确问询中继、共享记录所有权和预算账本。已补充 [status/next/automatic](modes/design.md) 三项 skill 与有界宿主内协调；自动程序 gate、独立后台调度服务仍未实现。
 - 开发仅限 `harness` 及其派生分支，不修改其他分支。
 - 开发文档统一放在 `docs/`；按当前阶段需要补充，不预先创建空文档和完整目录骨架。
 - `.workspace/` 用于中间产物、临时实验、日志和本地备份，不提交、不发布。

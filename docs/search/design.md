@@ -6,7 +6,7 @@ Search nodes preserve optimization alternatives that a flat execution log cannot
 External cooled knowledge
         |  retrieve applicable, versioned evidence for any node
         v
-Single operator
+Project: operator or operator group
 N0 Initial implementation                   [Analyze -> Develop -> Test] x n
 ├── N1 Memory optimization                  [Analyze -> Develop -> Test] x n
 │   ├── N3 Layout                           [Analyze -> Develop -> Test] x n
@@ -25,7 +25,7 @@ Delivery: consolidate -> select -> human review -> versioned cooled
           unselected / unapproved entries remain hot
 ```
 
-The stdlib `searchctl.py` helper persists a single-operator tree, stable run/candidate references, immutable hot revisions, and reviewed cooled packages. Locked atomic writes and idempotent event IDs make metadata updates recoverable without repeating experiments. Frozen artifact hashes detect drift. New records include `search_node_id`; existing v1 workflow contracts remain readable without migration. Adopt the tree at a safe boundary, never reconstruct unknown history.
+The stdlib `searchctl.py` helper persists a project-scoped tree, stable run/candidate references, immutable hot revisions, and reviewed cooled packages. Locked atomic writes and idempotent event IDs make metadata updates recoverable without repeating experiments. Frozen artifact hashes detect drift. New records include `project_id` and `search_node_id`, and mutations check project ownership and lifecycle. Existing legacy trees remain explicitly readable with `--legacy`; they are not silently migrated. Adopt the tree at a safe boundary, never reconstruct unknown history.
 
 Cooled knowledge is an external input with explicit applicability, limitations, evidence summaries and review provenance. Promotion is a delivery-time human decision, separate from publication. Invalidation creates an immutable successor; past evidence remains inspectable. This is auditable local bookkeeping, not an authentication service or a correctness/performance gate.
 

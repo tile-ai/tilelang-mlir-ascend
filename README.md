@@ -98,13 +98,15 @@ analysis 是默认迭代节点；是否运行新仿真或流水采集由问题�
 
 ### 当前可用：Codex 项目流程与节点 skills
 
-本仓库已通过 `.agents/skills/` 接入十一项技能，在 Codex 中选择或输入：
+本仓库已通过 `.agents/skills/` 接入十三项技能，在 Codex 中选择或输入：
 
 ```text
 $harness-new-project 为我的 TileLang 算子项目明确需求并建立路线图。
 $harness-onboard 梳理这个已有项目的代码、文档和验证方式，建立后续计划。
 $harness-resume 先恢复目标、当前性能和优化历史，再继续下一步分析或调优。
-$harness-status 查看当前进展和推荐下一步，不执行实验。
+$harness-status 查看指定项目或列出项目摘要，不执行实验。
+$harness-archive-project 冻结或归档项目，保存可恢复现场。
+$harness-restore-project 检查并恢复被冻结或归档的项目。
 $harness-next 直接推进一个下一步，完成后返回。
 $harness-automatic 在已有目标和预算内连续推进当前任务。
 $harness-prepare-environment 分别问清开发、上板和仿真环境的使用约定，并验证所需能力。
@@ -118,33 +120,37 @@ $harness-device-test 使用已有上板约定验证当前候选的精度和性�
 
 五个节点 skills 提供可执行的方法与工具路由，使用项目已验证的实际工具。环境准备将上板与仿真分别保存为独立约定，即使同机也不共享授权或已验证标记；没有可用执行工具时明确记录阻塞。后续节点读取自己的约定，不重新问整套环境。
 
-`harness-new-project` 和 `harness-onboard` 共用连续追问流程：沿着回答深入，用具体场景澄清歧义，理解充分后复述并进入规划，或按用户选择继续探索。已有项目先吸收代码和文档，只追问未知项与实际冲突；明确的“直接生成”指令不再重复确认。未结束的讨论暂存在 `.workspace/drafts/`，已有阻塞问题在下次调用时继续澄清。
+`harness-new-project` 和 `harness-onboard` 共用连续追问流程：沿着回答深入，用具体场景澄清歧义，理解充分后复述并进入规划，或按用户选择继续探索。已有项目先吸收代码和文档，只追问未知项与实际冲突；明确的“直接生成”指令不再重复确认。未结束的讨论暂存在 `.workspace/<project>/drafts/`，已有阻塞问题在下次调用时继续澄清。
 
 要在其他项目使用，从本仓库根目录执行（安装脚本使用 Python 3）：
 
 ```bash
-python3 scripts/install_codex_skills.py --project-dir operator-project
+python3 scripts/install_codex_skills.py --workspace operator-workspace
 ```
 
-Git 项目安装到当前 worktree 根；非 Git 项目安装到指定目录。安装器复制十一项技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件存在不同内容时报告冲突。升级与卸载另按路线图建设。
+安装到用户显式选择的工作目录，不自动提升到 Git 根；旧 --project-dir 参数作为 --workspace 的别名。安装器复制十三项技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件或已有 Harness AGENTS 区块存在不同内容时在复制前报告冲突，保留用户文件；不静默沿用旧路径入口。升级与卸载另按路线图建设。
 
-Agent 直接维护 `.workspace/` 中的 `PROJECT.md`、`REQUIREMENTS.md`、`ROADMAP.md` 和 `STATE.md`，接入已有项目时补充 `codebase/MAP.md`。这些都是可以直接编辑的 Markdown，按项目进展逐步建立；未决问题和下一步留在状态记录中，草稿与研究材料按需保存。
+Agent 在选定项目的 `.workspace/<project>/` 中维护 `PROJECT.md`、`REQUIREMENTS.md`、`ROADMAP.md` 和 `STATE.md`，接入已有项目时补充 `codebase/MAP.md`。这些都是可以直接编辑的 Markdown，按项目进展逐步建立；未决问题和下一步留在状态记录中，草稿与研究材料按需保存。
 
-标杆建立由 `harness-establish-baseline` 完成：明确比较语义、调查候选及版本、先验证正确性再测量性能，输出 run 内的 `BASELINE.md` 和原始证据。协调者发布 `.workspace/BASELINE.md` 索引，下游固定具体修订复用。只调查可以完成任务但不等于标杆 ready；“最快”仅指声明的调查范围和实测条件。节点收尾在最终回复与记录中都给出一个具体下一步建议，用户要求停止时不继续执行。
+标杆建立由 `harness-establish-baseline` 完成：明确比较语义、调查候选及版本、先验证正确性再测量性能，输出 run 内的 `BASELINE.md` 和原始证据。协调者发布 `.workspace/<project>/BASELINE.md` 索引，下游固定具体修订复用。只调查可以完成任务但不等于标杆 ready；“最快”仅指声明的调查范围和实测条件。节点收尾在最终回复与记录中都给出一个具体下一步建议，用户要求停止时不继续执行。
 
 后续工作通过 `harness-resume` 接续：`STATE.md` 保存当前候选、最佳已验证候选、性能概况与下一步；`EXPERIMENTS.md` 记录成功、失败和无收益的尝试；`runs/<编号>/` 保存对应代码、详细结果与日志。新的 agent 先读摘要，再按需要打开相关实验。
 
-允许同一会话连续执行多个节点，同时保证记录足以让全新 agent 独立接续。当前 agent 可以完成节点与共享汇总，也可按需委派；全新 agent 只接收项目根和 TASK 路径。上下文过长时只建议用户新开会话，不强制切换，也不因缺少委派工具阻塞。`automatic` 已通过当前宿主的主/子 agent 能力串行协调节点，无委派工具时明确采用 inline；不是脱离会话的后台服务。使用新机器或 worktree 时，需要带上被 Git 忽略的 `.workspace/` 记录和相关产物。具体交接方法见 [节点契约 v1 与六份模板](assets/skills/harness-resume/references/node-contract.md)。TASK 包含做什么、输入身份、工具入口/执行步骤、权限预算与完成条件；用户问询答案保存到 DECISIONS，环境预算的实时占用另记 RESOURCE_USAGE。
+允许同一会话连续执行多个节点，同时保证记录足以让全新 agent 独立接续。当前 agent 可以完成节点与共享汇总，也可按需委派；全新 agent 只接收工作目录根和 TASK 路径。上下文过长时只建议用户新开会话，不强制切换，也不因缺少委派工具阻塞。`automatic` 已通过当前宿主的主/子 agent 能力串行协调节点，无委派工具时明确采用 inline；不是脱离会话的后台服务。使用新机器或 worktree 时，需要带上被 Git 忽略的 `.workspace/` 记录和相关产物。具体交接方法见 [节点契约 与六份模板](assets/skills/harness-resume/references/node-contract.md)。TASK 包含做什么、输入身份、工具入口/执行步骤、权限预算与完成条件；用户问询答案保存到 DECISIONS，环境预算的实时占用另记 RESOURCE_USAGE。
 
 ### 查看、单步与自动推进
 
 `status` 只读汇报进展、证据、在途/阻塞与一个推荐动作。`next` 会直接做这一步并更新记录，不再问是否开始，但实际缺失的选择仍会问询。`automatic` 连续执行同一套选择逻辑，主 agent 接收每个节点的结果后才推进；复用各自环境约定，不反复访谈。
 
-自动模式记录 `.workspace/AUTOMATIC.md`。用户/已有约定的预算优先；未指定控制上限时每批默认最多 8 步，这不提供任何新增设备额度。目标达成、需要输入、预算耗尽、无可执行动作或用户要求暂停时保存结果与恢复入口。详情见 [运行模式](docs/modes/design.md)。
+自动模式记录 `.workspace/<project>/AUTOMATIC.md`。用户/已有约定的预算优先；未指定控制上限时每批默认最多 8 步，这不提供任何新增设备额度。目标达成、需要输入、预算耗尽、无可执行动作或用户要求暂停时保存结果与恢复入口。详情见 [运行模式](docs/modes/design.md)。
+
+### 多项目管理
+
+一个工作目录支持多个项目；名称在初始化时与用户确定，一个项目可包含多个算子。每个项目拥有 `.workspace/<project>/project.json`、记录、独立源码 worktree 和专属依赖/构建。共享环境描述位于 `.workspace/environments/`，每项目绑定具体修订。默认只展开 active 项目；freeze/archive 保留现场，restore 检查后激活，不自动重启实验。详见 [项目管理](docs/projects/design.md)。
 
 ### 搜索树与 hot/cooled 知识
 
-单个算子的优化方向组织成多层搜索树，每个节点可以经历多轮分析、编写、测试；候选谱系、当前/最佳候选和资源预算仍独立管理。Hot 关联一个或多个节点并保留证据与修订；交付时整理筛选，经真实人工审批后生成可版本管理的 cooled 知识，供后续探索按需引用。
+一个项目的算子或融合优化方向组织成多层搜索树，每个节点可以经历多轮分析、编写、测试；候选谱系、当前/最佳候选和资源预算仍独立管理。Hot 关联一个或多个节点并保留证据与修订；交付时整理筛选，经真实人工审批后生成可版本管理的 cooled 知识，供后续探索按需引用。
 
 随 harness-resume 安装的 Python 标准库工具 `searchctl.py` 提供原子记录、幂等恢复、引用校验及知识晋升/失效管理，不启动实验或自动发布。见 [架构示例](docs/search/design.md) 和 [CLI 与契约](assets/skills/harness-resume/references/search-knowledge.md)。
 
@@ -195,6 +201,7 @@ npx <package>@<version> doctor
 
 | 文档 | 内容 |
 | --- | --- |
+| [多项目管理](docs/projects/design.md) | 项目定位、源码隔离、冻结与恢复 |
 | [开发路线图](docs/ROADMAP.md) | 阶段安排、验收条件和待决事项 |
 | [需求与工作流](docs/REQUIREMENTS.md) | 算子需求清单、标杆构造、阶段检查和执行矩阵 |
 | [现有资产复用计划](docs/REUSE_PLAN.md) | Skills、simulator、Onboard 与 GSD 的检查结果和迁移方向 |

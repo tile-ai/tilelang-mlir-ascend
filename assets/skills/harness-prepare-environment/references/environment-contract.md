@@ -2,7 +2,9 @@
 
 ## 保存位置与所有权
 
-目标项目 `.workspace/ENVIRONMENT.md` 是路由表，只列节点、约定路径、修订号和能力状态，不放通用执行许可。`development`、`device`、`simulation` 分别绑定自己的 `.workspace/environments/<id>.md`。ID 使用短的本地唯一名称，文件已存在时核对身份，不覆盖同名的另一个环境。环境节点用 [索引模板](../assets/templates/environment-index.md) 与 [约定模板](../assets/templates/environment.md) 在本 run 输出提案；主 agent 接收后发布到上述共享位置，节点不直接改索引或已发布约定。
+本轮仅调整项目定位与共享描述位置：环境可被多个项目引用，但不共享项目授权、预算或可变源码。共享环境的发布协调与能力复用规则后续另行设计；不要用一个项目的变更覆盖另一项目绑定的旧修订。
+
+项目 `.workspace/<project>/ENVIRONMENT.md` 是路由表，只列节点、约定路径、修订号和能力状态，不放通用执行许可。`development`、`device`、`simulation` 分别绑定自己的 `.workspace/environments/<id>.md`。ID 使用短的本地唯一名称，文件已存在时核对身份，不覆盖同名的另一个环境。环境节点用 [索引模板](../assets/templates/environment-index.md) 与 [约定模板](../assets/templates/environment.md) 在本 run 输出提案；主 agent 接收后发布到上述共享位置，节点不直接改索引或已发布约定。
 
 上板与仿真不能绑定同一个约定文件。相同机器、镜像或 SDK 的事实可以引用同一来源，但两份约定各自声明允许操作、资源限制、探针结果和失效范围。不能从上板可运行推导仿真获准或可运行，反向也一样。
 

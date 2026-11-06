@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Install Harness skills and an AGENTS.md entry in an existing project."""
+"""Install shared Harness skills into an explicitly selected workspace."""
 
 import argparse
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 
 
@@ -14,6 +13,7 @@ NAMES = (
     "harness-prepare-environment", "harness-establish-baseline", "harness-analysis",
     "harness-develop", "harness-device-test",
     "harness-status", "harness-next", "harness-automatic",
+    "harness-archive-project", "harness-restore-project",
 )
 
 
@@ -26,11 +26,6 @@ def install(project):
     root = Path(project).expanduser().resolve(strict=True)
     if not root.is_dir():
         raise ValueError("project-dir must be an existing directory")
-    if shutil.which("git"):
-        result = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"],
-                                capture_output=True, text=True)
-        if result.returncode == 0:
-            root = Path(result.stdout.strip())
     target = root / ".agents" / "skills"
     pending = []
     for name in NAMES:
@@ -43,6 +38,16 @@ def install(project):
                 raise ValueError(f"existing skill differs; files preserved: {destination}")
         else:
             pending.append(name)
+    instructions = root / "AGENTS.md"
+    existing = instructions.read_text() if instructions.exists() else ""
+    entry = (SOURCE.parent / "codex" / "AGENTS.md").read_text()
+    start, end = "<!-- operator-harness -->", "<!-- /operator-harness -->"
+    if start in existing or end in existing:
+        if existing.count(start) != 1 or existing.count(end) != 1:
+            raise ValueError("ambiguous Harness AGENTS block; files preserved")
+        block = existing[existing.index(start):existing.index(end) + len(end)]
+        if block != entry.strip():
+            raise ValueError("existing Harness AGENTS block differs; review its upgrade before installing; files preserved")
     for name in pending:
         shutil.copytree(SOURCE / name, target / name,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
@@ -51,10 +56,7 @@ def install(project):
     if ".workspace/" not in existing_ignore.splitlines():
         with ignore.open("a") as output:
             output.write(("\n" if existing_ignore else "") + ".workspace/\n")
-    instructions = root / "AGENTS.md"
-    existing = instructions.read_text() if instructions.exists() else ""
     if "<!-- operator-harness -->" not in existing:
-        entry = (SOURCE.parent / "codex" / "AGENTS.md").read_text()
         with instructions.open("a") as output:
             output.write(("\n\n" if existing else "") + entry)
     return target, pending
@@ -62,7 +64,8 @@ def install(project):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project-dir", required=True)
+    parser.add_argument("--workspace", "--project-dir", dest="project_dir", required=True,
+                        help="exact workspace root; --project-dir is a compatibility alias")
     args = parser.parse_args()
     try:
         target, installed = install(args.project_dir)

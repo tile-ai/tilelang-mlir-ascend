@@ -1,10 +1,10 @@
 # 工作记录与交接
 
-记录服务于不继承聊天的新 agent。[节点交接契约 v1](node-contract.md) 规定六份模板、必填内容和所有权；有明确目标的节点工作留下 TASK 和 RESULT，短任务可简写，阶段内连续操作无需逐个建模板。信息完整是接续要求，不强制切换 agent 或会话。
+记录服务于不继承聊天的新 agent。[节点交接契约](node-contract.md) 规定六份模板、必填内容和所有权；有明确目标的节点工作留下 TASK 和 RESULT，短任务可简写，阶段内连续操作无需逐个建模板。信息完整是接续要求，不强制切换 agent 或会话。
 
 ## 主 agent 的读取入口
 
-以目标项目 `.workspace/` 为根：
+先按 [项目管理契约](../../harness-new-project/references/project-management.md) 选择项目，以 `.workspace/<project>/` 为记录根：
 
 1. `STATE.md`：当前任务与待派发/在途 run、实际 agent ID、下一步。
 2. `REQUIREMENTS.md`：语义、case、精度与性能验收；按需读 PROJECT/ROADMAP。
@@ -36,8 +36,8 @@ EXPERIMENTS 按运行记录目标/假设、父候选、改变、精度/性能或
 派发前已创建完整 TASK。消息只需：
 
 ```text
-项目根：{{用户指定的项目根目录}}
-任务文件：.workspace/runs/E004/TASK.md
+工作目录根：{{workspace_root}}
+任务文件：.workspace/<project>/runs/E004/TASK.md
 读取任务及其指定 skill，执行本节点并将结果写回指定目录。
 ```
 
@@ -51,4 +51,4 @@ EXPERIMENTS 按运行记录目标/假设、父候选、改变、精度/性能或
 
 ## 搜索与知识索引
 
-启用搜索树后，STATE 链接 `.workspace/search/tree.json` 并摘要 current_node；详细策略、run 和候选归属以树为准，当前/最佳候选仍按已有验收规则更新。EXPERIMENTS 继续记录实验，不承担树结构。节点内读取相关 hot 和准确版本的 cooled；恢复时校验引用摘要，后继版本/工具链变化触发适用性复核。详见 [搜索与知识](search-knowledge.md)。
+启用搜索树后，STATE 链接 `.workspace/<project>/search/tree.json` 并摘要 current_node；详细策略、run 和候选归属以树为准，当前/最佳候选仍按已有验收规则更新。EXPERIMENTS 继续记录实验，不承担树结构。节点内读取相关 hot 和准确版本的 cooled；恢复时校验引用摘要，后继版本/工具链变化触发适用性复核。详见 [搜索与知识](search-knowledge.md)。

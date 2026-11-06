@@ -5,11 +5,13 @@ description: 通过问询分别确定算子开发、上板测试和仿真分析�
 
 # Harness Prepare Environment
 
+先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+
 ## 节点执行边界
 
 当前会话或独立 agent 均可执行本节点。已收到 TASK 的子 agent 直接按 [节点契约](../harness-resume/references/node-contract.md) 读取输入，不递归执行主 agent 的派发流程；直接交互时先按 [harness-resume](../harness-resume/SKILL.md) 恢复或补齐 TASK。记录任务理解与结果，确保不继承聊天的新 agent 也能接手。委派子 agent 只写所分配产物，由主 agent 中继问询并汇总共享记录；直接交互时当前 agent 完成同样的收尾检查后可继续后续节点，不要求新会话。
 
-让后续节点能够直接使用已约定且验证过的环境。先读 `.workspace/STATE.md`、目标需求与已有环境索引，使用 [环境约定](references/environment-contract.md) 保存选择和证据。
+让后续节点能够直接使用已约定且验证过的环境。先读 `.workspace/<project>/STATE.md`、目标需求与已有环境索引，使用 [环境约定](references/environment-contract.md) 保存选择和证据。
 
 ## 按实际任务问清环境
 
@@ -38,6 +40,6 @@ description: 通过问询分别确定算子开发、上板测试和仿真分析�
 
 使用 [环境索引模板](assets/templates/environment-index.md) 和 [单环境模板](assets/templates/environment.md)，在本 run 的 `environment-proposals/` 输出索引与各角色约定提案，附问询决定与探针证据。未知和未验证如实记录；上板与仿真不得合并成一份约定。
 
-在 RESULT 列出各环境已验证能力、缺口、提案和拟失效范围。协调者（直接交互时即当前 agent）核对后发布到 `.workspace/ENVIRONMENT.md` 与 `environments/`，更新共享状态并继续或委派下一节点；委派子 agent 不直接发布，不增加“是否保存”审批。仅有访谈范围时完成访谈交付，不能自行开始未授权探针。
+在 RESULT 列出各环境已验证能力、缺口、提案和拟失效范围。协调者（直接交互时即当前 agent）核对后发布到 `.workspace/<project>/ENVIRONMENT.md` 与工作目录级 `.workspace/environments/`，更新共享状态并继续或委派下一节点；委派子 agent 不直接发布，不增加“是否保存”审批。仅有访谈范围时完成访谈交付，不能自行开始未授权探针。
 
 收尾时在 RESULT 和最终回复给出一个明确的下一节点建议及原因、依赖和完成条件。环境已满足当前任务需要但正确性参考或性能标杆尚未建立/失效时，推荐 [harness-establish-baseline](../harness-establish-baseline/SKILL.md)；已有可用标杆则按 [统一下一步规则](../harness-resume/references/next-action.md) 选择。用户要求到此停止时只建议，不继续执行。

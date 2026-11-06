@@ -1,12 +1,15 @@
 # 节点任务
 
-- contract: operator-harness/node-task@1
+- contract: operator-harness/node-task@2
 - search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - run_id: {{项目内唯一编号}}
 - node: {{prepare-environment / establish-baseline / analysis / develop / device-test，仅一个；test指device-test}}
 - operation: {{本次具体操作，例如仅精度、实现初版、分析已有 trace}}
-- project_root: {{相对 TASK 所在目录的根路径（标准 runs/<id>/ 下为 ../../..），或明确的绝对路径}}
-- skill: {{项目根下的 skill 路径}}
+- workspace_root: {{相对 TASK 所在目录的工作目录根路径；标准 .workspace/<project>/runs/<id>/ 下为 ../../../..}}
+- project_id: {{与 project.json 一致}}
+- project_dir: .workspace/{{project_id}}
+- owner: {{项目写入协调者的宿主会话标识；子 agent 沿用并受 TASK 白名单约束}}
+- skill: {{工作目录根下的 skill 路径}}
 - parent_run: {{前序 RESULT 路径；首次写 not_applicable 和原因}}
 - created_at: {{日期时间与时区}}
 
@@ -17,7 +20,7 @@
 
 ## 输入与读取顺序
 
-以下路径字段相对 project_root；每项写确切文件，不只写目录。按节点契约补齐适用的候选、需求、用户决定、环境、case/参考/协议和前序证据。
+以下路径字段相对 workspace_root；每项写确切文件，不只写目录。按节点契约补齐适用的候选、需求、用户决定、环境、case/参考/协议和前序证据。
 
 | 顺序 | 用途 | 路径 | snapshot/live | 快照身份或 live 起始水位 | 必需性与未知项影响 |
 | --- | --- | --- | --- | --- | --- |

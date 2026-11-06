@@ -74,9 +74,8 @@ public:
       auto tlSpace = dyn_cast_if_present<tl::AddressSpaceAttr>(space);
       if (!tlSpace)
         return type;
-      auto hivmSpace =
-          hivm::AddressSpaceAttr::get(type.getContext(),
-                                      convertAddressSpace(tlSpace.getValue()));
+      auto hivmSpace = hivm::AddressSpaceAttr::get(
+          type.getContext(), convertAddressSpace(tlSpace.getValue()));
       return MemRefType::get(type.getShape(), type.getElementType(),
                              type.getLayout(), hivmSpace);
     });
@@ -89,8 +88,8 @@ struct ConvertAlloc : public OpConversionPattern<tl::AllocOp> {
   LogicalResult
   matchAndRewrite(tl::AllocOp op, OpAdaptor /*adaptor*/,
                   ConversionPatternRewriter &rewriter) const override {
-    auto newTy =
-        dyn_cast_if_present<MemRefType>(getTypeConverter()->convertType(op.getType()));
+    auto newTy = dyn_cast_if_present<MemRefType>(
+        getTypeConverter()->convertType(op.getType()));
     if (!newTy)
       return rewriter.notifyMatchFailure(op, "failed to convert alloc type");
     rewriter.replaceOpWithNewOp<memref::AllocOp>(op, newTy);
@@ -117,8 +116,35 @@ struct ConvertAdd : public OpConversionPattern<tl::AddOp> {
   matchAndRewrite(tl::AddOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<hivm::VAddOp>(
-        op, TypeRange{},
-        ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
+struct ConvertSub : public OpConversionPattern<tl::SubOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::SubOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VSubOp>(
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
+template <typename TLOpT, typename HIVMOpT>
+struct ConvertBinary : public OpConversionPattern<TLOpT> {
+  using OpConversionPattern<TLOpT>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TLOpT op,
+                  typename OpConversionPattern<TLOpT>::OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.template replaceOpWithNewOp<HIVMOpT>(
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
         ValueRange{adaptor.getOut()});
     return success();
   }
@@ -137,9 +163,10 @@ void rewriteCoreTypeAttrs(ModuleOp module) {
       sawCore = true;
     }
     func->removeAttr("tl.core_type");
-    func->setAttr(hivm::TFuncCoreTypeAttr::name,
-                  hivm::TFuncCoreTypeAttr::get(func.getContext(),
-                                               convertFuncCoreType(tlCore.getValue())));
+    func->setAttr(
+        hivm::TFuncCoreTypeAttr::name,
+        hivm::TFuncCoreTypeAttr::get(func.getContext(),
+                                     convertFuncCoreType(tlCore.getValue())));
   });
 
   module->setAttr(hivm::TModuleCoreTypeAttr::name,
@@ -165,7 +192,11 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
-    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd>(converter, ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
+                 ConvertBinary<tl::MulOp, hivm::VMulOp>,
+                 ConvertBinary<tl::DivOp, hivm::VDivOp>,
+                 ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
+                 ConvertBinary<tl::MinOp, hivm::VMinOp>>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

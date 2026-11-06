@@ -29,11 +29,34 @@ description: 根据任务与已绑定环境建立或更新算子的正确性参�
 
 ## 调查和筛选实现
 
-从用户提供的源码、项目已有基线和目标平台官方实现入口开始，按任务范围继续寻找其他适用仓库、发布版本、特化实现或调优配置。记录来源、revision、入口、构建参数、支持范围与候选状态；不要只因名字类似、版本最新或已有宣传性能就认定是对应算子或最快版本。用户要求最快版本时，调查范围及停止理由必须可复查；只有一个候选可用时如实说明，未测候选不能视为更慢。
+从用户提供的源码和已有基线开始，按 [调查与复查规则](references/source-investigation.md) 建立来源覆盖表和候选表。使用下面的公共代码仓地址获取源码，不依赖宿主机器预先存在的 reference 目录。按算子语义选择相关来源，有界扩展到发布版本、特化实现和调优配置；不要求每个任务克隆、编译或测量全部仓库。
+
+| 代码仓地址 | 调查用途与边界 |
+| --- | --- |
+| [cann/ops-transformer](https://gitcode.com/cann/ops-transformer) | Attention、MoE 等 Transformer 算子；检查 ACLNN 接口、版本变体及实际分派 |
+| [cann/ops-nn](https://gitcode.com/cann/ops-nn) | 神经网络计算算子，含矩阵、激活等类别；按目标语义查接口与 kernel |
+| [cann/ops-math](https://gitcode.com/cann/ops-math) | 数学、张量变换、随机数等基础计算算子 |
+| [cann/ops-cv](https://gitcode.com/cann/ops-cv) | 图像处理、目标检测等算子 |
+| [cann/ascend-transformer-boost](https://gitcode.com/cann/ascend-transformer-boost) | ATB 融合算子及调用链；区分自有 kernel、外部库调用与图组合 |
+| [cann/catlass](https://gitcode.com/cann/catlass) | 矩阵类模板与实现样例；固定具体实例、配置和完整调用开销，不能把模板名当可执行标杆 |
+| [sgl-project/sgl-kernel-npu](https://github.com/sgl-project/sgl-kernel-npu) | 推理框架中的自定义 kernel；从 csrc、注册和测试入口确认实际 AscendC 路径，其他后端另分类 |
+| [vllm-project/vllm-ascend](https://github.com/vllm-project/vllm-ascend) | 自定义 AscendC 算子与框架适配；沿 csrc、绑定和调用分派区分自有实现与 ACLNN 包装 |
+| [cann/cann-samples](https://gitcode.com/cann/cann-samples) | 高性能实战样例，补充特化候选与实现思路；样例测量不直接成为本项目结果 |
+| [cann/asc-devkit](https://gitcode.com/cann/asc-devkit) | Ascend C API 和 examples，辅助确认语义与可构建实例；不默认优于完整算子库 |
+
+表中是检索入口，不是性能排名或全平台支持承诺。具体版本由用户项目与 CANN 配套选择，实际 revision 和测量记录只保存在项目产物中。目录结构以选定源码为准；仓库可达不表示已找到适用实现。
+
+检索任务名之外的数学语义、API 别名、版本后缀、融合算子与可保持语义的适配。读取接口、host/tiling、目标 kernel、支持约束及测试/调用入口，记录真实语言/后端和构建参数；不能因为同名搜索无结果就宣布没有 AscendC 标杆。未发现、不可访问、语义不适用、构建失败、未测和实测较慢分别报告。只有一个候选可用时如实说明，不把未测候选视为更慢；要求最快时同时给出调查范围和停止理由。
 
 逐项核对语义与测量边界。若候选是融合算子或只实现部分功能，记录差异；仅在 TASK 范围内做保持语义的适配，固定适配源码和必要开销。不能截取融合实现的一段耗时冒充完整算子，也不能删除用户要求的输出。不可比、缺包、编译失败或超预算的候选保留原因，不静默丢弃。
 
 选择规则和比较协议在看到性能结果前固定。按约定规则选择统一实现，或固定可复现的逐 case 分派表；并列/噪声不足以区分时报告不确定性，不以最快单次样本决胜。
+
+## 来源复查
+
+首次调查记录复查条件；工具链/安装包变化、出现相关实现或版本、调查证据被纠正、连续优化无进展时，有界复查相关来源。长任务可约定按里程碑或时间复查，不在每轮自动更新全部仓库。记录已查版本、变化、未覆盖项和下一触发条件。
+
+复查发现的新实现先作为提案，按原比较契约验证，不自动替换分母。需要改变参考、case、计时边界或实现限制时先记录决定与新修订。旧标杆保留历史身份；条件已变化的结果明确限制用途，不能一边承认失效一边继续用它作正式比较。
 
 ## 取得正确性和性能证据
 
@@ -45,7 +68,7 @@ description: 根据任务与已绑定环境建立或更新算子的正确性参�
 
 ## 固定交付与推荐下一步
 
-使用 [BASELINE 模板](assets/templates/baseline.md)，在本 run 输出 `BASELINE.md`，连同 RESULT、可重建参考/适配代码、case/协议快照、构建与运行命令、原始输出/样本及日志交付。`readiness: ready` 仅表示该修订满足声明的全部使用条件，不表示目标算子达标；只调查可完成本次 TASK，但标杆保持 draft。没有全部必需证据时，明确缺口与可执行的后续动作。
+使用 [BASELINE 模板](assets/templates/baseline.md)（baseline@2），在本 run 输出 `BASELINE.md`，包含来源覆盖、逐候选资格、选择/排除依据与复查条件，连同 RESULT、可重建参考/适配代码、case/协议快照、构建与运行命令、原始输出/样本及日志交付。`readiness: ready` 仅表示该修订满足声明的全部使用条件，不表示目标算子达标；只调查可完成本次 TASK，但标杆保持 draft。没有全部必需证据时，明确缺口与可执行的后续动作。旧 baseline@1 保留原文，新调查用新记录补齐，不追写历史调查或实测。
 
 协调者检查后，在 `.workspace/<project>/BASELINE.md` 发布轻量索引，指向本 run 的不可变基线记录与证据，并更新 STATE/EXPERIMENTS；子 agent 不直接发布。下游 TASK 必须将索引解析为确切的 baseline ID/修订/摘要，不在执行中跟随可变指针。变更参考/case、来源/构建、执行环境或测量协议时，先判断影响范围，保留旧版并更新受影响的基线证据。
 

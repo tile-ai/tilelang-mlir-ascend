@@ -18,6 +18,7 @@
 
 项目管理已支持同工作目录下多个目标、独立源码 worktree、会话归属和冻结/归档/恢复；实现边界见 [多项目管理](projects/design.md)。共享环境节点的进一步改造与子项目机制另行设计。
 
+- 标杆节点已补充 [公共源码入口与调查流程](../assets/skills/harness-establish-baseline/SKILL.md)，baseline@2 记录来源覆盖、候选资格、复查条件和源码交接。由 skill 组织调查与接收，未实现自动源码扫描或性能评选程序。
 - 已补充 [项目契约与模板](../assets/skills/harness-new-project/references/project-contract.md)，将仓库规范、低成本检查和证据范围前移，并在交付时对照发布版与实测版。此项由 skill 执行，M2 自动验收仍待建设。
 - 已完成：`harness` 分支初始化，建立 `.gitignore` 和 README。
 - 当前阶段：Codex 项目初始化 skills、本地源码安装器及性能采集方法/脚本已有实现；npm CLI、通用执行适配器与自动评测系统仍待建设。

@@ -27,6 +27,8 @@
 
 环境描述与项目绑定新模板使用 environment@2 / environment-index@2，分别保存共享上板事实与项目使用约定；development/device 可引用同一描述。v1 旧记录保留原角色语义，兼容与 simulator 边界见 [环境契约](../../harness-prepare-environment/references/environment-contract.md)。
 
+新标杆模板使用 baseline@2，明确来源覆盖、候选资格和复查交接；旧 baseline@1 保留原记录，新调查用新修订补充。检索与接受规则见 [标杆来源调查](../../harness-establish-baseline/references/source-investigation.md)。
+
 automatic 另按其 [控制模板](../../harness-automatic/assets/templates/automatic.md) 保存批次、步数与停止原因，不改变六份节点记录的职责。status 不创建这些文件，next 仅在执行需要时建立记录。
 
 按需实例化，不预填假数据，不一次创建空项目骨架。模板中的 `{{...}}` 必须替换，未知用 `unknown：原因/影响`，不适用用 `not_applicable：原因`，不能以空字符串假装满足门槛。模板按各自声明的契约版本定义字段；扩展小节可以增加，必填语义不能删除。
@@ -52,7 +54,7 @@ live 记录允许正常追加，不以整个文件摘要变化判定候选失效
 | 节点 | 除公共字段外必须提供 | 必交付 |
 | --- | --- | --- |
 | prepare-environment | 本任务计划启用的能力、已知环境事实/选择、各侧已有权限来源、尚未解决的问题；允许只做访谈 | RESULT；Python、TileLang/torch/torch_npu 与 CANN 选择及来源；共享上板描述与项目绑定提案；实际探针证据或未测原因 |
-| establish-baseline | 语义与必选 case、正确性参考或允许创建范围、目标/实现限制、调查与选择规则、已有标杆与变更原因；实测绑定 development/device 约定和测量协议（允许在 run 内先生成并冻结） | RESULT；BASELINE；可重建参考/适配、case/协议快照、候选调查/排除理由、全部必需正确性与原始性能证据或逐项缺口；复测入口 |
+| establish-baseline | 语义与必选 case、正确性参考或允许创建范围、目标/实现限制、调查与选择规则、已有标杆与变更原因；实测绑定 development/device 约定和测量协议（允许在 run 内先生成并冻结） | RESULT；BASELINE；可重建参考/适配、case/协议快照、来源覆盖、候选资格/排除理由、复查条件、全部必需正确性与原始性能证据或逐项缺口；复测入口 |
 | analysis | 首次：确切标杆/参考、实现源码与适配、case/契约、测量边界、目标TileLang能力；后续：当前候选、最新测试结果、具体问题及已有分析；新仿真另绑定simulation约定/模型/配置，旧trace绑定历史身份 | RESULT；首次实现思路与开发方案，或当前kernel问题诊断；源码/测试/trace证据与限制、观察/解释/可验证假设、交给develop的修改及验证计划；无采集时如实注明 |
 | develop | 可执行语义与输入输出、边界/动态约束、case/参考/容限、性能目标或本次不测、已接收analysis方案/诊断、父候选与前序失败、开发约定；显式仅编写任务注明所据方案；初版无参考时明确创建范围与独立检查 | RESULT；可重建源码；CANDIDATE；已做编译检查及未验证项；device-test入口 |
 | device-test | 确切候选、全部必选 case、输入与参考/容限、device 约定、精度/性能/profile 范围；测性能时提供基线、协议及匹配的精度证据或明确先执行精度 | RESULT；每 case 输出比较与原始样本（若采样）、构建/作业清单、日志及回收状态；失败反例 |

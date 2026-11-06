@@ -40,3 +40,21 @@ LogicalResult AddOp::verify() {
     return emitOpError("operand shapes must match");
   return success();
 }
+
+LogicalResult CastOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto dst = llvm::cast<MemRefType>(getDst().getType());
+  if (src.getShape() != dst.getShape())
+    return emitOpError("src/dst shapes must match");
+  // Element types are intentionally allowed to differ: that is the point
+  // of a cast. Legal src/dst dtype pairs are constrained by the HIVM vcast
+  // hardware op, not here.
+  llvm::StringRef mode = getRoundMode();
+  static constexpr llvm::StringRef kValidModes[] = {"round", "rint",  "floor",
+                                                    "ceil",  "trunc", "odd"};
+  if (!llvm::is_contained(kValidModes, mode))
+    return emitOpError("round_mode must be one of round/rint/floor/ceil/"
+                       "trunc/odd, got '")
+           << mode << "'";
+  return success();
+}

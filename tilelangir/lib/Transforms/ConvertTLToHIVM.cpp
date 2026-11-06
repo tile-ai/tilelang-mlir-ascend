@@ -74,9 +74,8 @@ public:
       auto tlSpace = dyn_cast_if_present<tl::AddressSpaceAttr>(space);
       if (!tlSpace)
         return type;
-      auto hivmSpace =
-          hivm::AddressSpaceAttr::get(type.getContext(),
-                                      convertAddressSpace(tlSpace.getValue()));
+      auto hivmSpace = hivm::AddressSpaceAttr::get(
+          type.getContext(), convertAddressSpace(tlSpace.getValue()));
       return MemRefType::get(type.getShape(), type.getElementType(),
                              type.getLayout(), hivmSpace);
     });
@@ -89,8 +88,8 @@ struct ConvertAlloc : public OpConversionPattern<tl::AllocOp> {
   LogicalResult
   matchAndRewrite(tl::AllocOp op, OpAdaptor /*adaptor*/,
                   ConversionPatternRewriter &rewriter) const override {
-    auto newTy =
-        dyn_cast_if_present<MemRefType>(getTypeConverter()->convertType(op.getType()));
+    auto newTy = dyn_cast_if_present<MemRefType>(
+        getTypeConverter()->convertType(op.getType()));
     if (!newTy)
       return rewriter.notifyMatchFailure(op, "failed to convert alloc type");
     rewriter.replaceOpWithNewOp<memref::AllocOp>(op, newTy);
@@ -117,9 +116,28 @@ struct ConvertAdd : public OpConversionPattern<tl::AddOp> {
   matchAndRewrite(tl::AddOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<hivm::VAddOp>(
-        op, TypeRange{},
-        ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
         ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
+struct ConvertCast : public OpConversionPattern<tl::CastOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::CastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto roundModeOpt = hivm::symbolizeRoundMode(adaptor.getRoundMode());
+    if (!roundModeOpt)
+      return rewriter.notifyMatchFailure(op, "unknown round_mode: " +
+                                                 adaptor.getRoundMode());
+    auto roundModeAttr = hivm::RoundModeAttr::get(getContext(), *roundModeOpt);
+    auto castAttr =
+        hivm::TypeFnAttr::get(getContext(), hivm::TypeFn::cast_signed);
+    rewriter.replaceOpWithNewOp<hivm::VCastOp>(
+        op, TypeRange{}, ValueRange{adaptor.getSrc()},
+        ValueRange{adaptor.getDst()}, roundModeAttr, castAttr);
     return success();
   }
 };
@@ -137,9 +155,10 @@ void rewriteCoreTypeAttrs(ModuleOp module) {
       sawCore = true;
     }
     func->removeAttr("tl.core_type");
-    func->setAttr(hivm::TFuncCoreTypeAttr::name,
-                  hivm::TFuncCoreTypeAttr::get(func.getContext(),
-                                               convertFuncCoreType(tlCore.getValue())));
+    func->setAttr(
+        hivm::TFuncCoreTypeAttr::name,
+        hivm::TFuncCoreTypeAttr::get(func.getContext(),
+                                     convertFuncCoreType(tlCore.getValue())));
   });
 
   module->setAttr(hivm::TModuleCoreTypeAttr::name,
@@ -165,7 +184,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
-    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd>(converter, ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertCast>(converter,
+                                                                     ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

@@ -45,4 +45,26 @@ def TL_AddOp : TL_Op<"add", [
   let hasVerifier = 1;
 }
 
+def TL_CastOp : TL_Op<"cast", [
+    MemoryEffects<[MemRead, MemWrite]>
+]> {
+  let summary = "Elementwise type conversion of a tile buffer";
+  let description = [{
+    Destination-style vector cast: dst = cast(src, round_mode). src and dst
+    share shape but may differ in element type (that is the point of a
+    cast); legal src/dst dtype pairs are constrained by the HIVM vcast
+    hardware op, not by this verifier. round_mode is one of:
+    round/rint/floor/ceil/trunc/odd, matching the set accepted by
+    tilelang.language.customize_npuir.npuir_cast on the Python side (a
+    strict subset of HIVM's RoundMode enum, which also has
+    truncwithoverflow).
+    Example:
+      tl.cast ins(%a) outs(%c) round_mode("rint") : memref<64xf32>, memref<64xf16>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst, StrAttr:$round_mode);
+  let assemblyFormat =
+      "`ins` `(` $src `)` `outs` `(` $dst `)` `round_mode` `(` $round_mode `)` attr-dict `:` type($src) `,` type($dst)";
+  let hasVerifier = 1;
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

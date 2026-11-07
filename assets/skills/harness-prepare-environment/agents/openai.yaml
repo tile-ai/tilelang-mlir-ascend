@@ -1,4 +1,4 @@
 interface:
   display_name: "Harness Prepare Environment"
-  short_description: "分别问清开发、上板与仿真的环境约定，验证后供后续实验直接复用"
-  default_prompt: "使用 $harness-prepare-environment 准备本项目的开发、上板与仿真环境，分别问清约定并验证。"
+  short_description: "多轮确定 Python、TileLang 配套与 CANN，准备可共享的上板环境"
+  default_prompt: "使用 $harness-prepare-environment 准备本项目的上板环境，先多轮确定 Python、TileLang、torch/torch_npu 与 CANN 的选择，再按约定准备并验证。"

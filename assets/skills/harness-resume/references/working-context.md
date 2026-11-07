@@ -1,21 +1,23 @@
 # 工作记录与交接
 
-记录服务于不继承聊天的新 agent。[节点交接契约 v1](node-contract.md) 规定六份模板、必填内容和所有权；有明确目标的节点工作留下 TASK 和 RESULT，短任务可简写，阶段内连续操作无需逐个建模板。信息完整是接续要求，不强制切换 agent 或会话。
+记录服务于不继承聊天的新 agent。[节点交接契约](node-contract.md) 规定六份模板、必填内容和所有权；有明确目标的节点工作留下 TASK 和 RESULT，短任务可简写，阶段内连续操作无需逐个建模板。信息完整是接续要求，不强制切换 agent 或会话。
 
 ## 主 agent 的读取入口
 
-以目标项目 `.workspace/` 为根：
+先按 [项目管理契约](../../harness-new-project/references/project-management.md) 选择项目，以 `.workspace/<project>/` 为记录根：
 
 1. `STATE.md`：当前任务与待派发/在途 run、实际 agent ID、下一步。
-2. `REQUIREMENTS.md`：语义、case、精度与性能验收；按需读 PROJECT/ROADMAP。
+2. `REQUIREMENTS.md`：语义、case、精度与性能验收；执行前读取 PROJECT 的适用契约修订，按需展开 ROADMAP。
 3. `DECISIONS.md`：已回答的问题、作用域、来源及替代关系；没有新决定时不创建空文件。
-4. `ENVIRONMENT.md`：development/device/simulation 到各自约定的绑定。
+4. `ENVIRONMENT.md`：执行阶段到确切环境修订的绑定、本项目使用约定；development/device 可共用 onboard 描述，仿真按其独立约定。
 5. `RESOURCE_USAGE.md`：首次预留资源前建立的预留、消耗、未结算作业账本。
 6. `EXPERIMENTS.md`：只展开与当前任务有关的实验和证据。
 7. `BASELINE.md`（相关时）：标杆索引，解析到确切 run 的参考/测量记录与摘要。
 8. `AUTOMATIC.md`（如有）：当前自动批次、协调者、已用步数、在途步骤与停止原因，避免重复协调。
 
 多算子项目由 STATE 指向本任务的需求与记录，不混用候选。记录与产物通常被 Git 忽略，迁移 worktree/机器必须携带相关输入和证据。
+
+PROJECT 按 [项目契约](../../harness-new-project/references/project-contract.md) 保存集成规则、检查计划与交付要求，TASK 固定适用修订。实际早期检查位于 run 内 PRECHECK.md，最终版本对照位于 deliveries/<delivery-id>/DELIVERY.md；STATE 只链接这些事实，不复制检查结果。
 
 ## 节点的读取入口
 
@@ -36,8 +38,8 @@ EXPERIMENTS 按运行记录目标/假设、父候选、改变、精度/性能或
 派发前已创建完整 TASK。消息只需：
 
 ```text
-项目根：{{用户指定的项目根目录}}
-任务文件：.workspace/runs/E004/TASK.md
+工作目录根：{{workspace_root}}
+任务文件：.workspace/<project>/runs/E004/TASK.md
 读取任务及其指定 skill，执行本节点并将结果写回指定目录。
 ```
 
@@ -51,4 +53,4 @@ EXPERIMENTS 按运行记录目标/假设、父候选、改变、精度/性能或
 
 ## 搜索与知识索引
 
-启用搜索树后，STATE 链接 `.workspace/search/tree.json` 并摘要 current_node；详细策略、run 和候选归属以树为准，当前/最佳候选仍按已有验收规则更新。EXPERIMENTS 继续记录实验，不承担树结构。节点内读取相关 hot 和准确版本的 cooled；恢复时校验引用摘要，后继版本/工具链变化触发适用性复核。详见 [搜索与知识](search-knowledge.md)。
+启用搜索树后，STATE 链接 `.workspace/<project>/search/tree.json` 并摘要 current_node；详细策略、run 和候选归属以树为准，当前/最佳候选仍按已有验收规则更新。EXPERIMENTS 继续记录实验，不承担树结构。节点内读取相关 hot 和准确版本的 cooled；恢复时校验引用摘要，后继版本/工具链变化触发适用性复核。详见 [搜索与知识](search-knowledge.md)。

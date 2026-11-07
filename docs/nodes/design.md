@@ -1,6 +1,6 @@
 # 五个核心节点的设计
 
-> 状态：设计待评审；节点 skills、六份交接模板与节点契约 v1 已提供。执行适配器、自动阶段检查和硬件闭环尚未实现。本设计中的接口是后续实现契约，不是现有可调用 API。
+> 状态：设计待评审；节点 skills、六份交接模板与节点契约 已提供。执行适配器、自动阶段检查和硬件闭环尚未实现。本设计中的接口是后续实现契约，不是现有可调用 API。
 
 ## 1. 摘要
 
@@ -12,7 +12,7 @@
 
 沿用 [需求](../REQUIREMENTS.md)、[路线图](../ROADMAP.md) 和 [复用计划](../REUSE_PLAN.md)：首批语言为 tile-ai/tilelang；上板与仿真目标覆盖 local/remote × host/docker；优先评估 Onboard 与 simulator；GSD 用于参考流程和持久状态，本设计不新增 GSD runtime 依赖。
 
-本设计定义五个节点的职责、技能入口、交接信息、六份模板及节点契约 v1。具体机器、芯片组合和算子由用户任务确定；已有配置供核查，不替用户作选择。
+本设计定义五个节点的职责、技能入口、交接信息、六份模板及节点契约。具体机器、芯片组合和算子由用户任务确定；已有配置供核查，不替用户作选择。
 
 用户已明确：环境准备应通过问询确定后续实验所需环境和约束并验证；后续原则上不重新问环境。**上板与仿真必须各有约定**，包括机器、容器、工具链、资源、允许操作和验证证据，即使物理资源相同也不能互相继承。
 
@@ -20,7 +20,7 @@
 
 ```mermaid
 flowchart TD
-    R[任务与已有记录] --> E[环境准备：独立开发/设备/仿真约定]
+    R[任务与已有记录] --> E[环境准备：多轮选择与共享上板绑定]
     E --> B[标杆建立：固定实现/case/协议]
     B --> A[analysis：首次标杆思路与开发方案]
     A --> D[develop：实现或修改候选]
@@ -41,15 +41,13 @@ flowchart TD
 
 入口为 `harness-prepare-environment`。读取需求、已知配置与历史决定，先查可检测事实，再问用户独有的选择和约束。对已有项目只补缺口，未回答的问题不能按超时自动采用推荐值。
 
-分别确认 development、device、simulation 三条执行链。每条链包括 frontend lowering、设备编译、实际运行/分析的位置；其中适用的每一步独立声明 local/remote 与 host/docker。上板编译可以在客户端或远端，仿真也可以有独立编译链，不能将“远程运行”理解为本地无需 SDK。
+环境按 onboard/simulator 两类规划，development、device、simulation 表示执行阶段。当前先提供共享上板环境的指示与模板；开发与上板可以绑定同一描述，也可按实际 lowering/编译/运行位置分别绑定。每个位置明确 local/remote 与 host/container。
 
-问询内容与记录见 [环境约定](../../assets/skills/harness-prepare-environment/references/environment-contract.md)。重点是：目标/工具版本、访问与容器/挂载、产物回收、允许动作与禁止事项、资源和超时、设备共享规则、依赖变更范围。每轮围绕实际缺口，沿用明确答案，不把表格变成固定问卷。
+按 [上板环境问询](../../assets/skills/harness-prepare-environment/references/onboard-questioning.md) 多轮收敛：先确定 conda/venv 等 Python 环境、复用或新建及版本，再明确 TileLang、torch、torch_npu 的版本与来源，结合 CANN 的复用或安装方案核对兼容性。没有 CANN 时与用户讨论安装方式；依赖这些选择的安装不能先行。已有选择与授权直接复用，不用一张预填配置表代替交互。
 
-先问清本任务计划使用哪些能力。已启用且影响后续实验的能力必须验证；明确不需要的能力记 disabled，可选但暂缓准备的仿真记 deferred。不能用一个整体 ready 掩盖某一侧未就绪。
+按 [环境契约](../../assets/skills/harness-prepare-environment/references/environment-contract.md) 保存共享事实、项目使用约定和实际验证证据。一条适用的小型自校验路径可覆盖依赖加载、编译、设备运行与输出比较；计时按需求验证，不强制逐项拆成独立探针。普通环境通过后即可交接，机器特例只在其环境描述中处理。
 
-验证按身份/连接与路径、依赖、最小编译、最小运行逐级进行。device 需实际输出比较和所需计时能力；simulation 需独立模拟运行、模型错误检查、输出比较及本次所需 trace 解析。每个探针都在本环境自己的授权与预算内，可从 unverified/stale 能力状态执行；verified 门槛用于正式候选实验，不阻断首次验证探针。只允许读取的环境保持相应运行能力 unverified，不把版本输出当作完整可用证明。
-
-环境准备不隐含重建系统、升级 SDK 或扩大资源的许可。已有授权覆盖的补齐动作直接进行，超出约定才针对具体动作问询。设备忙采用已约定的队列/锁与有限等待，不转用其他机器。
+simulator 完整接入另行设计，已有仿真约定与证据保留原语义；上板准备不填造仿真 verified。环境验证不代替目标算子验收，资源与权限沿用项目实际约定。
 
 ### 4.2 标杆建立
 
@@ -57,7 +55,7 @@ flowchart TD
 
 从用户来源与适用实现调查候选版本，核对完整语义和必要适配开销；记录调查范围、排除理由和停止条件。“最快”只针对可复查的范围与条件，不以最新版本、文档数字或最快单次取代比较。参考、case、协议、统一实现或逐 case 分派规则先固定；每个候选对拟承担范围先完成精度检查，再采样，最终选择必须覆盖全部必选 case。
 
-输出 run 内的 BASELINE、参考/适配与 case/协议快照、原始输出/样本、复测命令及 RESULT。协调者验收后发布 `.workspace/BASELINE.md` 索引，下游固定具体修订；draft/ready/stale 与节点 completed 分开。环境、参考、case 或协议变化时只重建受影响证据，保留旧标杆。标杆 ready 通常推荐 analysis 分析实现思路；已有有效分析按输入身份复用并遵循统一路由；缺少环境能力推荐 prepare-environment 的具体补齐动作。
+输出 run 内的 BASELINE、参考/适配与 case/协议快照、原始输出/样本、复测命令及 RESULT。协调者验收后发布 `.workspace/<project>/BASELINE.md` 索引，下游固定具体修订；draft/ready/stale 与节点 completed 分开。环境、参考、case 或协议变化时只重建受影响证据，保留旧标杆。标杆 ready 通常推荐 analysis 分析实现思路；已有有效分析按输入身份复用并遵循统一路由；缺少环境能力推荐 prepare-environment 的具体补齐动作。
 
 ### 4.3 分析
 
@@ -103,19 +101,19 @@ flowchart TD
 
 优先保留两个独立执行约定，避免统一许可对象带来的误继承。代价是同一机器的部分事实会出现在两份快照中，但可复用探测实现和版本引用，不能复用未经验证的结论。
 
-本阶段用可编辑 Markdown 模板与 v1 字段契约完成交接，沿用轻量 GSD 思路；程序级校验仍待执行适配阶段实现。现在不为每次调参创建完整阶段或 PR，也不先实现通用调度服务。
+本阶段用可编辑 Markdown 模板与版本化字段契约完成交接，沿用轻量 GSD 思路；程序级校验仍待执行适配阶段实现。现在不为每次调参创建完整阶段或 PR，也不先实现通用调度服务。
 
 ### 4.8 同会话工作与独立接续
 
 当前交互模式允许用户在同一会话做多个节点、多个任务。需要建设的是信息能力：即使执行者是全新 agent、不继承聊天，也能从记录知道做什么、怎么做、受什么约束；这不要求每次更换 agent 或新开会话。
 
-执行前记录目标、输入、工具入口/步骤、环境/权限、预算和可写范围，收尾记录 RESULT。当前 agent 可以继续后续节点，也可按复杂度委派；上下文过长时提议用户新开会话，用户不切换或宿主没有隔离工具也不阻塞工作。选择全新 agent 时只提供项目根与 TASK 路径，作为冷启动能力的实际验证。
+执行前记录目标、输入、工具入口/步骤、环境/权限、预算和可写范围，收尾记录 RESULT。当前 agent 可以继续后续节点，也可按复杂度委派；上下文过长时提议用户新开会话，用户不切换或宿主没有隔离工具也不阻塞工作。选择全新 agent 时只提供工作目录根与 TASK 路径，作为冷启动能力的实际验证。
 
 [automatic 运行模式](../modes/design.md) 已提供宿主内的有界主/子 agent 协调，优先独立上下文，无委派工具时明确 inline。它不是普通交互的强制规则，也不要求用户手动开启新会话。status 和 next 分别提供只读报告和一次推进。
 
 协调/执行是职责而非必须不同的身份。委派时子 agent 只交付所属产物，由主 agent 接收、问询中继并更新共享记录；单 agent 时当前 agent 顺序完成同样的节点工作、问询和汇总。普通暂停或补充答案可以继续原 run；范围改变或新的尝试才建立新 TASK，不因换 agent 自动重跑。
 
-详细入口、字段与生命周期统一在 [节点交接契约 v1](../../assets/skills/harness-resume/references/node-contract.md)。环境余额放独立 RESOURCE_USAGE，约定保存政策/上限；所有执行方式均保留 unknown 作业占用并防止重复提交。
+详细入口、字段与生命周期统一在 [节点交接契约](../../assets/skills/harness-resume/references/node-contract.md)。环境余额放独立 RESOURCE_USAGE，约定保存政策/上限；所有执行方式均保留 unknown 作业占用并防止重复提交。
 
 ## 5. 不变量与要求
 
@@ -139,14 +137,14 @@ flowchart TD
 
 | 位置（相对目标项目） | 内容与维护者 |
 | --- | --- |
-| `.workspace/STATE.md` | 当前任务、下一步、当前/最佳候选，由主 agent 汇总 |
-| `.workspace/BASELINE.md` | 主 agent 发布的轻量索引，指向 run 内不可变标杆版本、来源/case/协议及证据 |
-| `.workspace/ENVIRONMENT.md` | development/device/simulation 绑定与状态摘要，主 agent 接收环境提案后发布，无公共执行许可 |
-| `.workspace/environments/<id>.md` | 一份节点专属约定、修订、能力与探针链接 |
-| `.workspace/runs/<run-id>/` | 本次请求、候选与约定快照、原始结果、摘要 |
-| `.workspace/EXPERIMENTS.md` | 成功、失败与无收益实验索引 |
-| `.workspace/DECISIONS.md` | 问题 ID、真实用户回答、作用域与替代关系，主 agent 维护 |
-| `.workspace/RESOURCE_USAGE.md` | 额度预留/结算、未决作业占用，主 agent 维护 |
+| `.workspace/<project>/STATE.md` | 当前任务、下一步、当前/最佳候选，由主 agent 汇总 |
+| `.workspace/<project>/BASELINE.md` | 主 agent 发布的轻量索引，指向 run 内不可变标杆版本、来源/case/协议及证据 |
+| `.workspace/<project>/ENVIRONMENT.md` | 执行阶段绑定与本项目使用约定，协调者接收后发布，无公共执行许可 |
+| `.workspace/environments/onboard/<id>/` | 共享上板描述索引、不可变修订和能力证据；旧单文件约定只读兼容 |
+| `.workspace/<project>/runs/<run-id>/` | 本次请求、候选与约定快照、原始结果、摘要 |
+| `.workspace/<project>/EXPERIMENTS.md` | 成功、失败与无收益实验索引 |
+| `.workspace/<project>/DECISIONS.md` | 问题 ID、真实用户回答、作用域与替代关系，主 agent 维护 |
+| `.workspace/<project>/RESOURCE_USAGE.md` | 额度预留/结算、未决作业占用，主 agent 维护 |
 
 当前 TASK/RESULT/CANDIDATE/BASELINE、环境索引/单环境约定使用 [六份模板](../../assets/skills/harness-resume/references/node-contract.md#2-六份模板与位置)，全部随安装器分发。模板字段区分必填、条件必填、未知与不适用，并区分冻结输入 snapshot 和持续更新的导航/决定/账本 live 记录；接收检查是当前 agent 流程，不宣称已存在自动 schema 校验。
 
@@ -220,7 +218,7 @@ flowchart TD
 - **AC-7**：残缺 trace 仅支持限定范围的诊断；仿真 cycle 下降不被报告为实卡加速。
 - **AC-8**：技能可安装到独立项目，所有本地引用可解析；不依赖开发者绝对路径、外部技能隐式安装或 GSD runtime。
 - **AC-9**：每个宣称支持的 local/remote × host/docker 组合有对应角色、芯片/工具链下的真实探针与闭环证据；一个组合成功不覆盖其余组合。
-- **AC-10**：各节点的全新 agent 仅收到项目根与 TASK 路径，就能还原本次目标、输入身份、操作方法与边界，生成可供下一节点读取的结果；任务信息缺失时准确指出缺口。
+- **AC-10**：各节点的全新 agent 仅收到工作目录根与 TASK 路径，就能还原本次目标、输入身份、操作方法与边界，生成可供下一节点读取的结果；任务信息缺失时准确指出缺口。
 - **AC-11**：问询答案落盘后可由当前或新 agent 复用；同一会话跨节点、无委派工具和中断恢复均能继续，切换上下文仅是建议。
 - **AC-12**：仅余额变化不使环境探针失效；未知外部作业仍占额度且不被新节点重投。
 - **AC-13**：委派子 agent 仅生成所属产物，协调角色检查后发布共享索引；单 agent 完成同样检查可自行发布，无须另开会话或审批。
@@ -241,7 +239,7 @@ flowchart TD
 
 ## 11. 风险与取舍
 
-- Markdown 模板与稳定字段便于独立恢复，但不是程序约束。当前由主 agent 接收检查，后续适配器对 v1 契约增加 schema/gate，不另设平行事实源。
+- Markdown 模板与稳定字段便于独立恢复，但不是程序约束。当前由主 agent 接收检查，后续适配器对版本化契约增加 schema/gate，不另设平行事实源。
 - 上游 skills 的示例可能绑定不同后端或工具。按 [来源评估](skill-sources.md) 选择方法，实际命令跟随环境版本验证。
 - Onboard 和 simulator 的远程/Docker 支持仍需适配。保留各自能力状态，不能把包装成功当作矩阵完成。
 - 运行记录被 Git 忽略，迁移或误清理会丢证据。明确保留/复制约定与引用产物；跨项目自动环境注册表不属于当前设计范围。

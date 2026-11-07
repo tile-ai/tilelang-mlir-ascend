@@ -5,6 +5,8 @@ description: 只读汇报 Operator Harness 当前任务的进展、候选与证�
 
 # Harness Status
 
+先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。本入口只读，可列出多个项目摘要；冻结/归档项目仅在显式选择或查看历史时展开，不取得 owner。
+
 使用 [统一下一步规则](../harness-resume/references/next-action.md) 读取当前项目记录，判断当前目标、实际证据与最值得推进的动作。用户明确选择的任务优先于 STATE 的旧指针。
 
 默认不修改任何项目记录，不创建 TASK，不启动节点、环境探针或作业，不改变 automatic 状态。可以读取已有结果核实摘要，但把“尚未接收的交付”与已接收结果分开；用户额外要求实时状态时才按已有约定做有限只读查询。

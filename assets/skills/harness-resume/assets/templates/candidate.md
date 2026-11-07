@@ -1,6 +1,7 @@
 # 候选清单
 
-- contract: operator-harness/candidate@1
+- contract: operator-harness/candidate@2
+- project_id: {{与 TASK/project.json 一致}}
 - search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - candidate_id: {{项目内唯一候选编号}}
 - producer_run: {{产生此候选的 run/TASK}}
@@ -27,5 +28,6 @@
 
 ## 已验证范围与交接
 
+{{PROJECT 契约修订/摘要、适用仓库规则；PRECHECK 路径/摘要及输入范围，不适用或未完成说明原因}}
 {{编译/精度/性能各自对应 RESULT；没有就明确 not_run。下游产生的新二进制清单归该 run，不改此候选身份}}
 {{本次修改和假设、已知限制、下一节点的确切测试入口；不能从仿真或编译推导实卡通过}}

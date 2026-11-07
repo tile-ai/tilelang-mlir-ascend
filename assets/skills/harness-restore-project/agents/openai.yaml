@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Restore Project"
+  short_description: "检查源码、依赖和任务现场后恢复已冻结或归档的项目"
+  default_prompt: "使用 $harness-restore-project 核对并恢复指定项目，不自动启动设备实验。"

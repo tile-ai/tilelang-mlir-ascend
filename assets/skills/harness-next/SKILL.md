@@ -5,6 +5,8 @@ description: 根据 Operator Harness 项目记录直接执行当前任务的一�
 
 # Harness Next
 
+先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+
 这是执行入口。按 [统一下一步规则](../harness-resume/references/next-action.md) 读取记录、核对当前目标和身份，选择一个可完成的动作并直接推进，不以复述计划结束。
 
 普通的“执行下一步”不再询问是否开始；只问实际缺失的语义、环境选择或操作范围。环境、授权与预算已确定则复用。用户只要求上板精度时不能擅自加性能或仿真。

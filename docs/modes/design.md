@@ -56,7 +56,7 @@ automatic 的默认策略为串行独立上下文子 agent，派发只给根目�
 
 ## 6. 控制记录
 
-automatic 按 [控制模板](../../assets/skills/harness-automatic/assets/templates/automatic.md) 建立 `.workspace/AUTOMATIC.md`，STATE 链接它。内容包括批次 ID、任务范围、协调者、执行策略、状态、max_steps/steps_used、当前步骤及 run/agent/job、步进日志、等待问题与恢复方式。
+automatic 按 [控制模板](../../assets/skills/harness-automatic/assets/templates/automatic.md) 建立 `.workspace/<project>/AUTOMATIC.md`，STATE 链接它。内容包括批次 ID、任务范围、协调者、执行策略、状态、max_steps/steps_used、当前步骤及 run/agent/job、步进日志、等待问题与恢复方式。
 
 NODE TASK/RESULT、候选、独立环境约定继续使用六份节点模板；不把全部实验数据复制到控制记录。status 从这些记录投影报告，不另存一份可能漂移的 status 文件。next 不需要为普通一次推进新建 automatic 批次。
 

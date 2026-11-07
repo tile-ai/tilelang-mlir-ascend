@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Archive Project"
+  short_description: "冻结或归档项目，保留源码改动、依赖与可恢复的任务现场"
+  default_prompt: "使用 $harness-archive-project 安全冻结或归档指定项目，核对在途工作并保留恢复入口。"

@@ -74,12 +74,28 @@ class InstallUpgradeTest(unittest.TestCase):
             bundle.transaction(self.workspace, plan['id'], rollback=True)
         self.assertIn('\nnew\n', (self.workspace / 'AGENTS.md').read_text())
 
+    def test_source_linked_workspace_rejects_before_claiming_managed_files(self):
+        import install_codex_skills as installer
+        linked = self.root / 'linked'
+        target = linked / '.agents/skills'
+        target.mkdir(parents=True)
+        (target / installer.NAMES[0]).symlink_to(installer.SOURCE / installer.NAMES[0], target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'source-linked'):
+            installer.install(linked)
+        self.assertFalse((linked / '.agents/.harness/manifest.json').exists())
+
     def test_changed_bundle_invalidates_reviewed_plan(self):
         plan = self.prepare()
         (self.source / 'harness-example/SKILL.md').write_text('different')
         with self.assertRaisesRegex(ValueError, 'plan changed'):
             self.apply(plan)
         self.assertEqual((self.workspace / self.name).read_text(), 'old')
+
+    def test_removed_managed_file_is_deleted_but_extra_file_survives(self):
+        (self.source / 'harness-example/SKILL.md').unlink()
+        self.apply(self.prepare())
+        self.assertFalse((self.workspace / self.name).exists())
+        self.assertEqual((self.workspace / self.name).with_name('personal.md').read_text(), 'keep me')
 
     def test_legacy_adoption_requires_exact_old_bundle(self):
         legacy = self.root / 'legacy'

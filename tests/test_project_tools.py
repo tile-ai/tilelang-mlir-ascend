@@ -151,7 +151,7 @@ class ProjectTest(unittest.TestCase):
         self.ws.begin_close('first', 'session1', 'frozen')
         with self.assertRaises(project.Invalid):
             self.ws.finish_close('first', 'session1', self.checkpoint())
-        (root / 'paused.md').write_text('- run_id: r1\n- status: interrupted\n')
+        (root / 'paused.md').write_text('- run_id: r1\n- status: interrupted\n## Example\n```\n- status: completed\n```\n')
         self.ws.finish_close('first', 'session1', self.checkpoint(paused_runs={'r1': 'paused.md'}))
         self.assertIsNone(store.load()['runs']['r1']['result'])
         self.ws.restore('first', 'session1', self.checkpoint(filename='lifecycle/restore.json'))

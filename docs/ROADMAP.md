@@ -1,6 +1,6 @@
 # Operator Harness 路线图
 
-状态：节点 skills 与采集辅助脚本已提供；develop 已合并实卡验证，宿主内并行开发契约与批次账本已提供。@4 结构化验收、失败关闭、可选控制账本及本地进程 runner 已实现；完整候选执行包与通用设备 runner 继续按 M2 建设，仿真接入和子项目另行设计。
+状态：节点 skills 与采集辅助脚本已提供；develop 已合并实卡验证，宿主内并行开发契约与批次账本已提供。@4 结构化验收、失败关闭、可选控制账本及本地 Python 评测/进程 runner 已实现；完整候选执行包与通用设备 runner 继续按 M2 建设，仿真接入和子项目另行设计。
 
 ## 1. 项目目标
 
@@ -89,7 +89,7 @@
 
 本阶段建设可独立使用的单算子开发与验证工具。各任务自行确定算子、环境和验收目标，产品文档不保存具体任务的执行记录或机器配置。
 
-已提供标杆建立节点、analysis → develop → analysis 循环、节点交接契约，以及 torch_npu 采集方法和解析脚本。本轮已实现 [结构化验收与控制](../assets/skills/harness-resume/references/execution-control.md)、[Linux 前台进程 runner](../assets/skills/harness-develop/references/local-runner.md) 及 CPU 故障回归。以下按完整目标列出建设范围；ABI 导出/消费、真实设备回执与冷启动实卡闭环仍待实现和验证，不能将 CPU 验收工具等同于 M2 完成。
+已提供标杆建立节点、analysis → develop → analysis 循环、节点交接契约，以及 torch_npu 采集方法和解析脚本。本轮已实现 [结构化验收与控制](../assets/skills/harness-resume/references/execution-control.md)、[Linux 前台进程 runner](../assets/skills/harness-develop/references/local-runner.md) 、[执行到证据生成](../assets/skills/harness-develop/references/evaluation-runner.md) 及 CPU 故障回归。以下按完整目标列出建设范围；ABI 导出/消费、真实设备回执与冷启动实卡闭环仍待实现和验证，不能将 CPU 验收工具等同于 M2 完成。
 
 #### 1. MCP 与版本化候选执行契约
 

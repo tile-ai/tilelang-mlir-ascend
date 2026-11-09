@@ -16,10 +16,10 @@ from pathlib import Path
 import re
 import sys
 import tempfile
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "harness-new-project/scripts"))
 import projectctl
+from records import metadata
 import evidence
 import control
 from evidence import Invalid
@@ -150,112 +150,114 @@ class Store:
         return tree
 
     def validate(self, tree):
-        require(isinstance(tree, dict), "expected a search object")
-        require(tree["schema"] == "operator-harness/search@1", "unsupported search schema")
-        if not self.legacy:
-            require(tree.get("project_id") == self.project_id, "search project identity mismatch")
+        """Validate ledger topology without reading historical artifacts."""
+        require(isinstance(tree, dict) and tree.get("schema") == "operator-harness/search@1", "unsupported search schema")
+        require(self.legacy or tree.get("project_id") == self.project_id, "search project identity mismatch")
         fields(tree, "operator", "task_contract")
-        nodes = tree["nodes"]
+        nodes, candidates, runs = tree["nodes"], tree["candidates"], tree["runs"]
         require(tree["current_node"] in nodes, "unknown current node")
-        roots = [key for key, node in nodes.items() if node["parent"] is None]
-        require(len(roots) == 1, "tree must have one root")
-        for key, node in nodes.items():
-            identifier(key)
+        require(sum(n["parent"] is None for n in nodes.values()) == 1, "tree must have one root")
+        for collection, parent_key in ((nodes, "parent"), (candidates, "parent_candidate")):
+            for key, item in collection.items():
+                identifier(key)
+                cursor, seen = key, set()
+                while cursor is not None:
+                    require(cursor in collection and cursor not in seen, "invalid lineage or cycle")
+                    seen.add(cursor)
+                    cursor = collection[cursor][parent_key]
+        for node in nodes.values():
             fields(node, "hypothesis", "scope")
             require(node["status"] in ("open", "parked", "closed"), "invalid node status")
-            if node.get("plan"):
-                plan = self.search_plan(node["plan"])
-                require(node.get("mechanism_id") == plan["mechanism_id"], "mechanism identity mismatch")
-            seen = set()
-            cursor = key
-            while cursor is not None:
-                require(cursor in nodes and cursor not in seen, "missing parent or tree cycle")
-                seen.add(cursor)
-                cursor = nodes[cursor]["parent"]
-        for key, candidate in tree["candidates"].items():
-            identifier(key)
+        for candidate in candidates.values():
             require(candidate["search_node_id"] in nodes, "unknown candidate node")
-            self.contract(candidate["manifest"], "candidate")
-            self.verify_ref(candidate["manifest"])
-            self.markdown(candidate["manifest"], candidate_id=key,
-                          search_node_id=candidate["search_node_id"])
-            seen = set()
-            cursor = key
-            while cursor is not None:
-                require(cursor in tree["candidates"] and cursor not in seen, "invalid candidate lineage")
-                seen.add(cursor)
-                cursor = tree["candidates"][cursor]["parent_candidate"]
-            parent = candidate["parent_candidate"]
-            self.markdown(candidate["manifest"], parent_candidate=(
-                tree["candidates"][parent]["manifest"]["path"] if parent else "not_applicable"))
-        for key, run in tree["runs"].items():
+        for key, run in runs.items():
             identifier(key)
             require(run["search_node_id"] in nodes, "unknown run node")
-            require(run["stage"] in ("prepare-environment", "establish-baseline", "port-baseline", "analysis", "develop", "device-test"), "invalid workflow stage")
-            self.verify_ref(run["task"])
-            self.contract(run["task"], "node-task")
-            self.markdown(run["task"], run_id=key, node=run["stage"],
-                          search_node_id=run["search_node_id"])
-            candidate = run["candidate_id"]
-            require(candidate is None or candidate in tree["candidates"], "unknown input candidate")
-            if run.get("evaluation_plan") and run.get("result"):
-                _, dependencies = evidence.plan(self, run["evaluation_plan"])
-                require(dependencies == run["evaluation_inputs"], "frozen evaluation inputs changed")
-            if run.get("closure"):
-                require(not run.get("result"), "closed run cannot also be accepted")
-                self.validate_closure(key, run)
-            if run.get("result"):
-                self.contract(run["result"], "node-result")
-                self.verify_ref(run["result"])
-                self.markdown(run["result"], run_id=key, node=run["stage"],
-                              search_node_id=run["search_node_id"])
-                self.terminal(run["result"])
-                if "acceptance" in run:
-                    require(run["acceptance"] == self.run_acceptance(run, run["result"]),
-                            "develop/port acceptance evidence changed")
+            require(run["stage"] in ("prepare-environment", "establish-baseline", "port-baseline", "analysis", "develop", "device-test"), "invalid stage")
+            require(run["candidate_id"] is None or run["candidate_id"] in candidates, "unknown input candidate")
+            require(not (run.get("result") and run.get("closure")), "closed run cannot also be accepted")
             if run.get("batch_id"):
-                require(run["batch_id"] in tree.get("batches", {}), "unknown develop batch")
                 require(key in tree["batches"][run["batch_id"]]["members"], "unlisted batch run")
         for key, batch in tree.get("batches", {}).items():
             identifier(key)
-            require(len(batch["members"]) >= 2 and
-                    len(set(batch["members"])) == len(batch["members"]), "invalid batch members")
-            require(set(batch["inputs"]) == {"requirements", "baseline", "cases", "protocol", "environment"},
-                    "batch needs frozen comparison inputs")
-            for ref in batch["inputs"].values():
-                self.verify_ref(ref)
-            repositories = set()
+            require(len(batch["members"]) >= 2 and len(set(batch["members"])) == len(batch["members"]), "invalid batch members")
+            require(set(batch["inputs"]) == {"requirements", "baseline", "cases", "protocol", "environment"}, "batch needs frozen comparison inputs")
+            repos = set()
             for member in batch["members"]:
-                run = tree["runs"][member]
+                run = runs[member]
                 require(run.get("batch_id") == key and run["stage"] == "develop", "batch run mismatch")
                 require(run["candidate_id"] == batch["candidate_id"], "batch candidate mismatch")
-                require(run["analysis_run"] in tree["runs"], "unknown analysis run")
-                analysis = tree["runs"][run["analysis_run"]]
+                analysis = runs[run["analysis_run"]]
                 require(analysis["stage"] == "analysis" and analysis.get("result") and
-                        analysis["candidate_id"] == run["candidate_id"] and
-                        analysis["search_node_id"] == run["search_node_id"], "inapplicable analysis run")
-                self.markdown(analysis["result"], status="completed")
-                require(bool(run["repo_ids"]) and len(set(run["repo_ids"])) == len(run["repo_ids"]),
-                        "invalid batch repositories")
-                require(not repositories.intersection(run["repo_ids"]), "batch worktrees overlap")
-                repositories.update(run["repo_ids"])
-                self.markdown(run["task"], batch_id=key, analysis_run=run["analysis_run"])
-                if run.get("result"):
-                    self.markdown(run["result"], batch_id=key, analysis_run=run["analysis_run"])
+                        analysis["candidate_id"] == run["candidate_id"] and analysis["search_node_id"] == run["search_node_id"], "inapplicable analysis run")
+                require(run["repo_ids"] and len(set(run["repo_ids"])) == len(run["repo_ids"]) and not repos.intersection(run["repo_ids"]), "batch worktrees overlap")
+                repos.update(run["repo_ids"])
         for key, revisions in tree["hot"].items():
             identifier(key)
             require(bool(revisions), "empty hot history")
-            for revision, ref in enumerate(revisions, 1):
-                self.verify_ref(ref)
-                hot = read(self.local(ref["path"]))
-                require(hot["id"] == key and hot["revision"] == revision, "invalid hot revision")
-                self.validate_hot(hot, tree)
-        control.validate(self, tree)
         for binding in tree["cooled_inputs"]:
             require(binding["search_node_id"] in nodes, "unknown knowledge consumer")
             fields(binding, "reason")
-            self.verify_ref(binding["artifact"])
-            validate_cooled(read(self.local(binding["artifact"]["path"])))
+        control.validate(self, tree, artifacts=False)
+
+    def audit(self, tree):
+        """Explicit historical integrity scan. Damage is reported, not a load lock."""
+        issues, seen = [], set()
+        def visit(value, context):
+            if isinstance(value, dict):
+                if set(value) == {"path", "sha256"}:
+                    key = (value["path"], value["sha256"])
+                    if key in seen:
+                        return
+                    seen.add(key)
+                    try:
+                        self.verify_ref(value)
+                    except (ValueError, OSError, KeyError) as exc:
+                        issues.append({"context": context, "path": value["path"], "error": str(exc)})
+                    return
+                for key, item in value.items():
+                    if key != "events":
+                        visit(item, context + "." + key)
+            elif isinstance(value, list):
+                for item in value:
+                    visit(item, context)
+        visit(tree, "search")
+        for key, revisions in tree.get("hot", {}).items():
+            for ref in revisions:
+                try:
+                    hot = read(self.local(ref["path"]))
+                    visit(hot, "search.hot." + key)
+                except (ValueError, OSError) as exc:
+                    issues.append({"context": "search.hot." + key,
+                                   "path": ref["path"], "error": str(exc)})
+        return issues
+
+    def parent(self, manifest, parent_id, parent_ref=None):
+        actual = self.value(manifest, "parent_candidate")
+        if parent_id is None:
+            actual = re.sub(r"^not_applicable\s*[:：]\s*.+$", "not_applicable", actual)
+        # Historical manifests used paths; newly emitted metadata uses IDs.
+        allowed = {parent_id} if parent_id else {"not_applicable"}
+        if parent_ref and '<!-- harness-metadata -->' not in self.local(manifest["path"]).read_text():
+            allowed.add(parent_ref["path"])
+        require(actual in allowed, "candidate parent mismatch")
+
+    def verify_run(self, tree, run_id):
+        run = tree["runs"][run_id]
+        self.verify_ref(run["task"])
+        if run.get("input_candidate"):
+            self.verify_ref(run["input_candidate"])
+        if run.get("evaluation_plan"):
+            self.verify_ref(run["evaluation_plan"])
+            for ref in run.get("evaluation_inputs", {}).values():
+                self.verify_ref(ref)
+        if run.get("batch_id"):
+            for ref in tree["batches"][run["batch_id"]]["inputs"].values():
+                self.verify_ref(ref)
+        if run.get("result"):
+            self.verify_ref(run["result"])
+            for issue in self.audit(run.get("acceptance", {})):
+                raise Invalid("accepted evidence changed: " + issue["path"])
 
     def validate_hot(self, hot, tree):
         fields(hot, "statement", "applicability", "limitations")
@@ -282,7 +284,7 @@ class Store:
 
     def apply(self, operation):
         """One idempotent, serialized operation; immutable blobs precede its index."""
-        with self.write(closing=operation.get("op") in ("accept", "close-run")):
+        with self.write(closing=operation.get("op") in ("accept", "close-run", "control-job", "control-settle", "control-pause")):
             tree = self.load()
             event_id = identifier(operation["event_id"])
             for event in tree["events"]:
@@ -339,8 +341,8 @@ class Store:
             parent = op["parent_candidate"]
             if parent is not None:
                 require(parent in tree["candidates"], "unknown parent candidate")
-            self.markdown(ref, parent_candidate=(tree["candidates"][parent]["manifest"]["path"]
-                                                if parent else "not_applicable"))
+            self.contract(ref, "candidate")
+            self.parent(ref, parent, tree["candidates"][parent]["manifest"] if parent else None)
             tree["candidates"][key] = {"search_node_id": op["search_node_id"],
                                        "parent_candidate": parent, "manifest": ref}
         elif action == "run":
@@ -374,6 +376,7 @@ class Store:
         elif action == "accept":
             run = tree["runs"][op["id"]]
             control.reconciled(tree, op["id"])
+            self.verify_run(tree, op["id"])
             require(not settled(run), "run already accepted or closed")
             ref = self.reference(op["result"])
             self.markdown(ref, run_id=op["id"], node=run["stage"], search_node_id=run["search_node_id"])
@@ -381,9 +384,6 @@ class Store:
             if "evaluator" in run:
                 require(run["evaluator"] == evidence.evaluator_identity(),
                         "evaluator changed; use the recorded tool bundle or supersede the task")
-            if "harness_bundle" in run:
-                require(run["harness_bundle"] == evidence.bundle_identity(),
-                        "harness bundle changed; use the recorded installation or supersede the task")
             self.terminal(ref)
             if run["stage"] == "develop":
                 if op.get("scope"):
@@ -394,6 +394,13 @@ class Store:
             elif run["stage"] == "port-baseline":
                 require(not op.get("scope"), "port-baseline cannot replace its frozen scope")
                 run["acceptance"] = self.run_acceptance(run, ref)
+            if run.get("batch_id"):
+                self.markdown(ref, batch_id=run["batch_id"], analysis_run=run["analysis_run"])
+            verified = run.get("acceptance", {}).get("validation", {})
+            if verified:
+                candidate = tree["candidates"].get(verified["candidate_id"])
+                require(candidate and candidate["manifest"] == verified["candidate"], "register the exact output candidate before acceptance")
+            control.receipts(self, tree, op["id"], verified)
             run["result"] = ref
         elif action == "close-run":
             run = tree["runs"][op["id"]]
@@ -413,6 +420,7 @@ class Store:
             self.validate_closure(op["id"], run)
         elif action == "promote-candidate":
             run = tree["runs"][op["run_id"]]
+            self.verify_run(tree, op["run_id"])
             verified = run.get("acceptance", {}).get("validation", {})
             require(run.get("result") and verified.get("eligible") is True,
                     "promotion requires structured passing evidence")
@@ -488,6 +496,11 @@ class Store:
             self.markdown(task, run_id=run_id, node="develop", search_node_id=node,
                           batch_id=key, analysis_run=member["analysis_run"])
             self.develop_scope(task)
+            require(member["analysis_run"] in tree["runs"], "unknown analysis run")
+            analysis = tree["runs"][member["analysis_run"]]
+            require(analysis.get("result"), "inapplicable analysis run")
+            self.verify_ref(analysis["result"])
+            self.markdown(analysis["result"], status="completed")
             tree["runs"][run_id] = {"search_node_id": node, "stage": "develop",
                                     "candidate_id": op["candidate_id"], "task": task, "result": None,
                                     "batch_id": key, "analysis_run": member["analysis_run"],
@@ -529,7 +542,7 @@ class Store:
 
     def contract(self, ref, kind, required=False):
         text = self.local(ref["path"]).read_text(encoding="utf-8")
-        values = re.findall(r"^- contract: ([^\n\r]*)$", text, re.M)
+        values = [metadata(text)["contract"]] if "contract" in metadata(text) else []
         versions = {"node-task": (1, 2, 3, 4), "node-result": (1, 2, 3, 4), "candidate": (1, 2)}
         if not values and not required:
             return None
@@ -547,7 +560,14 @@ class Store:
         run["input_candidate"] = tree["candidates"].get(run["candidate_id"], {}).get("manifest")
         run["legacy"] = legacy
         run["evaluator"] = evidence.evaluator_identity()
+        # Bundle provenance is informational; only evaluator code locks acceptance.
         run["harness_bundle"] = evidence.bundle_identity()
+        if run["input_candidate"]:
+            self.verify_ref(run["input_candidate"])
+        if not legacy and run["stage"] == "develop":
+            mode = self.value(run["task"], "operation")
+            require(mode not in ("implement-and-validate", "verify-only", "collect-only") or run["candidate_id"] is not None,
+                    "operation requires an input candidate")
         if legacy:
             require(self.value(run["task"], "operation") != "initial-and-validate"
                     if run["stage"] == "develop" else True, "initial mode requires @4")
@@ -556,7 +576,8 @@ class Store:
         run["acceptance_policy"] = ("develop" if run["stage"] == "develop" else "port") + "-acceptance@2"
         mode = self.value(run["task"], "operation")
         self.value(run["task"], "diagnostics_required")
-        if mode not in ("code-only", "collect-only"):
+        if mode != "code-only" and (mode != "collect-only" or
+                "evaluation_plan" in metadata(self.local(run["task"]["path"]).read_text())):
             ref = self.reference(self.value(run["task"], "evaluation_plan"))
             data, dependencies = evidence.plan(self, ref)
             require(data.get("run_id") == self.value(run["task"], "run_id"), "evaluation plan run mismatch")
@@ -592,21 +613,16 @@ class Store:
         require(closure["disposition"] in ("rejected", "abandoned", "superseded"), "invalid closure")
 
     def markdown(self, ref, **expected):
-        text = self.local(ref["path"]).read_text(encoding="utf-8")
+        self.verify_ref(ref)
         if not self.legacy:
             expected = {"project_id": self.project_id, **expected}
         for key, value in expected.items():
-            values = re.findall(rf"^- {re.escape(key)}: (.*?)\s*$", text, re.M)
-            if key == "parent_candidate" and value == "not_applicable":
-                values = [re.sub(r"^not_applicable\s*[:：]\s*.+$", "not_applicable", item)
-                          for item in values]
-            require(values == [value], f"manifest {key} must be exactly {value}")
+            require(self.value(ref, key) == value, key + " must be exactly " + str(value))
 
     def value(self, ref, key):
-        text = self.local(ref["path"]).read_text(encoding="utf-8")
-        values = re.findall(rf"^- {re.escape(key)}: ([^\n\r]*)$", text, re.M)
-        require(len(values) == 1 and nonempty(values[0]), f"missing/duplicate {key}")
-        return values[0].strip()
+        values = metadata(self.local(ref["path"]).read_text(encoding="utf-8"))
+        require(key in values and bool(values[key]), "missing/duplicate " + key)
+        return values[key]
 
     def develop_scope(self, task):
         mode = self.value(task, "operation")
@@ -616,7 +632,7 @@ class Store:
         require(performance in ("true", "false"), "performance_required must be true or false")
         require(mode not in ("code-only", "collect-only") or performance == "false",
                 "code/diagnostic-only cannot require performance acceptance")
-        if re.search(r"^- diagnostics_required:", self.local(task["path"]).read_text(), re.M):
+        if "diagnostics_required" in metadata(self.local(task["path"]).read_text()):
             diagnostics = self.value(task, "diagnostics_required")
             require(diagnostics in ("true", "false"), "diagnostics_required must be true or false")
             require(mode != "code-only" or diagnostics == "false", "code-only cannot require device diagnostics")
@@ -644,17 +660,18 @@ class Store:
         require(performance != "failed" or cause == "idea" or mode == "initial-and-validate",
                 "performance failure needs idea diagnosis")
         evidence = {}
+        structured = run.get("acceptance_policy", "").endswith("@2")
         if accuracy == "passed":
-            evidence["accuracy"] = self.reference(self.value(result, "accuracy_evidence"))
+            evidence["accuracy"] = self.reference(self.value(result, "validation_evidence" if structured else "accuracy_evidence"))
         if performance in ("passed", "failed"):
             require(accuracy == "passed", "performance acceptance requires accuracy passed")
-            evidence["performance"] = self.reference(self.value(result, "performance_evidence"))
+            evidence["performance"] = self.reference(self.value(result, "validation_evidence" if structured else "performance_evidence"))
         if cause == "idea":
             require(accuracy == "passed" and performance in ("passed", "failed"),
                     "idea diagnosis needs valid accuracy and performance results")
             evidence["regression"] = self.reference(self.value(result, "regression_evidence"))
         # Optional for historical TASKs; current templates explicitly declare the scope.
-        if re.search(r"^- diagnostics_required:", self.local(scope["path"]).read_text(), re.M):
+        if "diagnostics_required" in metadata(self.local(scope["path"]).read_text()):
             evidence["analysis_data"] = self.analysis_data_ref(scope, result)
         for ref in evidence.values():
             require(bool(self.local(ref["path"]).read_bytes().strip()), "empty develop evidence")
@@ -671,7 +688,11 @@ class Store:
         return ref
 
     def port_scope(self, task):
-        self.markdown(task, operation="port-and-validate", performance_required="true", aicpu_policy="forbidden")
+        self.markdown(task, operation="port-and-validate", aicpu_policy="forbidden")
+        required = self.value(task, "performance_required")
+        require(required in ("true", "false"), "invalid performance requirement")
+        if self.contract(task, "node-task") != "operator-harness/node-task@4":
+            require(required == "true", "legacy port requires performance validation")
         require(self.value(task, "diagnostics_required") in ("true", "false"),
                 "diagnostics_required must be true or false")
 
@@ -681,11 +702,15 @@ class Store:
         self.verify_ref(scope)
         self.port_scope(scope)
         self.markdown(result, status="completed", accuracy_status="passed")
-        require(self.value(result, "performance_status") in ("passed", "failed"),
-                "port-baseline requires valid performance measurement")
+        required = self.value(scope, "performance_required") == "true"
+        require(self.value(result, "performance_status") in (("passed", "failed") if required else
+                ("passed", "failed", "not_applicable", "not_run")), "port-baseline requires requested measurement")
+        structured = run.get("acceptance_policy", "").endswith("@2")
         evidence = {name: self.reference(self.value(result, field)) for name, field in (
-            ("accuracy", "accuracy_evidence"), ("performance", "performance_evidence"),
+            ("accuracy", "validation_evidence" if structured else "accuracy_evidence"),
             ("porting", "porting_evidence"), ("candidate", "candidate_manifest"))}
+        if required:
+            evidence["performance"] = self.reference(self.value(result, "validation_evidence" if structured else "performance_evidence"))
         candidate = self.value(evidence["candidate"], "candidate_id")
         self.markdown(evidence["candidate"], search_node_id=run["search_node_id"])
         self.markdown(evidence["porting"], contract="operator-harness/porting@1", status="complete",
@@ -717,9 +742,7 @@ class Store:
         return accepted
 
     def terminal(self, ref):
-        text = self.local(ref["path"]).read_text(encoding="utf-8")
-        values = re.findall(r"^- status: (.*?)[ \t]*$", text, re.M)
-        require(values in (["completed"], ["failed"]),
+        require(self.value(ref, "status") in ("completed", "failed"),
                 "only terminal results may be accepted; checkpoints remain outstanding")
 
     def warnings(self, tree):
@@ -746,7 +769,14 @@ class Store:
                         self.verify_ref(ref)
                     except (Invalid, OSError) as exc:
                         stale.append({"run_id": key, "path": ref["path"], "error": str(exc)})
+        for key, batch in tree.get("batches", {}).items():
+            for ref in batch["inputs"].values():
+                try:
+                    self.verify_ref(ref)
+                except (ValueError, OSError) as exc:
+                    stale.append({"batch_id": key, "path": ref["path"], "error": str(exc)})
         return {"project_id": self.project_id, "event_watermark": len(tree["events"]), "stale_inputs": stale,
+                "corrupted_artifacts": self.audit(tree),
                 "best": tree.get("best"), "control": control.snapshot(tree),
                 "outstanding_runs": [key for key, run in tree["runs"].items() if not settled(run)],
                 "closed_runs": [key for key, run in tree["runs"].items() if run.get("closure")],
@@ -775,7 +805,9 @@ class Store:
             revision = decision["revision"]
             require(type(revision) is int and 1 <= revision <= len(revisions), "invalid hot revision")
             ref = revisions[revision - 1]
+            self.verify_ref(ref)
             hot = read(self.local(ref["path"]))
+            self.validate_hot(hot, tree)
             require(decision["hot_sha256"] == ref["sha256"], "approval does not bind exact hot content")
             fields(decision, "evidence_summary")
             # No local paths or full private approval transcript in the shared package.
@@ -918,12 +950,18 @@ def main():
             result = store.load()
             warnings = store.warnings(result)
             if args.command == "check":
-                result = {"valid": True}
+                issues = store.audit(result)
+                result = {"valid": not issues}
+                if issues:
+                    result["corrupted_artifacts"] = issues
             result["cooled_warnings"] = warnings
         print(encoded(result).decode(), end="")
+        if args.command == "check" and not result["valid"]:
+            return 1
+        return 0
     except (Invalid, OSError, ValueError, KeyError, TypeError) as exc:
         parser.exit(1, f"searchctl: {exc}\n")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

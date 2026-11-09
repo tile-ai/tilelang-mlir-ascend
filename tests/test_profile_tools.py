@@ -61,7 +61,7 @@ class ProfileToolsTest(unittest.TestCase):
         self.assertAlmostEqual(result['latency_ms'], .002)
         self.assertEqual(result['profile_excluded_kernel_count'], 1)
 
-    def measure(self, readings, verify=None):
+    def measure(self, readings, verify=None, evidence_context=None):
         events = []
         readings = iter(readings)
 
@@ -81,7 +81,7 @@ class ProfileToolsTest(unittest.TestCase):
                 check_reservation=lambda: events.append('reservation'),
                 verify_profile=verify or (lambda path, parsed: None),
                 protocol='test-v1', expected_frequency=(1000, 1200),
-                flush_bytes=1024, warmup=1, repeats=2)
+                flush_bytes=1024, warmup=1, repeats=2, evidence_context=evidence_context)
         return result, events
 
     def test_success_stays_provisional_and_preserves_samples(self):
@@ -93,6 +93,15 @@ class ProfileToolsTest(unittest.TestCase):
         self.assertEqual(events.count('step'), 2)
         self.assertEqual(len((self.root / 'measurement/samples.jsonl')
                              .read_text().splitlines()), 2)
+
+    def test_measurement_emits_workspace_relative_performance_evidence(self):
+        context = dict(workspace_root=str(self.root), project_id='example', run_id='d', candidate_id='C',
+                       case_id='case', request_id='job', artifacts={}, evaluation_plan={})
+        result, _ = self.measure([(1000, 1200)] * 4, evidence_context=context)
+        report = json.loads((self.root / result['evidence']['path']).read_text())
+        self.assertEqual(report['schema'], 'operator-harness/performance@1')
+        self.assertEqual(report['samples_ms'], [.001, .001])
+        self.assertTrue(all((self.root / ref['path']).is_file() for ref in report['raw_files']))
 
     def test_frequency_drift_preserves_failure_without_success_summary(self):
         with self.assertRaisesRegex(RuntimeError, 'frequency mismatch'):

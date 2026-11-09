@@ -2,7 +2,7 @@
 
 项目定位和写入归属先遵循 [项目管理契约](../../harness-new-project/references/project-management.md)。
 
-本契约让五个节点既能在同一会话连续工作，也能被全新 agent 独立接续。项目事实来自项目记录，执行方法来自所分配 skill；不要求节点读取历史聊天或依赖派发者记忆。它是当前可用的 Markdown 交接契约，不是已实现的自动执行器或程序 gate。
+本契约让五个节点既能在同一会话连续工作，也能被全新 agent 独立接续。项目事实来自项目记录，执行方法来自所分配 skill；不要求节点读取历史聊天或依赖派发者记忆。机器字段与程序验收见 [执行控制](execution-control.md)，Python 执行与证据生成见 [评测入口](../../harness-develop/references/evaluation-runner.md)。
 
 ## 1. 执行边界
 
@@ -125,15 +125,15 @@ TASK、RESULT、candidate 的 search_node_id 在未启用树时可省略；未�
 
 TASK @4 的 operation 使用五种 develop 模式之一，并以 `performance_required: true / false` 固定是否要求性能验收。RESULT @4 为 develop 增加 accuracy_status、performance_status、regression_cause 及证据路径，字段定义见模板；必须与结果表和实际候选一致。
 
-searchctl 新登记 develop 时检查范围字段，accept 要求 completed，拒绝精度失败、无效精度、必选精度未测、性能要求未测、无效性能以及 implementation/unknown/measurement 归因。idea 必须具有精度通过、有效性能与独立归因文件；接收时冻结相关证据摘要。它检查声明和证据身份，协调者仍核对逐 case 覆盖、结果表一致性、实际源码/测量身份及归因内容，不把一行 idea 当作证明。
+searchctl 新登记 develop 时检查范围字段，accept 要求 completed，拒绝精度失败、无效精度、必选精度未测、性能要求未测、无效性能以及 implementation/unknown/measurement 归因。idea 必须具有精度通过、有效性能与独立归因文件；接收时冻结相关证据摘要。@4 检查器核对逐 case/输出覆盖、原始样本与实际候选身份；协调者核对实现和归因内容。
 
 历史已接收 @2 结果按原记录读取，不追溯伪造新接收字段；未接收的旧 develop 必须满足新接收规则。旧 TASK 缺少新范围字段时保持冻结，补充独立的范围说明并通过 accept 的 scope 参数引用，须与原任务/用户决定一致，不得缩小验收；协调者负责核对。旧失败证据仍保留，不能标成新版规则下已通过。
 
 ## Port-baseline 接收字段
 
-port-baseline 复用 TASK/RESULT @4 公共字段，为新增节点定义条件字段：TASK operation=port-and-validate、performance_required=true、aicpu_policy=forbidden、diagnostics_required=true/false（默认 true）；RESULT 使用公共精度/性能/analysis_data 字段，另有 candidate_manifest、porting_evidence。旧节点字段含义不变。
+port-baseline 复用 TASK/RESULT @4 公共字段，为新增节点定义条件字段：TASK operation=port-and-validate、performance_required=true/false（按任务）、aicpu_policy=forbidden、diagnostics_required=true/false（默认 true）；RESULT 使用公共精度/性能/analysis_data 字段，另有 candidate_manifest、porting_evidence。旧节点字段含义不变。
 
-searchctl 登记时固定范围；accept 要求 completed、精度 passed、性能 passed/failed，PORTING 为 complete 且 aicpu_status=not_used/replaced，并核对项目/run/候选身份、必需诊断 ready、冻结证据摘要。源码确已落实方案、调用链无候选 AICPU 依赖、融合/计时边界及精度覆盖由协调者核验。性能未达标可接收为初版差距，无需 idea 归因；精度/实现/测量或替代问题仍须节点内解决。预算耗尽保留未验收检查点，不用 failed 终态规避。参考可以使用 AICPU，候选不得引入该能力或隐藏 host 回退。
+searchctl 登记时固定范围；accept 要求 completed、精度 passed，要求性能时为 passed/failed；仅精度时为 not_applicable，PORTING 为 complete 且 aicpu_status=not_used/replaced，并核对项目/run/候选身份、必需诊断 ready、冻结证据摘要。源码确已落实方案、调用链无候选 AICPU 依赖、融合/计时边界及精度覆盖由协调者核验。性能未达标可接收为初版差距，无需 idea 归因；精度/实现/测量或替代问题仍须节点内解决。预算耗尽保留未验收检查点，不用 failed 终态规避。参考可以使用 AICPU，候选不得引入该能力或隐藏 host 回退。
 
 ## 实现节点 → analysis 的上板数据
 
@@ -145,7 +145,7 @@ searchctl 登记时固定范围；accept 要求 completed、精度 passed、性�
 
 ## 程序化接收与安全关闭
 
-新任务使用 [执行控制契约](execution-control.md) 的 @4 输入/验证清单、policy@2、工具包身份及独立候选晋升；历史 @1–@3 兼容读取或显式 legacy 补登记，保留原通过含义，不能冒充新版验收。失败仍不允许 accept，但可在执行者停止、作业和资源对账后 close-run 为 rejected/abandoned/superseded。关闭不授予任何验证资格；范围/预算变化可以安全关闭旧任务并关联新 TASK，不再要求失败任务先成功才能继续。终态 RESULT 不改写。
+新任务使用 [执行控制契约](execution-control.md) 的 @4 输入/验证清单、policy@2、评测代码身份及独立候选晋升；历史 @1–@3 兼容读取或显式 legacy 补登记，保留原通过含义，不能冒充新版验收。失败仍不允许 accept，但可在执行者停止、作业和资源对账后 close-run 为 rejected/abandoned/superseded。关闭不授予任何验证资格；范围/预算变化可以安全关闭旧任务并关联新 TASK，不再要求失败任务先成功才能继续。终态 RESULT 不改写。
 
 control 启用后使用同一搜索账本的步数/预留/job/结算事件，RESOURCE_USAGE/STATE 只保存对应摘要或链接；reconcile 报告实际账本水位。外部观察、科学结论、权限真实性及共享环境发布仍由宿主核验。
 

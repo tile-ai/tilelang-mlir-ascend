@@ -18,8 +18,7 @@ import subprocess
 import tempfile
 
 
-class Invalid(ValueError):
-    pass
+from records import Invalid, metadata
 
 
 def require(condition, message):
@@ -267,10 +266,9 @@ class Workspace:
                     relative = check.get("paused_runs", {}).get(run_id)
                     require(relative, "search contains outstanding runs without paused checkpoints")
                     path = self.local(project_id, relative)
-                    text = path.read_text(encoding="utf-8")
-                    require(re.findall(r"^- run_id: (.+)$", text, re.M) == [run_id] and
-                            re.findall(r"^- status: (.+)$", text, re.M) in
-                            (["interrupted"], ["blocked"], ["needs_input"]), "invalid paused run checkpoint")
+                    fields = metadata(path.read_text(encoding="utf-8"))
+                    require(fields.get("run_id") == run_id and fields.get("status") in
+                            ("interrupted", "blocked", "needs_input"), "invalid paused run checkpoint")
                     paused[run_id] = {"path": relative, "sha256": sha(path)}
             snapshot = {"checkpoint": ref, "paused_runs": paused,
                         "repositories": self.inventory(project_id, data)}

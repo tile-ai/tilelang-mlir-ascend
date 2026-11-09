@@ -40,7 +40,7 @@ python3 .agents/skills/harness-resume/scripts/searchctl.py --workspace . --proje
 python3 .agents/skills/harness-resume/scripts/searchctl.py --workspace . --project example --owner SESSION promote decision.json
 ```
 
-`show/check/review` 只读，不创建目录、锁或修复记录；输出 JSON；show/check 的 cooled_warnings 标明历史引用的知识已失效、出现后继版本，或所在集合有不可读/非对象 JSON。use-cooled 和 invalidate-cooled 将无效邻居报告到 stderr 后继续检查有效对象；promote 遇到这种集合会停止，以免无法确认审批 ID 唯一性。`check` 验证树结构、候选谱系、归属和引用摘要，不证明精度、性能、审批真实性或资源额度。坏记录停止写入，保留现场，不自动修复。操作 JSON/decision JSON 是输入文件，路径相对当前 shell；内部 artifact 路径一律相对 `--workspace`（旧参数名 --project-dir 仅为此参数别名）。禁止逃出工作目录或引用其他项目私有记录；共享环境与工作目录内已发布知识可按范围读取。旧布局只用 `--legacy show/check/review` 读取，不自动迁移。
+`show/check/review` 只读，不创建目录、锁或修复记录；输出 JSON；show/check 的 cooled_warnings 标明历史引用的知识已失效、出现后继版本，或所在集合有不可读/非对象 JSON。use-cooled 和 invalidate-cooled 将无效邻居报告到 stderr 后继续检查有效对象；promote 遇到这种集合会停止，以免无法确认审批 ID 唯一性。`check` 验证树结构、候选谱系、归属和引用摘要，不证明精度、性能、审批真实性或资源额度。`check`/`reconcile` 会审计所有 hot 修订及其证据快照；历史损坏保留现场，不自动修复，也不全局阻断账本读取或新任务。接收、复用和晋升仍核验本次所用证据；知识晋升核验获批 hot 内容及其快照。操作 JSON/decision JSON 是输入文件，路径相对当前 shell；内部 artifact 路径一律相对 `--workspace`（旧参数名 --project-dir 仅为此参数别名）。禁止逃出工作目录或引用其他项目私有记录；共享环境与工作目录内已发布知识可按范围读取。旧布局只用 `--legacy show/check/review` 读取，不自动迁移。
 
 ### apply 操作
 
@@ -58,7 +58,7 @@ python3 .agents/skills/harness-resume/scripts/searchctl.py --workspace . --proje
 | candidate | id, search_node_id, parent_candidate, manifest | parent_candidate 是已登记 ID 或 null；manifest 中对应字段为父 manifest 路径或 not_applicable（可附 `: 原因` / `：原因`） |
 | develop-batch | id, candidate_id, inputs, members | 至少两个独立 develop；具体字段与前置检查见 [并行开发契约](parallel-develop.md) 和 JSON 模板；跨 open 策略原子登记，不切换 current_node |
 | run | id, search_node_id, stage, candidate_id, task | 当前 open 节点；stage 为 prepare-environment / establish-baseline / port-baseline / analysis / develop；只有 analysis 可普通并行，其余独占执行；candidate_id 为输入候选或 null（尚无候选） |
-| accept | id, result；旧 develop 可补 scope | develop 要求 completed 并通过精度/性能归因检查；port-baseline 要求 completed、精度通过、有效性能和完整移植证据，允许性能未达标；其他阶段为 completed/failed；checkpoint 不接收。scope 仅用于新规则前登记任务的独立范围说明，含 project_id/run_id/operation/performance_required |
+| accept | id, result；旧 develop 可补 scope | develop 要求 completed 并通过精度/性能归因检查；port-baseline 要求 completed、精度通过、任务要求的有效性能和完整移植证据，允许性能未达标；其他阶段为 completed/failed；checkpoint 不接收。scope 仅用于新规则前登记任务的独立范围说明，含 project_id/run_id/operation/performance_required |
 | hot | id, base_revision, kind, statement, applicability, limitations, nodes, evidence | base_revision 初次 0，后续须匹配最新；nodes 为节点 ID 列表，evidence 为项目内证据路径列表 |
 | use-cooled | search_node_id, artifact, reason | artifact 指向当前 active cooled JSON；reason 解释条件匹配 |
 

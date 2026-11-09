@@ -5,7 +5,7 @@ description: 在当前 Operator Harness 任务与预算内连续选择、执行�
 
 # Harness Automatic
 
-先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+按 [项目管理契约](../harness-new-project/references/project-management.md) 选择项目并核对写入归属；从 STATE 和当前 TASK 接续。
 
 这是当前宿主内的自动运行模式，不是定时任务或脱离会话的后台服务。用户调用后直接开始；不要每完成一个节点就再次询问是否继续。沿用已确定的目标、各侧环境和权限，自动模式不扩大它们。
 

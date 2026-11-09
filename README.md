@@ -11,7 +11,7 @@
 
 </div>
 
-> **项目状态：早期建设中。** 已提供面向 Codex 的初始化、接入、接续及五个节点 skills，以及 status、next、automatic 入口。另有 torch_npu 性能采集方法和解析脚本。节点职责见 [节点设计](docs/nodes/design.md)；已实现结构化接收、失败关闭、可选预算/job 账本、本地进程 runner 和安装升级回滚；通用设备适配、MCP 和 npm 分发见 [路线图](docs/ROADMAP.md)。
+> **项目状态：早期建设中。** 已提供面向 Codex 的初始化、接入、接续及五个节点 skills，以及 status、next、automatic 入口。另有 torch_npu 性能采集方法和解析脚本。节点职责见 [节点设计](docs/nodes/design.md)；已实现结构化接收、失败关闭、可选预算/job 账本、本地 Python 评测入口、进程 runner 和安装升级回滚；通用设备适配、MCP 和 npm 分发见 [路线图](docs/ROADMAP.md)。
 
 ## 什么是 Operator Harness
 
@@ -162,7 +162,7 @@ PROJECT 使用 [项目模板](assets/skills/harness-new-project/assets/templates
 
 一个项目的算子或融合优化方向组织成多层搜索树，每个节点可以经历多轮分析、编写、测试；候选谱系、当前/最佳候选和资源预算仍独立管理。Hot 关联一个或多个节点并保留证据与修订；交付时整理筛选，经真实人工审批后生成可版本管理的 cooled 知识，供后续探索按需引用。
 
-随 harness-resume 安装的 Python 标准库工具 `searchctl.py` 提供原子记录、幂等恢复、引用校验及知识晋升/失效管理。@4 任务增加逐 case 验收与候选晋升、安全关闭、机制查重入口，以及可选步数/资源/job 账本和只读 reconcile；见 [执行控制契约](assets/skills/harness-resume/references/execution-control.md)。工具不启动实验或自动发布；[本地 runner](assets/skills/harness-develop/references/local-runner.md) 只执行已有 Linux 前台命令，不代表通用 NPU 执行适配已完成。见 [架构示例](docs/search/design.md) 和 [CLI 与契约](assets/skills/harness-resume/references/search-knowledge.md)。
+随 harness-resume 安装的 Python 标准库工具 `searchctl.py` 提供原子记录、幂等恢复、引用校验及知识晋升/失效管理。@4 任务增加逐 case 验收与候选晋升、安全关闭、机制查重入口，以及可选步数/资源/job 账本和只读 reconcile；见 [执行控制契约](assets/skills/harness-resume/references/execution-control.md)。工具不启动实验或自动发布；[评测入口](assets/skills/harness-develop/references/evaluation-runner.md) 执行冻结的参考/比较器并自动生成证据，[本地 runner](assets/skills/harness-develop/references/local-runner.md) 管理前台命令及控制账本。真实设备适配仍按执行矩阵验收。见 [架构示例](docs/search/design.md) 和 [CLI 与契约](assets/skills/harness-resume/references/search-knowledge.md)。
 
 ### 规划中：npm 分发与执行闭环
 

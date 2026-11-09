@@ -62,7 +62,7 @@ def target(root, relative):
     if not path.resolve().is_relative_to(root) or '..' in Path(relative).parts:
         raise ValueError('upgrade target escapes workspace')
     if any(p.is_symlink() for p in (path, *path.parents) if p != root.parent):
-        raise ValueError('upgrade target must not traverse symlinks')
+        raise ValueError('source-linked development workspace: update assets directly; managed upgrades require copied files')
     return path
 
 

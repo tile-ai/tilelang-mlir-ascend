@@ -101,6 +101,7 @@ def apply(store, tree, op):
             require(not c["paused"] and status == "intent", "new job requires unpaused intent")
             reservation = c["reservations"][op["reservation_id"]]
             require(not reservation["settled"], "reservation already settled")
+            observation(store, store.reference(op["evidence"]), reservation["run_id"], key, status)
             c["jobs"][key] = {"run_id": reservation["run_id"], "reservation_id": op["reservation_id"],
                                "status": "intent", "evidence": store.reference(op["evidence"])}
         else:
@@ -121,11 +122,12 @@ def apply(store, tree, op):
         raise ValueError("unknown control operation: " + action)
 
 
-def validate(store, tree):
+def validate(store, tree, artifacts=True):
     c = tree.get("control")
     if c is None:
         return
-    store.verify_ref(c["authority"])
+    if artifacts:
+        store.verify_ref(c["authority"])
     require(type(c["paused"]) is bool and type(c["step_limit"]) is int
             and c["step_limit"] >= len(c["steps"]), "invalid control state")
     require(len(c["steps"]) == len(set(c["steps"])) and all(r in tree["runs"] for r in c["steps"]),
@@ -134,7 +136,7 @@ def validate(store, tree):
         require(reservation["run_id"] in tree["runs"] and reservation["pool"] in c["budgets"]
                 and number(reservation["amount"], positive=True) and number(reservation["used"])
                 and type(reservation["settled"]) is bool, "invalid reservation state")
-        if reservation["settled"]:
+        if artifacts and reservation["settled"]:
             store.verify_ref(reservation["evidence"])
     for request_id, job in c["jobs"].items():
         require(job["reservation_id"] in c["reservations"] and
@@ -142,7 +144,8 @@ def validate(store, tree):
                 job["status"] in set(TRANSITIONS) | TERMINAL, "invalid job state")
         require(not c["reservations"][job["reservation_id"]]["settled"] or job["status"] in TERMINAL,
                 "unresolved job has released reservation")
-        observation(store, job["evidence"], job["run_id"], request_id, job["status"])
+        if artifacts:
+            observation(store, job["evidence"], job["run_id"], request_id, job["status"])
     for key, run in tree["runs"].items():
         if run.get("result") or run.get("closure"):
             reconciled(tree, key)
@@ -157,3 +160,17 @@ def snapshot(tree):
             "available": {key: available(c, key) for key in c["budgets"]},
             "outstanding_jobs": {key: job for key, job in c["jobs"].items() if job["status"] not in TERMINAL},
             "unsettled_reservations": [key for key, r in c["reservations"].items() if not r["settled"]]}
+
+
+def receipts(store, tree, run_id, validation):
+    if "control" not in tree or not validation:
+        return
+    requests = validation.get("requests", [])
+    if not requests and not validation.get("manifest"):
+        return  # Code-only contains no execution evidence.
+    require(bool(requests), "execution evidence needs registered jobs")
+    for request in requests:
+        job = tree["control"]["jobs"].get(request)
+        require(job is not None and job["run_id"] == run_id and job["status"] == "exited",
+                "execution receipt has no matching exited control job")
+        observation(store, job["evidence"], run_id, request, "exited")

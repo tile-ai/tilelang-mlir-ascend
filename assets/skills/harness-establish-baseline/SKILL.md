@@ -5,7 +5,7 @@ description: 根据任务与已绑定环境建立或更新算子的正确性参�
 
 # Harness Establish Baseline
 
-先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+按 [项目管理契约](../harness-new-project/references/project-management.md) 选择项目并核对写入归属；从 STATE 和当前 TASK 接续。
 
 把“和谁比、怎么比、在哪个环境比”落实为下游可直接复用的标杆。正确性参考负责定义正确输出，性能标杆负责提供比较时间，两者可以是不同实现；现有环境探针和算子候选都不能自动充当标杆。
 

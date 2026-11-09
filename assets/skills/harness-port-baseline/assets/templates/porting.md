@@ -1,11 +1,16 @@
 # 标杆移植对应说明
 
+<!-- harness-metadata -->
 - contract: operator-harness/porting@1
 - project_id: {{项目身份}}
 - run_id: {{port-baseline run}}
 - candidate_id: {{本次交付的确切候选}}
 - status: {{complete / incomplete}}
 - aicpu_status: {{not_used / replaced / unresolved；not_used 指参考相关路径无依赖，replaced 指候选已替代}}
+<!-- /harness-metadata -->
+
+机器字段集中在上述区块；删除本任务不适用的可选字段。区块外为说明，可自由写列表和代码示例。
+
 
 ## 输入与方案
 

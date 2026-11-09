@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import emission
 
 
 OP_METRICS = ("Default", "PipeTimeline", "Occupancy", "Roofline", "Memory")
@@ -104,9 +105,11 @@ def marked_call(call, *, prepare, synchronize, check_reservation, range_name, wa
         torch_npu.npu.mstx.range_end(range_id)
 
 
-def artifact_index(directory):
+def artifact_index(directory, workspace_root=None):
     """List files with hashes, without interpreting proprietary binary formats."""
     root = Path(directory).resolve()
+    if workspace_root is not None:
+        return {"schema": "operator-harness/artifact-index@1", "files": emission.files(workspace_root, root)}
     files = []
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
@@ -123,7 +126,7 @@ def artifact_index(directory):
 
 
 def capture_diagnostics(call, *, output, identity, metrics, prepare, synchronize,
-                        check_reservation, warmup):
+                        check_reservation, warmup, evidence_context=None):
     """Optionally supplement mapping/counters with separate native profiler passes.
 
     identity records candidate, case, build and environment IDs/digests. Each pass
@@ -192,6 +195,9 @@ def capture_diagnostics(call, *, output, identity, metrics, prepare, synchronize
             save()
         report["status"] = "pending_review"
         save()
+        if evidence_context is not None:
+            report["evidence"] = emission.diagnostics(evidence_context, root / "diagnostic-evidence.json",
+                emission.files(evidence_context["workspace_root"], root))
         return report
     except BaseException as error:
         report.update(status="failed", error_type=type(error).__name__, error=str(error))

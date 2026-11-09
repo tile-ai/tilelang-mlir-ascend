@@ -5,11 +5,11 @@ description: 针对已有 TileLang kernel，结合标杆、移植差异、测试
 
 # Harness Analysis
 
-先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+按 [项目管理契约](../harness-new-project/references/project-management.md) 选择项目并核对写入归属；从 STATE 和当前 TASK 接续。
 
 ## 节点执行边界
 
-当前会话或独立 agent 均可执行本节点。已收到 TASK 的子 agent 直接按 [节点契约](../harness-resume/references/node-contract.md) 读取输入，不递归执行主 agent 的派发流程；直接交互时先按 [harness-resume](../harness-resume/SKILL.md) 恢复或补齐 TASK。记录任务理解与结果，确保不继承聊天的新 agent 也能接手。委派子 agent 只写所分配产物，由主 agent 中继问询并汇总共享记录；直接交互时当前 agent 完成同样的收尾检查后可继续后续节点，不要求新会话。
+按 [节点契约](../harness-resume/references/node-contract.md) 执行收到的 TASK；直接交互先用 resume 补齐任务。节点写所属产物，协调者接收并更新共享记录。
 
 默认流程是 `establish-baseline → port-baseline → analysis → develop → analysis …`；已有适用候选时跳过移植。目标已达成或用户要求停止时收尾，不为循环新增分析。读取 `.workspace/<project>/STATE.md`、TASK 固定的候选、标杆和最近测试结果，明确当前实现的待解释问题。
 

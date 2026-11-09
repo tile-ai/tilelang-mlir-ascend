@@ -1,5 +1,6 @@
 # 上板分析数据交付
 
+<!-- harness-metadata -->
 - contract: operator-harness/analysis-data@1
 - project_id: {{项目身份}}
 - run_id: {{port-baseline / develop run}}
@@ -9,6 +10,10 @@
 - task: {{冻结 TASK 路径与摘要，含诊断计划、必需/可选项和预算}}
 - correctness: {{全部必选精度证据；仅诊断例外须标明，不能据此接受精度失败}}
 - performance: {{独立的正式性能证据，不使用详细 profiling 的耗时替换}}
+<!-- /harness-metadata -->
+
+机器字段集中在上述区块；删除本任务不适用的可选字段。区块外为说明，可自由写列表和代码示例。
+
 
 ## 身份与采集范围
 

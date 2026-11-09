@@ -5,11 +5,11 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 
 # Harness Develop
 
-先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+按 [项目管理契约](../harness-new-project/references/project-management.md) 选择项目并核对写入归属；从 STATE 和当前 TASK 接续。
 
 ## 节点执行边界
 
-当前会话或独立 agent 均可执行本节点。已收到 TASK 的子 agent 直接按 [节点契约](../harness-resume/references/node-contract.md) 读取输入，不递归执行主 agent 的派发流程；直接交互时先按 [harness-resume](../harness-resume/SKILL.md) 恢复或补齐 TASK。记录任务理解与结果，确保不继承聊天的新 agent 也能接手。委派子 agent 只写所分配产物，由主 agent 中继问询并汇总共享记录；直接交互时当前 agent 完成同样的收尾检查后可继续后续节点，不要求新会话。
+按 [节点契约](../harness-resume/references/node-contract.md) 执行收到的 TASK；直接交互先用 resume 补齐任务。节点写所属产物，协调者接收并更新共享记录。
 
 按 TASK 输入清单读取当前任务、已接收的 analysis 方案/诊断、父候选和相关实验，按本次操作使用 TASK 固定的 development/device 约定快照；实时 ENVIRONMENT 索引只检查漂移/撤权，不重新替换绑定。implement-and-validate 落实针对已有候选的修改假设；缺少适用分析时先进入 [harness-analysis](../harness-analysis/SKILL.md)，没有候选且有适用参考源码则先进入 [标杆移植](../harness-port-baseline/SKILL.md)；没有适用性能源码时按本文 initial-and-validate 路径建立初版。用户明确只要求编写时遵循该范围并记录所据方案与未验证项。缺少环境信息时只补当前动作所需能力，允许继续授权内的离线编写。
 
@@ -81,6 +81,6 @@ RESULT 同时交付实现与测试结果，分别标注编译、精度、性能�
 
 没有候选且无适用高性能源码时，允许 `initial-and-validate`：先有独立正确性参考、有限来源调查结果和明确的绝对/模型目标，固定 initial_design，再构建最小初版；无需虚构已有候选分析或性能源码移植。遵守同样的 TileLang/AICPU、预检、完整精度、测量与诊断要求。初版实现符合方案且精度/测量有效时，目标未达可带差距进入 analysis；不能将实现或测量错误归入该例外。已有候选仍使用常规 implement-and-validate。
 
-新 TASK/RESULT 按 [结构化验收](../harness-resume/references/execution-control.md) 使用 @4，注册前固定 evaluation_plan；输出原始 case 报告和 validation 清单。正式接收前核对程序检查、科学内容、job/资源及未测边界。范围变化需要新任务时先安全 close-run，不能改冻结任务或把失败称为通过。
+新 TASK/RESULT 按 [结构化验收](../harness-resume/references/execution-control.md) 使用 @4，注册前固定 evaluation_plan。使用 [评测入口](references/evaluation-runner.md) 执行冻结适配器，自动生成逐 case 证据和 RESULT 草稿。正式接收前核对程序检查、科学内容、job/资源及未测边界。范围变化需要新任务时先安全 close-run，不能改冻结任务或把失败称为通过。
 
 已有本地前台命令可使用 [本地 runner](references/local-runner.md) 保留意图、日志和退出回执；真实设备执行仍使用已核实适配。进程回执不等于设备或性能验收。

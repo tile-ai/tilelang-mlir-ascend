@@ -5,12 +5,47 @@
   "performance_kind": "{{measured / absolute / model / none}}",
   "statistic": "{{mean / median}}",
   "inputs": {
-    "requirements": {"path": "{{path}}", "sha256": "{{sha256}}"},
-    "reference": {"path": "{{path}}", "sha256": "{{sha256}}"},
-    "comparator": {"path": "{{path}}", "sha256": "{{sha256}}"},
-    "cases": {"path": "{{path}}", "sha256": "{{sha256}}"},
-    "protocol": {"path": "{{path}}", "sha256": "{{sha256}}"},
-    "environment": {"path": "{{path}}", "sha256": "{{sha256}}"}
+    "requirements": {
+      "path": "{{path}}",
+      "sha256": "{{sha256}}"
+    },
+    "reference": {
+      "path": "{{path}}",
+      "sha256": "{{sha256}}"
+    },
+    "comparator": {
+      "path": "{{path}}",
+      "sha256": "{{sha256}}"
+    },
+    "cases": {
+      "path": "{{path}}",
+      "sha256": "{{sha256}}"
+    },
+    "protocol": {
+      "path": "{{path}}",
+      "sha256": "{{sha256}}"
+    },
+    "environment": {
+      "path": "{{path}}",
+      "sha256": "{{sha256}}"
+    }
   },
-  "cases": [{"id": "{{case_id}}", "outputs": ["{{output_name}}"], "min_samples": null, "max_latency_ms": null}]
+  "cases": [
+    {
+      "id": "{{case_id}}",
+      "outputs": [
+        "{{output_name}}"
+      ],
+      "min_samples": null,
+      "max_latency_ms": null
+    }
+  ],
+  "execution": {
+    "backend": "{{cpu / torch_npu}}",
+    "adapter": {
+      "path": "{{frozen_adapter.py}}",
+      "sha256": "{{sha256}}"
+    },
+    "timeout_seconds": null
+  }
 }

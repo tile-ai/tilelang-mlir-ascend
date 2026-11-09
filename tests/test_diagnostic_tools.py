@@ -85,6 +85,17 @@ class DiagnosticToolsTest(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             self.capture()
 
+    def test_capture_emits_workspace_relative_diagnostic_evidence(self):
+        context = dict(workspace_root=str(self.root), project_id='example', run_id='d',
+                       candidate={'path': 'candidate.md', 'sha256': 'fixture'}, request_id='job')
+        capture = self.capture(evidence_context=context)
+        report = json.loads((self.root / capture['evidence']['path']).read_text())
+        self.assertEqual(report['schema'], 'operator-harness/diagnostic-evidence@1')
+        self.assertEqual(report['candidate'], context['candidate'])
+        self.assertTrue(all((self.root / ref['path']).is_file() for ref in report['artifacts']))
+        index = diagnostics.artifact_index(self.root / 'native', workspace_root=self.root)
+        self.assertEqual(index['schema'], 'operator-harness/artifact-index@1')
+
     def test_msprof_metrics_are_not_silently_sent_to_native_profiler(self):
         for metrics in (("PipeTimeline",), ("Occupancy",), ("Roofline",), ("Default",),
                         "PipeUtilization,Memory", ("Memory", "Memory")):

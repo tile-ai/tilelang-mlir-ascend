@@ -11,7 +11,7 @@ description: 将已选定标杆的算法与实现策略移植为 TileLang 初版
 
 正常路径是 `establish-baseline → port-baseline → analysis → develop → analysis …`。本节点在缺少适用 TileLang 候选时，将参考策略落实为可分析的初版；不要求先有 analysis。已有适用候选时保留并进入验证或 analysis，不因第一次进入工作流、标杆更新或节点新增而重写已有实现。标杆变化先检查语义、比较范围与现有候选的适用性。
 
-默认且可接收的操作为 `port-and-validate`：理解参考、制定移植方案、实现并在本节点完成精度与性能测量，交付 TASK 要求的诊断数据。只做离线部分时保留未验收检查点；用户明确仅要代码可使用 develop 的 code-only 范围，不声称已完成本节点。无可读取/对应的参考实现时记录缺口；只有独立正确性参考和明确绝对/模型目标时，按 develop 的 initial-and-validate 构建初版，不虚构已经移植了高性能源码。
+默认且可接收的操作为 `port-and-validate`：理解参考、制定移植方案、实现并在本节点完成精度及 TASK 要求的性能测量和诊断数据。只做离线部分时保留未验收检查点；用户明确仅要代码可使用 develop 的 code-only 范围，不声称已完成本节点。无可读取/对应的参考实现时记录缺口；只有独立正确性参考和明确绝对/模型目标时，按 develop 的 initial-and-validate 构建初版，不虚构已经移植了高性能源码。
 
 ## 从参考到可执行方案
 
@@ -34,13 +34,13 @@ description: 将已选定标杆的算法与实现策略移植为 TileLang 初版
 
 复用 develop 的 [PRECHECK](../harness-develop/assets/templates/precheck.md)、[设备验证方法](../harness-develop/references/device-validation.md)、[验证协议](../harness-develop/references/validation-protocol.md) 和 [上板诊断](../harness-develop/references/onboard-diagnostics.md)，不另派 test/develop 来完成初版验收。复用方法和脚本，不重复实现采集工具；性能退化归因采用本节的初版规则。
 
-先完成适用低成本检查，再通过全部必选精度，随后按冻结协议测量性能。默认交付代表性/慢 case 的 ANALYSIS_DATA，范围和预算在 TASK 固定；明确不要求某项诊断时记录依据，不能事后降级。详细采集与正式性能测量分开，设备共享资源遵循排队约定。
+先完成适用低成本检查，再通过全部必选精度。TASK 要求性能时按冻结协议测量；仅精度任务使用 performance_required=false 与 performance_kind=none。默认交付代表性/慢 case 的 ANALYSIS_DATA，范围和预算在 TASK 固定；明确不要求某项诊断时记录依据，不能事后降级。详细采集与正式性能测量分开，设备共享资源遵循排队约定。
 
-精度、编译、移植实现和测量问题在本节点有界修复。预算耗尽或能力受阻则保存检查点，不以 failed/completed 绕过验收。只要实际实现符合记录的移植方案、精度通过、性能测量有效、必需诊断齐全，性能目标未达也允许接收；记录差距即可，不要求先证明“优化思路失败”。这与 develop 优化一个已有候选后的退化接收规则不同。
+精度、编译、移植实现和测量问题在本节点有界修复。预算耗尽或能力受阻则保存检查点，不以 failed/completed 绕过验收。只要实际实现符合记录的移植方案、精度通过、适用的性能测量有效、必需诊断齐全，性能目标未达也允许接收；记录差距即可，不要求先证明“优化思路失败”。这与 develop 优化一个已有候选后的退化接收规则不同。
 
 ## 交付与下一步
 
-交付 RESULT、可重建 CANDIDATE、PRECHECK、全部必选精度、逐 case 正式性能样本及比较、ANALYSIS_DATA 和 PORTING。移植说明中的 `aicpu_status` 仅可为 `not_used`（参考相关路径不依赖 AICPU）或 `replaced`（已替代且验证）；仍有依赖、替代未完成或调用链未知时不能声明 complete。
+交付 RESULT、可重建 CANDIDATE、PRECHECK、全部必选精度、适用的逐 case 正式性能样本及比较、ANALYSIS_DATA 和 PORTING。移植说明中的 `aicpu_status` 仅可为 `not_used`（参考相关路径不依赖 AICPU）或 `replaced`（已替代且验证）；仍有依赖、替代未完成或调用链未知时不能声明 complete。
 
 RESULT 的接收字段见 [节点结果模板](../harness-resume/assets/templates/node-result.md)。协调者检查源码/调用链和证据内容后接收；账本字段与摘要检查不证明 AICPU 已实际消除。执行者只写所属产物，协调者更新共享候选和搜索记录；本节点使用独占源码范围，不加入多 analysis 的 develop-batch。
 

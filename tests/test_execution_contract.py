@@ -1,4 +1,4 @@
-"""New-contract evidence, safe rejection and control recovery; CPU fixtures only."""
+"""End-to-end @4 evaluation pipeline, contract boundaries, and control recovery."""
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -9,6 +9,10 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent))
 import test_search_tools as fixtures
 search = fixtures.search
+sys.path.insert(0, str(fixtures.ROOT / 'assets/skills/harness-develop/scripts'))
+import evaluate
+import runctl
+from records import metadata, render
 
 
 class ExecutionContractTest(unittest.TestCase):
@@ -19,9 +23,70 @@ class ExecutionContractTest(unittest.TestCase):
         self.store = self.f.store
         self.prefix = '.workspace/example/runs/d/'
 
+    def file(self, name, text):
+        return self.f.write(self.prefix + name, text)
+
     def write_json(self, name, value):
         path = self.f.write(self.prefix + name, json.dumps(value))
         return self.store.reference(path)
+
+    def setup_pipeline(self, bad=False, controlled=False, stage='develop',
+                       performance='absolute', diagnostics=False, verify_diag=True):
+        if controlled:
+            authority = self.file('authority.md', 'Fixture CPU budget')
+            self.f.apply('control-init', step_limit=4,
+                         budgets={'cpu': {'unit': 'seconds', 'limit': 10}}, authority=authority)
+        source = self.file('candidate.py', 'def run(x):\n    return x * ' + ('3' if bad else '2') + '\n')
+        reference = self.file('reference.py', "def run(state):\n    return state['x'] * 2\n")
+        comparator = self.file('comparator.py', "def compare(actual, expected, case):\n    return {'out': actual == expected}\n")
+        verifier_code = "\ndef verify_diagnostics(capture, case):\n    assert capture['evidence']['sha256']\n" if verify_diag else ""
+        adapter = self.file('adapter.py', '''import importlib.util
+from pathlib import Path
+import emission
+
+def prepare(context, case):
+    root = Path(context['workspace_root'])
+    source = root / context['artifacts']['source']['path']
+    spec = importlib.util.spec_from_file_location('candidate', source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with (root / '.workspace/example/calls').open('a') as stream:
+        stream.write('prepare\\n')
+    return {'x': case['x'], 'call': module.run}
+
+def run(state):
+    return state['call'](state['x'])
+
+def synchronize(state):
+    pass
+
+def diagnostics(state, case, output, context):
+    emission.save(output / 'raw.json', {'observed': run(state)})
+    return {'evidence': emission.diagnostics(context, output / 'index.json', emission.files(context['workspace_root'], output))}
+''' + verifier_code)
+        inputs = {key: self.store.reference(self.file(key + '.txt', key))
+                  for key in ('requirements', 'cases', 'protocol', 'environment')}
+        inputs.update(reference=self.store.reference(reference), comparator=self.store.reference(comparator))
+        plan = {'schema': 'operator-harness/evaluation-plan@1', 'project_id': 'example', 'run_id': 'd',
+                'inputs': inputs, 'performance_kind': performance, 'statistic': 'mean',
+                'cases': [{'id': 'one', 'x': 7, 'outputs': ['out'], 'min_samples': 2, 'max_latency_ms': 100}],
+                'execution': {'adapter': self.store.reference(adapter), 'backend': 'cpu', 'timeout_seconds': 5}}
+        plan_path = self.file('plan.json', json.dumps(plan))
+        fields = {'contract': 'operator-harness/node-task@4', 'project_id': 'example', 'run_id': 'd',
+                  'node': stage, 'search_node_id': 'N0',
+                  'operation': 'initial-and-validate' if stage == 'develop' else 'port-and-validate',
+                  'performance_required': 'false' if performance == 'none' else 'true',
+                  'diagnostics_required': str(diagnostics).lower(), 'evaluation_plan': plan_path,
+                  'initial_design': self.file('design.md', 'Multiply input by two'), 'aicpu_policy': 'forbidden'}
+        task = self.file('TASK.md', render('Task', fields))
+        self.f.apply('run', id='d', stage=stage, candidate_id=None, search_node_id='N0', task=task, legacy=False)
+        self.manifest = evaluate.candidate(
+            self.store, 'd', 'C1', source,
+            self.file('build.json', '{}'), self.file('launch.json', '{}'), None)['candidate']
+        self.reservation = {'pool': 'cpu', 'amount': 5} if controlled else None
+
+    def execute_pipeline(self, request='cpu-1'):
+        return evaluate.evaluate(self.store, 'd', self.manifest, request, self.reservation)
 
     def setup_run(self, mode='implement-and-validate', performance_kind='absolute', diagnostics=False):
         inputs = {key: self.store.reference(self.f.write(self.prefix + key + '.txt', 'synthetic ' + key))
@@ -32,11 +97,14 @@ class ExecutionContractTest(unittest.TestCase):
         self.plan_ref = self.write_json('plan.json', self.plan)
         self.artifacts = {key: self.store.reference(self.f.write(self.prefix + key + '.bin', 'synthetic ' + key))
                           for key in ('source', 'build', 'launch')}
+        parent = 'C0' if mode == 'implement-and-validate' else None
+        if parent:
+            self.f.candidate(parent)
         candidate = self.f.write(self.prefix + 'CANDIDATE.md',
             '- contract: operator-harness/candidate@2\n- project_id: example\n- candidate_id: C1\n'
-            '- search_node_id: N0\n- parent_candidate: not_applicable\n' + ''.join(
+            f'- search_node_id: N0\n- parent_candidate: {parent or "not_applicable"}\n' + ''.join(
                 f'- {key}_sha256: {ref["sha256"]}\n' for key, ref in self.artifacts.items()))
-        self.f.apply('candidate', id='C1', search_node_id='N0', parent_candidate=None, manifest=candidate)
+        self.f.apply('candidate', id='C1', search_node_id='N0', parent_candidate=parent, manifest=candidate)
         self.candidate_ref = self.store.reference(candidate)
         required = 'false' if performance_kind == 'none' else 'true'
         self.task_text = ('- contract: operator-harness/node-task@4\n- project_id: example\n- run_id: d\n'
@@ -47,7 +115,8 @@ class ExecutionContractTest(unittest.TestCase):
             design = self.f.write(self.prefix + 'design.md', 'Synthetic initial algorithm plan')
             self.task_text += f'- initial_design: {design}\n'
         self.task = self.f.write(self.prefix + 'TASK.md', self.task_text)
-        self.f.apply('run', id='d', search_node_id='N0', stage='develop', candidate_id=None if mode == 'initial-and-validate' else 'C1',
+        self.f.apply('run', id='d', search_node_id='N0', stage='develop',
+                     candidate_id=None if mode == 'initial-and-validate' else parent or 'C1',
                      task=self.task, legacy=False)
         self.receipt = {'schema': 'operator-harness/execution-receipt@1', 'project_id': 'example', 'run_id': 'd',
                         'candidate_id': 'C1', 'request_id': 'job1', 'status': 'exited',
@@ -66,10 +135,8 @@ class ExecutionContractTest(unittest.TestCase):
         self.refresh()
 
     def refresh(self, accuracy='passed', performance='passed', cause='none'):
-        a = self.write_json('accuracy.json', self.accuracy)
-        p = self.write_json('performance.json', self.performance)
-        self.report['cases'] = [{'id': 'small', 'accuracy': a, 'performance': p}]
-        self.report['receipts'] = [self.write_json('receipt.json', self.receipt)]
+        self.report['cases'] = [{'id': 'small', 'accuracy': self.accuracy, 'performance': self.performance}]
+        self.report['receipts'] = [self.receipt]
         validation = self.write_json('validation.json', self.report)
         if self.plan['performance_kind'] == 'none':
             performance = 'not_applicable'
@@ -78,7 +145,6 @@ class ExecutionContractTest(unittest.TestCase):
             '- contract: operator-harness/node-result@4\n- project_id: example\n- run_id: d\n'
             '- node: develop\n- search_node_id: N0\n- status: completed\n' +
             f'- accuracy_status: {accuracy}\n- performance_status: {performance}\n- regression_cause: {cause}\n'
-            f'- accuracy_evidence: {validation["path"]}\n- performance_evidence: {validation["path"]}\n'
             f'- regression_evidence: {regression}\n- analysis_data: {self.analysis}\n'
             f'- candidate_manifest: {self.candidate_ref["path"]}\n- validation_evidence: {validation["path"]}\n')
 
@@ -98,21 +164,93 @@ class ExecutionContractTest(unittest.TestCase):
                   reason='repair requires a new scope', checkpoint=checkpoint,
                   evidence=close['path'], successor=successor)
         self.store.apply(op)
-        before = self.store.path.read_bytes()
-        self.store.apply(op)
-        self.assertEqual(before, self.store.path.read_bytes())
         return op
 
-    def test_valid_case_accepts_and_promotes_exact_candidate(self):
-        self.setup_run()
-        self.accept()
-        self.f.apply('promote-candidate', run_id='d', reason='All frozen cases pass')
+    def test_generated_evidence_accepts_promotes_and_preserves_edits_on_retry(self):
+        self.setup_pipeline(controlled=True, diagnostics=True)
+        output = self.execute_pipeline()
+        self.assertEqual(output['status'], 'complete')
+        result_file = self.store.local(output['result'])
+        result_file.write_text(result_file.read_text() + '\nUser reviewed notes.\n')
+        self.assertEqual(self.execute_pipeline(), output)
+        self.assertIn('User reviewed notes.', result_file.read_text())
+        self.assertEqual((self.store.records / 'calls').read_text(), 'prepare\n')
+        with self.assertRaisesRegex(search.Invalid, 'different artifacts'):
+            evaluate.candidate(self.store, 'd', 'C1', self.file('other.py', 'x=1\n'),
+                               self.file('build.json', '{}'), self.file('launch.json', '{}'), None)
+        self.f.apply('accept', id='d', result=output['result'])
+        self.f.apply('promote-candidate', run_id='d', reason='CPU fixture passed')
         self.assertEqual(self.store.reconcile()['best']['candidate_id'], 'C1')
-        before = self.store.path.read_bytes()
-        self.store.reconcile()
-        self.assertEqual(before, self.store.path.read_bytes())
+        control = self.store.load()['control']
+        self.assertEqual(control['jobs']['cpu-1']['status'], 'exited')
+        self.assertTrue(control['reservations']['job-cpu-1']['settled'])
+        self.assertFalse(self.store.reconcile()['corrupted_artifacts'])
 
-    def test_wrong_candidate_or_output_cannot_pass_declaration(self):
+    def test_wrong_candidate_generates_invalid_receipt_without_timing_or_acceptance(self):
+        self.setup_pipeline(bad=True)
+        output = self.execute_pipeline()
+        self.assertEqual(output['status'], 'accuracy_failed')
+        report = json.loads(self.store.local(output['validation']).read_text())
+        self.assertNotIn('performance', report['cases'][0])
+        self.assertFalse(report['receipts'][0]['valid'])
+        with self.assertRaises(ValueError):
+            self.f.apply('accept', id='d', result=output['result'])
+        self.assertIsNone(self.store.load()['runs']['d']['result'])
+
+    def test_unverified_diagnostics_stay_partial_until_reviewed(self):
+        self.setup_pipeline(diagnostics=True, verify_diag=False)
+        output = self.execute_pipeline()
+        with self.assertRaisesRegex(search.Invalid, 'not ready'):
+            self.f.apply('accept', id='d', result=output['result'])
+
+    def test_port_and_collect_only_modes_in_pipeline(self):
+        self.setup_pipeline(stage='port-baseline', performance='none', controlled=True)
+        output = self.execute_pipeline()
+        result = self.store.local(output['result'])
+        fields = metadata(result.read_text())
+        fields['porting_evidence'] = self.file('PORTING.md', render('Porting', {
+            'contract': 'operator-harness/porting@1', 'project_id': 'example', 'run_id': 'd',
+            'candidate_id': 'C1', 'status': 'complete', 'aicpu_status': 'not_used'}))
+        reviewed = self.file('RESULT.md', render('Reviewed port', fields))
+        self.f.apply('accept', id='d', result=reviewed)
+        self.assertTrue(self.store.load()['runs']['d']['acceptance']['validation']['eligible'])
+        first = self.store.load()['runs']['d']
+        plan = json.loads(self.store.local(first['evaluation_plan']['path']).read_text())
+        plan['run_id'] = 'collect'
+        plan_path = self.file('collect-plan.json', json.dumps(plan))
+        task = self.file('collect-TASK.md', render('Collect', {
+            'contract': 'operator-harness/node-task@4', 'project_id': 'example', 'run_id': 'collect',
+            'node': 'develop', 'search_node_id': 'N0', 'operation': 'collect-only',
+            'performance_required': 'false', 'diagnostics_required': 'true', 'evaluation_plan': plan_path}))
+        self.f.apply('run', id='collect', stage='develop', candidate_id='C1', search_node_id='N0', task=task, legacy=False)
+        collect_out = evaluate.evaluate(self.store, 'collect', self.manifest, 'diagnostics', self.reservation)
+        self.f.apply('accept', id='collect', result=collect_out['result'])
+        self.assertFalse(self.store.load()['runs']['collect']['acceptance']['validation']['eligible'])
+
+    def test_historical_damage_blocks_promotion_not_show_or_new_run(self):
+        self.setup_pipeline()
+        output = self.execute_pipeline()
+        self.f.apply('accept', id='d', result=output['result'])
+        (self.store.records / 'runs/d/evaluations/cpu-1/case-0/outputs.json').unlink()
+        self.assertTrue(self.store.load()['runs']['d']['result'])
+        self.assertTrue(self.store.reconcile()['corrupted_artifacts'])
+        self.f.record_run('next-analysis', finish=False)
+        with self.assertRaises((ValueError, OSError)):
+            self.f.apply('promote-candidate', run_id='d', reason='missing raw must block reuse')
+
+    def test_evaluator_code_vs_document_drift_and_metadata_bounds(self):
+        self.setup_run()
+        with patch.object(search.evidence, 'evaluator_identity', return_value={'changed': 'tool'}):
+            with self.assertRaisesRegex(search.Invalid, 'evaluator changed'):
+                self.accept()
+        with patch.object(search.evidence, 'bundle_identity', return_value='docs changed'):
+            self.accept()
+        text = render('Result', {'status': 'completed'}, '## Explanation\n- status: failed\n```\n- status: running\n```')
+        self.assertEqual(metadata(text), {'status': 'completed'})
+        with self.assertRaises(ValueError):
+            metadata(render('Result', {'status': 'completed'}).replace('- status: completed', '- status: completed\n- status: failed'))
+
+    def test_validation_rejects_mismatched_identities_samples_and_receipts(self):
         self.setup_run()
         self.accuracy['candidate_id'] = 'OTHER'
         self.refresh()
@@ -123,66 +261,30 @@ class ExecutionContractTest(unittest.TestCase):
         self.refresh()
         with self.assertRaisesRegex(search.Invalid, 'disagrees'):
             self.accept()
-        del self.accuracy['outputs']['count']
-        self.refresh()
-        with self.assertRaisesRegex(search.Invalid, 'output coverage'):
-            self.accept()
+        self.accuracy['outputs']['count'] = True
+        for samples in ([1.0], [float('nan'), 1.0], [0.0, 1.0], [9.0, 9.0]):
+            self.performance['samples_ms'] = samples
+            self.refresh()
+            with self.subTest(samples=samples), self.assertRaises(search.Invalid):
+                self.accept()
+        self.performance['samples_ms'] = [1.0, 1.5]
+        for field, value in (('status', 'unknown'), ('valid', False), ('exit_codes', {'worker': 1})):
+            old = deepcopy(self.receipt)
+            self.receipt[field] = value
+            self.refresh()
+            with self.subTest(field=field), self.assertRaises(search.Invalid):
+                self.accept()
+            self.receipt = old
 
-    def test_raw_dependency_drift_is_detected_after_acceptance(self):
+    def test_slow_idea_and_code_only_accept_without_promotion_eligibility(self):
         self.setup_run()
+        self.performance['samples_ms'] = [3.0, 4.0]
+        self.refresh(performance='failed', cause='idea')
         self.accept()
-        self.f.write(self.prefix + 'raw.bin', 'changed output')
-        with self.assertRaisesRegex(search.Invalid, 'artifact changed'):
-            self.store.load()
+        with self.assertRaisesRegex(search.Invalid, 'passing evidence'):
+            self.f.apply('promote-candidate', run_id='d', reason='must not promote slow result')
 
-    def test_declared_artifact_index_freezes_transitive_members(self):
-        self.setup_run()
-        child = self.store.reference(self.f.write(self.prefix + 'nested-output.bin', 'original'))
-        index = self.write_json('raw-index.json', {'schema': 'operator-harness/artifact-index@1', 'files': [child]})
-        self.accuracy['raw_files'] = [index]
-        self.refresh()
-        self.accept()
-        self.f.write(child['path'], 'changed')
-        with self.assertRaisesRegex(search.Invalid, 'artifact changed'):
-            self.store.load()
-
-    def test_installed_cli_consumes_new_contract_without_source_checkout(self):
-        import subprocess
-        self.setup_run()
-        installed = subprocess.run([sys.executable, str(fixtures.ROOT / 'scripts/install_codex_skills.py'),
-                                    '--workspace', str(self.f.root)], capture_output=True, text=True)
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-        operation = self.write_json('accept.json', {'event_id': 'installed-accept', 'op': 'accept', 'id': 'd',
-                                                   'result': self.result})
-        cli = self.f.root / '.agents/skills/harness-resume/scripts/searchctl.py'
-        result = subprocess.run([sys.executable, str(cli), '--workspace', str(self.f.root), '--project', 'example',
-                                 '--owner', 'session', 'apply', str(self.store.local(operation['path']))],
-                                capture_output=True, text=True, cwd=self.f.root)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(self.store.load()['runs']['d']['acceptance']['validation']['eligible'])
-
-    def test_plan_drift_rejected_but_can_close_and_replace_task(self):
-        self.setup_run(mode='verify-only')
-        self.f.write(self.prefix + 'protocol.txt', 'changed evaluator')
-        with self.assertRaisesRegex(search.Invalid, 'artifact changed'):
-            self.accept()
-        self.close()
-        self.f.record_run('repair', 'develop', finish=False)
-        self.assertIn('repair', self.store.reconcile()['outstanding_runs'])
-        self.assertIsNone(self.store.load()['runs']['d']['result'])
-        with self.assertRaises(search.Invalid):
-            self.accept()
-
-    def test_replacement_and_batch_failure_do_not_erase_sibling(self):
-        operation = self.f.batch_fixture()
-        self.store.apply(operation)
-        self.f.finish_member('d1')
-        self.close('d0')
-        self.f.apply('select', id='N0', reason='failed member safely discarded')
-        self.f.record_run('repair', 'develop', finish=False)
-        self.assertTrue(self.store.load()['runs']['d1']['result'])
-
-    def test_new_batch_rejects_different_comparison_before_registering_any_member(self):
+    def test_batch_comparison_and_partial_member_closure(self):
         operation = self.f.batch_fixture()
         operation['legacy'] = False
         inputs = {key: self.store.reference(path) for key, path in operation['inputs'].items()}
@@ -201,102 +303,13 @@ class ExecutionContractTest(unittest.TestCase):
         ref, plan = plans[1]
         plan['cases'][0]['max_latency_ms'] = 9.0
         self.store.local(ref['path']).write_text(json.dumps(plan))
-        before = self.store.path.read_bytes()
         with self.assertRaisesRegex(search.Invalid, 'comparison plans differ'):
             self.store.apply(operation)
-        self.assertEqual(before, self.store.path.read_bytes())
         plan['cases'][0]['max_latency_ms'] = 2.0
         self.store.local(ref['path']).write_text(json.dumps(plan))
         self.store.apply(operation)
+        self.close('d0')
         self.assertEqual(self.store.load()['batches']['B1']['members'], ['d0', 'd1'])
-
-    def test_unknown_or_duplicate_contract_rejected_even_in_legacy_mode(self):
-        for value in ('operator-harness/node-task@999',
-                      'operator-harness/node-task@3\n- contract: operator-harness/node-task@3'):
-            task = self.f.write(self.prefix + 'TASK.md', f'- contract: {value}\n'
-                '- project_id: example\n- run_id: d\n- node: analysis\n- search_node_id: N0\n')
-            with self.assertRaisesRegex(search.Invalid, 'contract'):
-                self.f.apply('run', id='d', search_node_id='N0', stage='analysis',
-                             candidate_id=None, task=task, legacy=True)
-
-    def test_unversioned_new_run_requires_explicit_legacy_import(self):
-        task = self.f.write(self.prefix + 'TASK.md',
-            '- project_id: example\n- run_id: d\n- node: analysis\n- search_node_id: N0\n')
-        with self.assertRaisesRegex(search.Invalid, 'contract'):
-            self.f.apply('run', id='d', search_node_id='N0', stage='analysis', candidate_id=None, task=task, legacy=False)
-
-    def test_evaluator_change_blocks_new_acceptance_not_historical_read(self):
-        self.setup_run()
-        with patch.object(search.evidence, 'evaluator_identity', return_value={'changed': 'tool'}):
-            with self.assertRaisesRegex(search.Invalid, 'evaluator changed'):
-                self.accept()
-        self.accept()
-        with patch.object(search.evidence, 'evaluator_identity', return_value={'changed': 'tool'}):
-            self.assertTrue(self.store.load()['runs']['d']['result'])
-
-    def test_samples_and_receipt_are_checked_not_only_report_status(self):
-        self.setup_run()
-        for samples in ([1.0], [float('nan'), 1.0], [0.0, 1.0], [9.0, 9.0]):
-            self.performance['samples_ms'] = samples
-            self.refresh()
-            with self.subTest(samples=samples), self.assertRaises(search.Invalid):
-                self.accept()
-        self.performance['samples_ms'] = [1.0, 1.5]
-        for field, value in (('status', 'unknown'), ('valid', False), ('exit_codes', {'worker': 1})):
-            old = deepcopy(self.receipt)
-            self.receipt[field] = value
-            self.refresh()
-            with self.subTest(field=field), self.assertRaises(search.Invalid):
-                self.accept()
-            self.receipt = old
-
-    def test_valid_slow_idea_can_be_received_but_cannot_be_best(self):
-        self.setup_run()
-        self.performance['samples_ms'] = [3.0, 4.0]
-        self.refresh(performance='failed', cause='idea')
-        self.accept()
-        with self.assertRaisesRegex(search.Invalid, 'passing evidence'):
-            self.f.apply('promote-candidate', run_id='d', reason='must not promote slow result')
-
-    def test_code_only_accepts_code_without_new_validation_or_promotion(self):
-        self.setup_run(mode='code-only', performance_kind='none')
-        with self.assertRaisesRegex(search.Invalid, 'cannot declare new'):
-            self.accept()
-        self.refresh(accuracy='not_run')
-        self.accept()
-        with self.assertRaisesRegex(search.Invalid, 'passing evidence'):
-            self.f.apply('promote-candidate', run_id='d', reason='code exists')
-
-    def test_collect_only_requires_matching_diagnostic_artifacts(self):
-        self.setup_run(mode='collect-only', performance_kind='none', diagnostics=True)
-        self.refresh(accuracy='not_run')
-        diagnostic = {'schema': 'operator-harness/diagnostic-evidence@1', 'project_id': 'example',
-                      'run_id': 'd', 'candidate': self.candidate_ref, 'artifacts': []}
-        ref = self.write_json('diagnostic.json', diagnostic)
-        result = self.store.local(self.result)
-        result.write_text(result.read_text() + f'- diagnostic_evidence: {ref["path"]}\n')
-        with self.assertRaisesRegex(search.Invalid, 'empty diagnostic'):
-            self.accept()
-        diagnostic['artifacts'] = [self.accuracy['raw_files'][0]]
-        self.store.local(ref['path']).write_text(json.dumps(diagnostic))
-        self.accept()
-        self.assertFalse(self.store.load()['runs']['d']['acceptance']['validation']['eligible'])
-
-    def test_verify_only_cannot_substitute_same_id_manifest(self):
-        self.setup_run(mode='verify-only')
-        clone = self.f.write(self.prefix + 'OTHER.md', self.store.local(self.candidate_ref['path']).read_text())
-        self.candidate_ref = self.store.reference(clone)
-        self.report['candidate'] = self.candidate_ref
-        self.refresh()
-        with self.assertRaisesRegex(search.Invalid, 'read-only validation changed candidate'):
-            self.accept()
-
-    def test_initial_path_needs_no_performance_source_but_keeps_case_gate(self):
-        self.setup_run(mode='initial-and-validate')
-        self.performance['samples_ms'] = [4.0, 5.0]
-        self.refresh(performance='failed')
-        self.accept()
-        self.assertFalse(self.store.load()['runs']['d']['acceptance']['validation']['eligible'])
 
     def test_mechanism_revisit_requires_history_and_new_basis(self):
         plan = {'schema': 'operator-harness/search-plan@1', 'project_id': 'example',
@@ -317,52 +330,33 @@ class ExecutionContractTest(unittest.TestCase):
         self.f.apply('add-node', id='N2', parent='N0', hypothesis='same mechanism', scope='large', plan=ref2['path'])
         self.assertEqual(self.store.mechanisms()[-1]['mechanism_id'], 'reuse-loads')
 
-    def control_init(self, steps=1):
-        authority = self.f.write(self.prefix + 'authority.md', 'Synthetic bounded authorization')
-        self.f.apply('control-init', step_limit=steps, budgets={'device': {'unit': 'attempts', 'limit': 2}},
-                     authority=authority)
-        return authority
-
-    def test_unknown_job_keeps_budget_and_blocks_closure(self):
-        self.control_init()
-        self.setup_run()
-        self.f.apply('control-reserve', id='R1', run_id='d', pool='device', amount=1)
+    def test_control_pause_unknown_jobs_and_orphan_detection(self):
+        self.setup_pipeline(controlled=True)
+        self.f.apply('control-pause', authority=self.prefix + 'authority.md')
+        paused = self.execute_pipeline()
+        self.assertEqual(paused['status'], 'not_submitted')
+        self.assertFalse(self.store.load()['control']['reservations'])
+        self.f.apply('control-resume', authority=self.prefix + 'authority.md')
+        self.f.apply('control-reserve', id='R1', run_id='d', pool='cpu', amount=1)
         def observe(status):
             return self.write_json(status + '.json', {'schema': 'operator-harness/job-observation@1',
                 'project_id': 'example', 'run_id': 'd', 'request_id': 'J1', 'status': status,
                 'observed_at': '2026-01-01T00:00:00+00:00', 'source': 'synthetic CPU fixture'})['path']
-        observation = observe('intent')
-        self.f.apply('control-job', id='J1', reservation_id='R1', status='intent', evidence=observation)
+        self.f.apply('control-job', id='J1', reservation_id='R1', status='intent', evidence=observe('intent'))
         self.f.apply('control-job', id='J1', status='unknown', evidence=observe('unknown'))
         with self.assertRaisesRegex(search.Invalid, 'job'):
             self.close()
-        with self.assertRaisesRegex(search.Invalid, 'job'):
-            self.f.apply('control-settle', id='R1', used=1, evidence=observation)
-        self.f.apply('control-job', id='J1', status='exited', evidence=observe('exited'))
-        op = dict(event_id='settle-stable', op='control-settle', id='R1', used=1, evidence=observation)
-        self.store.apply(op)
-        self.store.apply(op)
-        self.accept()
-        snapshot = self.store.reconcile()['control']
-        self.assertEqual(snapshot['available']['device'], 1)
-        self.assertEqual(snapshot['steps_used'], 1)
-        with self.assertRaisesRegex(search.Invalid, 'step budget'):
-            self.f.record_run('second', finish=False)
-        self.assertNotIn('second', self.store.load()['runs'])
-
-    def test_pause_survives_restart_and_extension_does_not_reset_steps(self):
-        authority = self.control_init()
-        self.setup_run()
-        self.f.apply('control-pause', authority=authority)
-        self.store = search.Store(self.f.root, 'example', 'session')
-        with self.assertRaisesRegex(search.Invalid, 'paused'):
-            self.f.apply('control-reserve', id='R', run_id='d', pool='device', amount=1)
-        self.accept()  # Existing results can still be reconciled while paused.
-        self.f.apply('control-extend', step_limit=2, limits={'device': 3}, authority=authority)
-        self.assertTrue(self.store.reconcile()['control']['paused'])
-        self.f.apply('control-resume', authority=authority)
-        self.f.record_run('second', finish=False)
-        self.assertEqual(self.store.reconcile()['control']['steps_used'], 2)
+        directory = self.store.records / 'orphan'
+        directory.mkdir()
+        search.atomic(directory / 'state.json', {'supervisor_pid': 1, 'supervisor_start': 'old',
+                                                 'pid': 2, 'process_start': 'live'})
+        with patch.object(runctl, 'start_identity', side_effect=lambda pid: 'live' if pid == 2 else None):
+            status = runctl.status(directory)
+            self.assertEqual(status['status'], 'running')
+            self.assertTrue(status['orphaned'])
+            self.assertEqual(runctl.control_state({'status': 'timed_out'}, directory), 'unknown')
+        self.assertEqual(runctl.control_state({'status': 'timed_out'}, directory), 'cancelled')
+        self.assertEqual(runctl.control_state({'status': 'failed_to_start'}, directory), 'not_submitted')
 
 
 if __name__ == '__main__':

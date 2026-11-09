@@ -5,7 +5,7 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 # Harness Resume
 
-先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+按 [项目管理契约](../harness-new-project/references/project-management.md) 选择项目并核对写入归属；从 STATE 和当前 TASK 接续。
 
 目标是让当前 agent 与全新 agent 都能从记录理解任务、执行方式和约束。允许用户在同一会话连续完成多个节点；不强制新 agent 或新会话。先读 [节点交接契约](references/node-contract.md)，按需使用六份模板。[automatic](../harness-automatic/SKILL.md) 已提供当前宿主内的连续协调模式，不把其编排策略施加到普通交互工作。
 

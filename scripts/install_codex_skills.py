@@ -32,7 +32,9 @@ def install(project, check_only=False):
     pending = []
     for name in NAMES:
         destination = target / name
-        if destination.exists() or destination.is_symlink():
+        if destination.is_symlink():
+            raise ValueError("source-linked development workspace: update assets/skills directly or install into a separate workspace")
+        if destination.exists():
             if not destination.is_dir() or any(
                 not (destination / path).is_file() or (destination / path).read_bytes() != data
                 for path, data in contents(SOURCE / name).items()

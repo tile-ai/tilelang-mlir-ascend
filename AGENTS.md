@@ -13,8 +13,8 @@
 
 PROJECT.md 按 `.agents/skills/harness-new-project/references/project-contract.md` 和对应模板保存集成规则、早期检查与交付条件；TASK 固定适用修订。首次正式设备验收前完成适用的低成本预检，交付时用 DELIVERY 对照发布版与实测版，不将静态等价当作新版本实卡证据。
 
-实验前使用 `harness-prepare-environment` 多轮确定 Python、TileLang/torch/torch_npu 与 CANN 的选择，再准备并验证。共享上板描述放在 `.workspace/environments/onboard/<id>/`，项目 ENVIRONMENT.md 绑定确切修订和自身使用约定，不重复询问已有设置；simulator 新接入后续设计，旧仿真约定独立读取。环境就绪后，需要建立或更新正确性参考与性能标杆时使用 `harness-establish-baseline`，固定来源、case、协议和实测证据。标杆就绪后先用 `harness-analysis` 分析实现思路，再按 `analysis → develop → device-test → analysis …` 推进；后续 analysis 通过测试反馈、仿真和流水分析定位当前 kernel 问题。`test` 对应 `harness-device-test`；达成目标或遇到停止条件就收尾。只对当前动作必需的环境变化或验证失败补问，离线分析不强制运行仿真。
-允许同一会话连续完成多个节点；项目记录须足以让全新 agent 独立接续。按 `harness-resume` 的节点契约记录 TASK/RESULT；委派时仅传工作目录根和任务路径，子 agent 写所属产物，主 agent 汇总。单 agent 可自行完成执行与汇总。上下文过长时仅建议新开会话，不强制切换或因没有隔离工具阻塞；automatic 使用当前宿主的主/子 agent 协调能力，无委派工具可明确 inline 执行。
+实验前使用 `harness-prepare-environment` 多轮确定 Python、TileLang/torch/torch_npu 与 CANN 的选择，再准备并验证。共享上板描述放在 `.workspace/environments/onboard/<id>/`，项目 ENVIRONMENT.md 绑定确切修订和自身使用约定，不重复询问已有设置；simulator 新接入后续设计，旧仿真约定独立读取。环境就绪后，需要建立或更新正确性参考与性能标杆时使用 `harness-establish-baseline`，固定来源、case、协议和实测证据。标杆就绪后先用 `harness-analysis` 分析实现思路，再按 `analysis → develop → analysis …` 推进；后续 analysis 通过测试反馈、仿真和流水分析定位当前 kernel 问题。develop 内完成实现、精度验证和任务要求的性能测量；精度失败或优化实现问题必须在本节点修复，不能接收；精度通过且证据确认优化思路问题时，才将性能退化交给下一 analysis；单独测试也使用 develop 的验证模式；达成目标或遇到停止条件就收尾。只对当前动作必需的环境变化或验证失败补问，离线分析不强制运行仿真。
+允许同一会话连续完成多个节点；项目记录须足以让全新 agent 独立接续。按 `harness-resume` 的节点契约记录 TASK/RESULT；委派时仅传工作目录根和任务路径，子 agent 写所属产物，主 agent 汇总。单 agent 可自行完成执行与汇总。多个独立 analysis 方案可按并行开发契约分配独立 worktree 的 develop，每个成员实现并测试；协调者统一接收，共享设备按约定排队。上下文过长时仅建议新开会话，不强制切换或因没有隔离工具阻塞；automatic 使用当前宿主的主/子 agent 协调能力，无委派工具可明确 inline 执行。
 
 查看进展与建议使用 `harness-status`（只读）；直接推进一个下一步使用 `harness-next`；按目标和预算连续推进使用 `harness-automatic`。automatic 遇到真实缺口时问询、遇到完成或上限时收尾，不重复提交状态未知的作业。
 算子探索的策略树与 hot/cooled 知识由 harness-resume 的 `references/search-knowledge.md` 和 `scripts/searchctl.py` 管理。策略节点包含多轮阶段执行，不替代现有 TASK/RESULT 或候选谱系；知识冷却须有交付时的真实人工批准，远端发布另行授权。

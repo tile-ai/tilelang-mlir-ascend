@@ -211,7 +211,17 @@ class ProjectTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((source / '.agents').exists())
         installed = nested / '.agents/skills'
-        self.assertEqual(len(list(installed.iterdir())), 13)
+        self.assertEqual(len(list(installed.iterdir())), 12)
+        self.assertFalse((installed / 'harness-device-test').exists())
+        measure = installed / 'harness-develop/scripts'
+        smoke = subprocess.run([sys.executable, '-c',
+                                'import sys; sys.path.insert(0, sys.argv[1]); '
+                                'import torch_npu_measure; import profile_parser; '
+                                'import torch_npu_diagnostics; '
+                                'assert callable(torch_npu_measure.measure); '
+                                'assert callable(torch_npu_diagnostics.capture_diagnostics)', str(measure)],
+                               capture_output=True, text=True)
+        self.assertEqual(smoke.returncode, 0, smoke.stderr)
         tool = installed / 'harness-new-project/scripts/projectctl.py'
         result = subprocess.run([sys.executable, str(tool), '--workspace', str(nested),
                                  '--project', 'example', '--owner', 'session', 'create', '--title', 'Example'],

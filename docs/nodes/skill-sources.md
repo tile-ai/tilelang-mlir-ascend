@@ -9,7 +9,7 @@
 | 资料入口 | 采纳位置 | 参考方法 |
 | --- | --- | --- |
 | `tilelang/ascend/README.md`、Ascend 示例及 API 定义 | `harness-develop` | 按目标版本确认 dialect、存储、同步和生成代码，检查边界及调用接口 |
-| `tilelang-ascend` skill 的 profiling 资料（若提供） | `harness-device-test`、`harness-analysis` | 固定比较边界，区分设备时间、仿真周期和模型参数，核对事件及阶段覆盖 |
+| `tilelang-ascend` skill 的 profiling 资料（若提供） | `harness-develop`、`harness-analysis` | 固定比较边界，区分设备时间、仿真周期和模型参数，核对事件及阶段覆盖 |
 | `tilelang-build` skill（若提供） | `harness-prepare-environment` | 核对 Python/native 的实际来源与构建状态，避免源码与加载库错配 |
 
 上游的 CUDA 默认值和 GPU 测试命令不能直接作为 Ascend 环境命令。npusim recipe 与其他 simulator 接口分别核对；多个 kernel duration 的求和不自动等于完整算子延迟。引用或分发外部文件时核对所选版本的许可证并保留适用声明。
@@ -18,7 +18,7 @@
 
 来源：[Hugging Face kernels](https://github.com/huggingface/kernels)。按需查找其算子测试及 triton-kernels 资料，借鉴独立参考、边界 shape、先验证再计时和工作量单位说明。
 
-这些方法用于 `harness-develop` 与 `harness-device-test`；不迁入其他硬件的命令、调参假设或支持结论，也不据此增加首批语言范围。连续性、累加类型和分块约束由算子需求确定。
+这些方法用于 `harness-develop`；不迁入其他硬件的命令、调参假设或支持结论，也不据此增加首批语言范围。连续性、累加类型和分块约束由算子需求确定。
 
 ## AscendC 与架构资料
 

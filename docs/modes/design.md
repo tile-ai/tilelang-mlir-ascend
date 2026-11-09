@@ -18,7 +18,7 @@
 
 这些是 skill 名与自然语言入口，不新增裸 slash command，也不是 npm CLI 命令。status 默认只反映记录；用户额外要求实时查询才在现有约定下有限查询，需标明数据时间。
 
-## 3. 与五节点的关系
+## 3. 与四节点的关系
 
 ```mermaid
 flowchart TD
@@ -34,17 +34,17 @@ flowchart TD
     E -->|完成或停止条件| F[保存状态与交付]
 ```
 
-resume 继续提供读取、TASK/RESULT、接收与共享记录规则。三入口共用 [下一步规则](../../assets/skills/harness-resume/references/next-action.md)；五个节点仍遵守 [节点契约](../../assets/skills/harness-resume/references/node-contract.md)。协调入口不成为额外的算子执行节点，子 agent 不递归调用 automatic。
+resume 继续提供读取、TASK/RESULT、接收与共享记录规则。三入口共用 [下一步规则](../../assets/skills/harness-resume/references/next-action.md)；四个节点仍遵守 [节点契约](../../assets/skills/harness-resume/references/node-contract.md)。协调入口不成为额外的算子执行节点，子 agent 不递归调用 automatic。
 
 ## 4. 决策与推进
 
-按当前任务选取相关记录，实际证据优先于陈旧的“下一步”文字。先处理在途/未知作业及未接收交付，再判断目标达成、缺失选择、环境缺口、相对性能所需标杆的建立/更新、首次标杆分析、候选构造、精度/性能测试及后续kernel问题分析。默认循环为analysis → develop → device-test → analysis；已接收分析按输入身份复用，测试失败先分析，目标完成则停止。只检查当前目标必需的条件：静态交付不用等待设备，旧 trace 分析不用重建仿真环境，可选仿真不用强行执行。
+按当前任务选取相关记录，实际证据优先于陈旧的“下一步”文字。先处理在途/未知作业及未接收交付，再判断目标达成、缺失选择、环境缺口、相对性能所需标杆的建立/更新、首次标杆分析、候选构造、精度/性能测试及后续kernel问题分析。默认循环为analysis → develop → analysis；已接收分析按输入身份复用，精度失败/实现问题留在 develop 修复，思路问题才带证据交回 analysis，目标完成则停止。只检查当前目标必需的条件：静态交付不用等待设备，旧 trace 分析不用重建仿真环境，可选仿真不用强行执行。
 
 缺少 STATE 或任务歧义：status 报告缺口与建议；next 直接开始必要的初始化/澄清；automatic 在明确范围前问必要选择，不默认执行整个路线图。已有准备好的 TASK 也须检查身份和范围，不能因文件存在就执行。
 
 next 一步含节点内部的编译/比较/采样及接收，不按工具调用计数。若已有结果未接收，接收就是本步。若有作业运行，等待/恢复该作业就是本步，不能重复提交。用户只要求精度时不添性能。
 
-automatic 的默认策略为串行独立上下文子 agent，派发只给根目录和 TASK 路径；主 agent 记录实际 agent/run/job、等待产物并接收，不在“已派发”时就结束并宣称完成。工具不可用时明确 inline，保持相同节点记录和边界。独立调度服务不是当前实现的一部分。
+automatic 单方案使用独立上下文子 agent，多个适用分析方案按 [并行开发契约](../../assets/skills/harness-resume/references/parallel-develop.md) 分配独立 worktree 的 develop，默认最多并行 2 个，每个成员独立计步；派发只给根目录和 TASK 路径；主 agent 记录实际 agent/run/job、等待产物并接收，不在“已派发”时就结束并宣称完成。工具不可用时明确 inline，保持相同节点记录和边界。独立调度服务不是当前实现的一部分。
 
 ## 5. 有界自动运行
 
@@ -56,7 +56,7 @@ automatic 的默认策略为串行独立上下文子 agent，派发只给根目�
 
 ## 6. 控制记录
 
-automatic 按 [控制模板](../../assets/skills/harness-automatic/assets/templates/automatic.md) 建立 `.workspace/<project>/AUTOMATIC.md`，STATE 链接它。内容包括批次 ID、任务范围、协调者、执行策略、状态、max_steps/steps_used、当前步骤及 run/agent/job、步进日志、等待问题与恢复方式。
+automatic 按 [控制模板](../../assets/skills/harness-automatic/assets/templates/automatic.md) 建立 `.workspace/<project>/AUTOMATIC.md`，STATE 链接它。内容包括批次 ID、任务范围、协调者、执行策略、状态、max_steps/steps_used、全部 in_flight_steps 及各自 run/agent/job、步进日志、等待问题与恢复方式。
 
 NODE TASK/RESULT、候选、独立环境约定继续使用六份节点模板；不把全部实验数据复制到控制记录。status 从这些记录投影报告，不另存一份可能漂移的 status 文件。next 不需要为普通一次推进新建 automatic 批次。
 
@@ -70,7 +70,7 @@ NODE TASK/RESULT、候选、独立环境约定继续使用六份节点模板；�
 
 | 控制状态 | 含义与恢复 |
 | --- | --- |
-| running | 当前批次推进中，含等待节点；保存当前步骤 |
+| running | 当前批次推进中，含等待节点；保存全部在途步骤 |
 | needs_input | 真正缺少用户选择；问题落盘并实际提出，答案未到不猜；有效回答后可沿原预算继续 |
 | blocked | 工具/资源/身份问题、未知作业或无新依据的重复失败；记录解除条件 |
 | budget_exhausted | 不再开始新步骤/实验；保存原在途项并完成允许的收尾，不自动续额 |
@@ -79,9 +79,9 @@ NODE TASK/RESULT、候选、独立环境约定继续使用六份节点模板；�
 
 模式切换依照 [共用切换规则](../../assets/skills/harness-resume/references/next-action.md#6-模式切换与接管)，在 DECISIONS 保存来源、作用域、请求和绑定动作；AUTOMATIC 引用该决定。先落盘再等待，恢复不能丢失待生效的切换。
 
-status 不改变正在进行的 automatic，普通查询报告后继续原工作；“只看状态，先别继续”包含独立的显式暂停。用户要求 next 时绑定原在途动作/待接收交付，到完成、needs_input 或 blocked 边界即返回，连续模式保持 paused。普通问题回答不恢复 automatic；用户明确切回 automatic 才恢复连续推进。有原批次时沿用其计数，新批次接入原 next 动作只计一个接续步骤，不重投。独立 next 的新动作记为本次单步授权，不清零旧批次或扩张设备额度。
+status 不改变正在进行的 automatic，普通查询报告后继续原工作；“只看状态，先别继续”包含独立的显式暂停。用户要求 next 时，单成员绑定原在途动作/待接收交付，多成员按并行契约选择一个成员或全体停在检查点，到完成、needs_input 或 blocked 边界即返回，连续模式保持 paused。普通问题回答不恢复 automatic；用户明确切回 automatic 才恢复连续推进。有原批次时沿用其计数，新批次接入原 next 动作只计一个接续步骤，不重投。独立 next 的新动作记为本次单步授权，不清零旧批次或扩张设备额度。
 
-暂停须通知活跃节点。五节点在新探针、编译、提交、重试或文件修改前及工具返回后检查 live 决定，安全保存后停止新操作；不等待整个多实验节点跑完才响应。暂停不等于已取消正在执行的工具/外部 job，记录和约定内必要回收仍需完成。节点 needs_input/blocked/interrupted 是可接续检查点，completed/failed 才是不可改写终态。
+暂停须通知活跃节点。四节点在新探针、编译、提交、重试或文件修改前及工具返回后检查 live 决定，安全保存后停止新操作；不等待整个多实验节点跑完才响应。暂停不等于已取消正在执行的工具/外部 job，记录和约定内必要回收仍需完成。节点 needs_input/blocked/interrupted 是可接续检查点，completed/failed 才是不可改写终态。
 
 已占步骤的在途节点、已完成待接收结果和原 job 的必要恢复，属于原步骤收尾，不重复占步；控制上限不能成为丢弃其记录或不接收结果的理由。恢复仍受原操作权限、查询上限和环境资源约束，不借收尾新增实验或释放未知占用。
 
@@ -100,6 +100,11 @@ status 不改变正在进行的 automatic，普通查询报告后继续原工作
 
 验证采用独立项目的技能安装/幂等/冲突检查和离线宿主演练，覆盖只读 status、单步 next、双节点 automatic 与预算停止。它们验证控制行为，不替代真实 Onboard/simulator 适配、硬件正确性或自动程序 gate。
 
+- `MODE-9`：两个独立分析方案按各自 worktree 派发 develop，每个成员实现并验证；乱序接收不丢成员状态，共享设备按约定排队。
+- `MODE-10`：并行时暂停或转 next 保存全部成员并停止新增派发，恢复不重扣步数或重投；集成候选重验。
+
 ## 9. 不在当前范围
 
-无人值守后台服务、npm 命令、定时触发、并行调优调度器、分布式锁、硬件适配器和自动 schema/gate。不因新增自动模式宣称四种执行组合已支持。
+无人值守后台服务、npm 命令、定时触发、独立并行调优调度服务、分布式锁、硬件适配器和自动 schema/gate。不因新增自动模式宣称四种执行组合已支持。
+
+并行控制使用 automatic@2 的 in_flight_steps 保存全部成员状态，恢复旧 current_step 时保留原步数；暂停和转 next 必须处理所有成员，不能只覆盖最后一个。一个成员失败不抹掉其他结果，组合实现后新建候选重新验证。

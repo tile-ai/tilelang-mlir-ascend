@@ -1,6 +1,6 @@
 # 节点结果 / 检查点
 
-- contract: operator-harness/node-result@2
+- contract: operator-harness/node-result@3
 - project_id: {{与 TASK/project.json 一致}}
 - search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - run_id: {{与 TASK 一致}}
@@ -53,3 +53,26 @@
 ## 结论与下一节点建议
 
 {{已完成/未完成、观察与假设的区别、应保留/放弃的候选、一个主推荐的节点/skill、原因与证据、依赖/缺口及完成/停止条件、精确恢复点；委派子 agent 只建议；直接交互在收尾记录后可继续授权内下一节点；最终回复同样呈现该建议，不能仅给记录链接}}
+
+## 并行成员交付（非成员删除）
+
+- batch_id: {{与 TASK 一致}}
+- analysis_run: {{与 TASK 一致}}
+
+{{逐次候选与真实父候选、最终选定候选、对共同基线逐 case 比较、环境/协议差异、仍在运行的作业、源码是否仍有写入者。主 agent 核对后接收；成员不得自行更新全局最佳或合并兄弟实现。}}
+
+## Develop 接收判定（其他节点删除）
+
+- analysis_data: {{本 run 的 ANALYSIS_DATA.md 路径，相对 workspace_root；不采也交付范围/原因}}
+- accuracy_status: {{passed / failed / not_run / invalid / not_applicable}}
+- accuracy_evidence: {{精度 passed 时必填证据文件路径，相对 workspace_root；覆盖全部必选 case 并绑定候选}}
+- performance_status: {{passed / failed / not_run / invalid / not_applicable；指目标判定}}
+- performance_evidence: {{性能 passed/failed 时必填逐 case 原始样本及比较证据文件路径}}
+- regression_cause: {{none / idea / implementation / unknown / measurement；未达性能目标或有任何退化时必须归因}}
+- regression_evidence: {{idea 时必填独立归因文件路径；其余可注明不适用}}
+
+上述字段与结果表一致。归因文件包含相对父候选和标杆的逐 case 变化、有效测量依据、预期优化与实际实现的核对、已排除的实现问题、退化现象及交给下一 analysis 的结论。不修改验收阈值或隐去慢 case。
+
+精度失败、实现问题、未知归因不能接收；在本节点修复后重验。预算/环境/权限阻塞保存 blocked/needs_input/interrupted，不以 failed 终态绕过。实现符合方案且精度通过的思路退化，可在保留性能 failed 的同时 completed 并交回 analysis；接收不等于最佳候选晋升。
+
+ANALYSIS_DATA 使用 [分析数据模板](../../../harness-develop/assets/templates/analysis-data.md)，描述原始文件、摘要、实际 kernel/case/构建/环境、指标覆盖、诊断命令与观察。TASK diagnostics_required=true 时须核对到 ready 才能接收；false 时也保留未采/不适用依据，不将 pending_review 的采集脚本输出直接认作完整交付。

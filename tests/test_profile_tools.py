@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] /
-                       'assets/skills/harness-device-test/scripts'))
+                       'assets/skills/harness-develop/scripts'))
 from profile_parser import _parse_ffts_profile
 import torch_npu_measure
 

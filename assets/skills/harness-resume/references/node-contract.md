@@ -2,7 +2,7 @@
 
 项目定位和写入归属先遵循 [项目管理契约](../../harness-new-project/references/project-management.md)。
 
-本契约让五个节点既能在同一会话连续工作，也能被全新 agent 独立接续。项目事实来自项目记录，执行方法来自所分配 skill；不要求节点读取历史聊天或依赖派发者记忆。它是当前可用的 Markdown 交接契约，不是已实现的自动执行器或程序 gate。
+本契约让四个节点既能在同一会话连续工作，也能被全新 agent 独立接续。项目事实来自项目记录，执行方法来自所分配 skill；不要求节点读取历史聊天或依赖派发者记忆。它是当前可用的 Markdown 交接契约，不是已实现的自动执行器或程序 gate。
 
 ## 1. 执行边界
 
@@ -21,7 +21,7 @@
 | [节点任务](../assets/templates/node-task.md) | `.workspace/<project>/runs/<run-id>/TASK.md` | 协调者执行/派发前填写，开始后冻结 |
 | [节点结果](../assets/templates/node-result.md) | 同目录 `RESULT.md`；等待/中断时也是检查点 | 节点 agent 写，主 agent 只读取 |
 | [标杆记录](../../harness-establish-baseline/assets/templates/baseline.md) | 本 run 的 `BASELINE.md`；共享 `.workspace/<project>/BASELINE.md` 仅索引确切记录 | establish-baseline 生成，主 agent 接收后发布索引 |
-| [候选清单](../assets/templates/candidate.md) | 产生候选的运行目录 `CANDIDATE.md` | develop；其他节点产生的构建物另存清单，不改候选 |
+| [候选清单](../assets/templates/candidate.md) | 产生候选的运行目录 `CANDIDATE.md`；多次尝试时各自 `attempts/<id>/CANDIDATE.md` | develop；其他节点产生的构建物另存清单，不改候选 |
 | [环境索引](../../harness-prepare-environment/assets/templates/environment-index.md) | `.workspace/<project>/ENVIRONMENT.md` | 主 agent 接收环境结果后更新 |
 | [共享上板环境描述](../../harness-prepare-environment/assets/templates/environment.md) | `.workspace/environments/onboard/<id>/revisions/<revision>.md` | prepare 生成提案，协调者接收后发布；项目绑定按 v2 模板引用 |
 
@@ -33,7 +33,7 @@ automatic 另按其 [控制模板](../../harness-automatic/assets/templates/auto
 
 按需实例化，不预填假数据，不一次创建空项目骨架。模板中的 `{{...}}` 必须替换，未知用 `unknown：原因/影响`，不适用用 `not_applicable：原因`，不能以空字符串假装满足门槛。模板按各自声明的契约版本定义字段；扩展小节可以增加，必填语义不能删除。
 
-新 TASK 使用 node-task@2，固定 workspace_root、project_id、project_dir 与 owner。workspace_root 相对 TASK 所在目录解析（标准 `.workspace/<project>/runs/<id>/TASK.md` 使用 `../../../..`）；project_dir 必须是该工作目录下的 `.workspace/<project_id>`，身份须与 project.json 一致。输入和产物路径字段相对 workspace_root，Markdown 链接仍按文件自身位置解析。源码 cwd 位于 project_dir/repos 中，不等于记录根。旧 TASK v1 的 project_root 仍按旧语义解析，不自动迁移。命令另写执行机器、容器、工作目录及环境变量。远端路径标明所属环境，不能拿本地相对路径代替。运行目录和输入快照在结束后保留，复制到另一 worktree 时保持相对布局；确有外部依赖则明确解析入口，缺失即报告缺口。
+新 TASK 使用 node-task@3，固定 workspace_root、project_id、project_dir 与 owner。workspace_root 相对 TASK 所在目录解析（标准 `.workspace/<project>/runs/<id>/TASK.md` 使用 `../../../..`）；project_dir 必须是该工作目录下的 `.workspace/<project_id>`，身份须与 project.json 一致。输入和产物路径字段相对 workspace_root，Markdown 链接仍按文件自身位置解析。源码 cwd 位于 project_dir/repos 中，不等于记录根。旧 TASK v1 的 project_root 仍按旧语义解析，不自动迁移。命令另写执行机器、容器、工作目录及环境变量。远端路径标明所属环境，不能拿本地相对路径代替。运行目录和输入快照在结束后保留，复制到另一 worktree 时保持相对布局；确有外部依赖则明确解析入口，缺失即报告缺口。
 
 ## 3. TASK 的公共必填内容
 
@@ -56,12 +56,11 @@ live 记录允许正常追加，不以整个文件摘要变化判定候选失效
 | prepare-environment | 本任务计划启用的能力、已知环境事实/选择、各侧已有权限来源、尚未解决的问题；允许只做访谈 | RESULT；Python、TileLang/torch/torch_npu 与 CANN 选择及来源；共享上板描述与项目绑定提案；实际探针证据或未测原因 |
 | establish-baseline | 语义与必选 case、正确性参考或允许创建范围、目标/实现限制、调查与选择规则、已有标杆与变更原因；实测绑定 development/device 约定和测量协议（允许在 run 内先生成并冻结） | RESULT；BASELINE；可重建参考/适配、case/协议快照、来源覆盖、候选资格/排除理由、复查条件、全部必需正确性与原始性能证据或逐项缺口；复测入口 |
 | analysis | 首次：确切标杆/参考、实现源码与适配、case/契约、测量边界、目标TileLang能力；后续：当前候选、最新测试结果、具体问题及已有分析；新仿真另绑定simulation约定/模型/配置，旧trace绑定历史身份 | RESULT；首次实现思路与开发方案，或当前kernel问题诊断；源码/测试/trace证据与限制、观察/解释/可验证假设、交给develop的修改及验证计划；无采集时如实注明 |
-| develop | 可执行语义与输入输出、边界/动态约束、case/参考/容限、性能目标或本次不测、已接收analysis方案/诊断、父候选与前序失败、开发约定；显式仅编写任务注明所据方案；初版无参考时明确创建范围与独立检查 | RESULT；可重建源码；CANDIDATE；已做编译检查及未验证项；device-test入口 |
-| device-test | 确切候选、全部必选 case、输入与参考/容限、device 约定、精度/性能/profile 范围；测性能时提供基线、协议及匹配的精度证据或明确先执行精度 | RESULT；每 case 输出比较与原始样本（若采样）、构建/作业清单、日志及回收状态；失败反例 |
+| develop | 已接收 analysis 方案、父候选、语义/case/参考/容限、PROJECT 与 PRECHECK 计划、development/device 绑定、性能标杆/协议及有界修复预算；verify-only/collect-only 只需确切候选及验证/采集计划；code-only 明确未测范围 | RESULT；实现任务交付逐次 CANDIDATE 与可重建源码；适用的 PRECHECK、全部必选精度、逐 case 原始性能样本/对比、失败反例、作业/回收状态、ANALYSIS_DATA（原始流水/指标、身份、覆盖与观察）及未运行原因 |
 
-生成候选与执行候选分开：develop 的源码交付可以 completed，但设备精度仍 not_run。缺少必要环境时可以完成 TASK 已授权的离线编写；不能隐式扩展成另一个节点。已有 trace 分析不要求重新准备环境，但不能掩盖原产物的身份或正确性缺口。
+develop 默认在同一 TASK 内实现并验证。只有明确 code-only 的源码任务可以在设备精度 not_run 时完成约定交付；默认任务缺少环境时保留检查点与缺口。精度 failed/invalid 或必选精度 not_run 不允许 develop 接收；性能退化只有已排除实现问题、归因为思路问题且精度通过时，才可带证据交回 analysis。已有 trace 分析不要求重新准备环境，但不能掩盖原产物的身份或正确性缺口。
 
-默认顺序为标杆建立后 `analysis → develop → device-test → analysis …`，具体选择与目标达成后的停止遵循 [统一路由](next-action.md)。首次analysis没有目标候选不构成缺口；其输入是标杆/参考的实现和契约。后续分析必须引用对应候选及测试身份，不能仅凭“曾分析过”跳过新问题。
+默认顺序为标杆建立后 `analysis → develop → analysis …`，具体选择与目标达成后的停止遵循 [统一路由](next-action.md)。首次analysis没有目标候选不构成缺口；其输入是标杆/参考的实现和契约。后续分析必须引用对应候选及测试身份，不能仅凭“曾分析过”跳过新问题。
 
 历史兼容：旧TASK的 `node: simulate` 和 `harness-simulate` 入口按原任务范围映射到 analysis 的仿真/诊断职责；用户称 `harness-simulator` 时也定位到此入口。保留历史TASK/RESULT，不将旧仿真结果改写成已完成首次标杆分析。新任务统一写 `node: analysis` / `harness-analysis`，不新增重复安装的别名skill。
 
@@ -69,7 +68,7 @@ live 记录允许正常追加，不以整个文件摘要变化判定候选失效
 
 节点开始先读 TASK、指定 skill 和按序输入，检查路径可读、版本对应、操作可执行、权限与预算覆盖。执行前在 RESULT 写简短“任务理解”：本次做什么、从哪个候选和环境开始、允许哪些动作、怎样验证、何时停止。发现阻塞项只回报具体缺口，不向用户重新问已经落盘的环境。
 
-协调者执行/派发前检查 TASK 完整；本节点收尾或收到 RESULT 后逐项检查交付文件存在、身份一致、未运行项如实记录、在途作业和预算已交代，再决定接收。接收是内部记录检查，不是新增用户审批。`completed` 只是本次节点任务完成，不意味着算子已达标；必选测试失败也可以得到完整的节点结果，测试判定仍 failed。
+协调者执行/派发前检查 TASK 完整；本节点收尾或收到 RESULT 后逐项检查交付文件存在、身份一致、未运行项如实记录、在途作业和预算已交代，再决定接收。接收是内部记录检查，不是新增用户审批。`completed` 只是本次节点任务完成，不意味着算子已达标；develop 的精度通过是接收硬条件；性能目标 failed 仅在有效测量与思路归因齐全时允许接收。实现问题或原因未知仍须在 develop 内解决；预算/环境阻塞保留未验收检查点。
 
 接收/发布/结算可能被中断，恢复须先对账：用 run ID 与终态 RESULT 摘要标识同一次交付，检查 EXPERIMENTS 接收记录、STATE 指针、已发布环境修订及各 reservation 已结算量，仅补未完成部分。不得重复扣减同一消耗、重复发布环境修订或以重跑节点修复摘要未同步；账本冲突先保留依据并核实，不猜余额。接收记录写明产物摘要及尚未完成的更新，最后才将控制步骤标为 accepted。
 
@@ -85,7 +84,7 @@ live 记录允许正常追加，不以整个文件摘要变化判定候选失效
 
 ## 6. 问询、检查点和中断
 
-五节点在开始下一次探针、编译、设备/仿真提交、重试或新的文件修改前，以及工具返回后，检查 live DECISIONS 中作用于本任务的暂停、撤权或模式决定。协调者收到停止请求先落盘并通知节点；节点在当前不可中断调用返回或可安全保存处写检查点，停止新增操作，不能因“一节点算一步”继续跑完所有实验。已提交 job 仍按原约定记录、查询/回收，未经确认不称已取消、不释放未决占用。当前调用不能立刻中断时如实报告。
+四节点在开始下一次探针、编译、设备/仿真提交、重试或新的文件修改前，以及工具返回后，检查 live DECISIONS 中作用于本任务的暂停、撤权或模式决定。协调者收到停止请求先落盘并通知节点；节点在当前不可中断调用返回或可安全保存处写检查点，停止新增操作，不能因“一节点算一步”继续跑完所有实验。已提交 job 仍按原约定记录、查询/回收，未经确认不称已取消、不释放未决占用。当前调用不能立刻中断时如实报告。
 
 转为 next 允许完成其绑定的当前有界动作；显式停止则在安全检查点停下。节点不得自行选择下一节点。详见 [模式切换](next-action.md#6-模式切换与接管)；直接执行与委派执行适用同样边界。
 
@@ -105,7 +104,7 @@ RESULT 作为当前检查点可以更新；覆盖前将已交接或用于问询�
 - 后端作业状态独立，沿用 queued/running/unknown 等实际语义；completed 节点也可能只完成对 unknown 作业的诊断，必须留下一步恢复入口。
 - 委派时协调者记录派发状态：`prepared / dispatched / accepted / rejected / blocked`；直接交互则在 EXPERIMENTS 写本节点接收结论，不需虚构派发状态。没有通过接收检查的结果不能作为下游的“已验证”输入。
 
-TASK、RESULT、candidate 新模板分别使用 `operator-harness/node-task@2`、`node-result@2`、`candidate@2`，必填 project_id；TASK 同时固定工作目录、记录目录和 owner。其余记录保留各自版本。v1 旧记录只读兼容；新工具不将旧项目根解释为新记录目录。增加可选字段不改变既有语义，必填字段或含义改变则升主版本；不理解版本时停止并报告。已有记录迁移只补缺失事实与引用，保留旧证据；没有历史信息就标 unknown，不补造身份或许可。当前按此契约人工/agent 检查；未来程序校验首先验证这些稳定字段与引用，不另造第二套事实源。
+TASK、RESULT、candidate 新模板分别使用 `operator-harness/node-task@3`、`node-result@3`、`candidate@2`，必填 project_id；TASK 同时固定工作目录、记录目录和 owner。其余记录保留各自版本。v1 旧记录只读兼容；新工具不将旧项目根解释为新记录目录。增加可选字段不改变既有语义，必填字段或含义改变则升主版本；不理解版本时停止并报告。已有记录迁移只补缺失事实与引用，保留旧证据；没有历史信息就标 unknown，不补造身份或许可。当前按此契约人工/agent 检查；未来程序校验首先验证这些稳定字段与引用，不另造第二套事实源。
 
 ## 搜索树兼容扩展
 
@@ -114,3 +113,25 @@ TASK、RESULT、candidate 的 search_node_id 在未启用树时可省略；未�
 ## 项目交付记录
 
 项目级 [PROJECT](../../harness-new-project/assets/templates/project.md)、开发 run 内 [PRECHECK](../../harness-develop/assets/templates/precheck.md) 和收尾时 [DELIVERY](../assets/templates/delivery.md) 补充上述节点记录，不新增节点。PROJECT 定义规则，PRECHECK 保存实际检查，DELIVERY 对照最终发布版与实测版并说明证据适用范围；详细规则见 [项目契约与交付检查](../../harness-new-project/references/project-contract.md)。
+
+## 并行开发与旧记录
+
+多个已接收分析方案可按 [并行开发契约](parallel-develop.md) 形成隔离批次。batch_id、analysis_run 是 TASK/RESULT 的可选扩展，仅批次成员必填；历史 @2 记录保留身份与证据。新节点只有 prepare-environment、establish-baseline、analysis、develop。
+
+已删除 harness-device-test 入口。历史 `node: device-test` TASK/RESULT 保留身份与摘要，searchctl 仍可读取并接收这些已登记任务；不再登记新 device-test run。恢复旧任务时读取 develop 的设备验证方法，严格遵守原测试范围，不追加代码修改；新补充任务使用 develop 的 verify-only/collect-only。
+
+## Develop 接收字段
+
+TASK @3 的 operation 使用四种 develop 模式之一，并以 `performance_required: true / false` 固定是否要求性能验收。RESULT @3 为 develop 增加 accuracy_status、performance_status、regression_cause 及证据路径，字段定义见模板；必须与结果表和实际候选一致。
+
+searchctl 新登记 develop 时检查范围字段，accept 要求 completed，拒绝精度失败、无效精度、必选精度未测、性能要求未测、无效性能以及 implementation/unknown/measurement 归因。idea 必须具有精度通过、有效性能与独立归因文件；接收时冻结相关证据摘要。它检查声明和证据身份，协调者仍核对逐 case 覆盖、结果表一致性、实际源码/测量身份及归因内容，不把一行 idea 当作证明。
+
+历史已接收 @2 结果按原记录读取，不追溯伪造新接收字段；未接收的旧 develop 必须满足新接收规则。旧 TASK 缺少新范围字段时保持冻结，补充独立的范围说明并通过 accept 的 scope 参数引用，须与原任务/用户决定一致，不得缩小验收；协调者负责核对。旧失败证据仍保留，不能标成新版规则下已通过。
+
+## Develop → analysis 的上板数据
+
+新 TASK @3 显式填写 diagnostics_required 及诊断计划；普通性能优化任务默认 true，明确仅代码/精度等范围可为 false。该字段兼容扩展到当前模板，不追溯改写历史 TASK。RESULT 的 analysis_data 引用 [ANALYSIS_DATA](../../harness-develop/assets/templates/analysis-data.md)：实际候选/构建/case/环境身份、真实 kernel 来源与调用链映射、torch_npu/msprof 原始数据与摘要、指标/流水覆盖、命令日志和观察。即使未采也交付原因与影响，不留空项。
+
+采集方法与工具在 [上板诊断](../../harness-develop/references/onboard-diagnostics.md)。任务要求的分析数据必须 ready 才能接收；helper 冻结该文档摘要并检查项目/run/状态，协调者核对实际原始文件、完整性、来源与覆盖，不因工具退出为0或文件存在判成功。旧 TASK 没有 diagnostics_required 时保持原范围；更新诊断范围应按既有冻结输入变更流程处理。
+
+完整多指标交给 msprof op/msopprof 编排，torch_npu 原生采集按需补充。交付须说明实际可核实的采集分组、工具设备内存恢复范围和运行差异，不将指标数当作重放次数，不把不同 pass 合并成同步观测。analysis 优先消费该交付，关联正式性能结果与流水/指标，区分观察、假设和下一验证点。诊断重放的数据不能作为稳态性能验收；只采部分 core/pipe 不能推断全硬件状态。仿真用于补充问题，不是分析上板数据的前置条件。

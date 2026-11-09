@@ -1,10 +1,10 @@
 # 节点任务
 
-- contract: operator-harness/node-task@2
+- contract: operator-harness/node-task@3
 - search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - run_id: {{项目内唯一编号}}
-- node: {{prepare-environment / establish-baseline / analysis / develop / device-test，仅一个；test指device-test}}
-- operation: {{本次具体操作，例如仅精度、实现初版、分析已有 trace}}
+- node: {{prepare-environment / establish-baseline / analysis / develop，仅一个}}
+- operation: {{本次具体操作，develop 为 implement-and-validate / verify-only / collect-only / code-only；其他节点写具体操作}}
 - workspace_root: {{相对 TASK 所在目录的工作目录根路径；标准 .workspace/<project>/runs/<id>/ 下为 ../../../..}}
 - project_id: {{与 project.json 一致}}
 - project_dir: .workspace/{{project_id}}
@@ -22,7 +22,7 @@
 
 以下路径字段相对 workspace_root；每项写确切文件，不只写目录。按节点契约补齐适用的候选、需求、用户决定、环境、case/参考/协议和前序证据。
 
-PROJECT.md 的确切修订与摘要或不可变副本作为 snapshot，绑定本次适用的仓库规则、检查计划和交付要求；未知项注明其阻塞范围。develop/test 同时携带已有 PRECHECK 身份或本次补齐计划，不把计划当实际通过。
+PROJECT.md 的确切修订与摘要或不可变副本作为 snapshot，绑定本次适用的仓库规则、检查计划和交付要求；未知项注明其阻塞范围。develop 同时携带已有 PRECHECK 身份或本次补齐计划，不把计划当实际通过。
 
 | 顺序 | 用途 | 路径 | snapshot/live | 快照身份或 live 起始水位 | 必需性与未知项影响 |
 | --- | --- | --- | --- | --- | --- |
@@ -49,9 +49,25 @@ PROJECT.md 的确切修订与摘要或不可变副本作为 snapshot，绑定本
 
 ## 必交付与接收检查
 
-{{RESULT.md 及本节点所需产物；每项路径/内容/身份要求。analysis 包含首次标杆方案或当前kernel诊断、证据/假设和验证计划；develop 包含 CANDIDATE，prepare 包含独立环境提案，establish-baseline 包含 BASELINE、参考/case/协议及调查/测量证据}}
+{{RESULT.md 及本节点所需产物；每项路径/内容/身份要求。analysis 包含首次标杆方案或当前kernel诊断、证据/假设和验证计划；develop 包含适用的 CANDIDATE、PRECHECK、精度/性能/采集判定、ANALYSIS_DATA 与原始证据，prepare 包含独立环境提案，establish-baseline 包含 BASELINE、参考/case/协议及调查/测量证据}}
 
 ## 未决问题与交接
 
 {{已知缺口、会阻塞哪些动作、可独立推进的部分；没有则写 none}}
 {{给下一节点的建议及其所需输入；仅建议，由主 agent 决定并新建任务}}
+
+## Develop 执行约定（仅 develop 填写）
+
+- performance_required: {{true / false；按任务固定；code-only/collect-only 为 false}}
+- diagnostics_required: {{true / false；性能优化默认 true；仅代码/精度等有限范围明确 false 并说明依据}}
+- 分析数据计划：{{代表性/退化 case、真实 kernel 来源；主采集 msprof op/msopprof 的指标组合、重放模式与状态恢复适用性；按需补充的 torch_npu 调用映射/基础指标；必需/可选项、含重放/插桩的预算、复用证据或不采理由；ANALYSIS_DATA 交付位置}}
+- 修复预算与停止条件：{{最多几次修复/实验、总额度；精度失败或实现问题留在节点内修复；额度耗尽则未验收，不自行加额}}
+- 工作树与构建隔离：{{注册 repo_id、branch、起始源码/补丁身份；本地/远端 build、JIT/cache、源码和输出独立目录}}
+- 验证范围：{{必选 case、全部输出、精度后性能、诊断例外、用户明确 code-only 的依据}}
+
+并行成员另在文件顶层填写以下精确字段；非成员删除：
+
+- batch_id: {{develop-batch 的 id}}
+- analysis_run: {{已接收 analysis run ID}}
+
+并绑定批次 inputs 的同一快照与摘要；源码白名单列出批次 repo_ids，所有可变目录独占。详见 [并行开发契约](../../references/parallel-develop.md)。

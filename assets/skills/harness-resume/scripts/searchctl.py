@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single-operator search and knowledge records. Python 3.9+, POSIX, stdlib only.
+"""Project search and knowledge records. Python 3.9+, POSIX, stdlib only.
 
 This is a metadata ledger, not an executor or an authentication service.
 """
@@ -194,6 +194,38 @@ class Store:
                 self.markdown(run["result"], run_id=key, node=run["stage"],
                               search_node_id=run["search_node_id"])
                 self.terminal(run["result"])
+                if "acceptance" in run:
+                    require(run["acceptance"] == self.develop_acceptance(run, run["result"]),
+                            "develop acceptance evidence changed")
+            if run.get("batch_id"):
+                require(run["batch_id"] in tree.get("batches", {}), "unknown develop batch")
+                require(key in tree["batches"][run["batch_id"]]["members"], "unlisted batch run")
+        for key, batch in tree.get("batches", {}).items():
+            identifier(key)
+            require(len(batch["members"]) >= 2 and
+                    len(set(batch["members"])) == len(batch["members"]), "invalid batch members")
+            require(set(batch["inputs"]) == {"requirements", "baseline", "cases", "protocol", "environment"},
+                    "batch needs frozen comparison inputs")
+            for ref in batch["inputs"].values():
+                self.verify_ref(ref)
+            repositories = set()
+            for member in batch["members"]:
+                run = tree["runs"][member]
+                require(run.get("batch_id") == key and run["stage"] == "develop", "batch run mismatch")
+                require(run["candidate_id"] == batch["candidate_id"], "batch candidate mismatch")
+                require(run["analysis_run"] in tree["runs"], "unknown analysis run")
+                analysis = tree["runs"][run["analysis_run"]]
+                require(analysis["stage"] == "analysis" and analysis.get("result") and
+                        analysis["candidate_id"] == run["candidate_id"] and
+                        analysis["search_node_id"] == run["search_node_id"], "inapplicable analysis run")
+                self.markdown(analysis["result"], status="completed")
+                require(bool(run["repo_ids"]) and len(set(run["repo_ids"])) == len(run["repo_ids"]),
+                        "invalid batch repositories")
+                require(not repositories.intersection(run["repo_ids"]), "batch worktrees overlap")
+                repositories.update(run["repo_ids"])
+                self.markdown(run["task"], batch_id=key, analysis_run=run["analysis_run"])
+                if run.get("result"):
+                    self.markdown(run["result"], batch_id=key, analysis_run=run["analysis_run"])
         for key, revisions in tree["hot"].items():
             identifier(key)
             require(bool(revisions), "empty hot history")
@@ -283,20 +315,40 @@ class Store:
             tree["candidates"][key] = {"search_node_id": op["search_node_id"],
                                        "parent_candidate": parent, "manifest": ref}
         elif action == "run":
+            require(op["stage"] in ("analysis", "develop"),
+                    "new runs use analysis or develop; device-test is legacy only")
+            require(not any(run.get("batch_id") and not run.get("result")
+                            for run in tree["runs"].values()), "develop batch is outstanding")
+            require(not any(not run.get("result") and
+                            (op["stage"] == "develop" or run["stage"] != "analysis")
+                            for run in tree["runs"].values()),
+                    "ordinary develop must run alone; use develop-batch for parallel work")
             key = identifier(op["id"])
             require(key not in tree["runs"], "run already registered")
             require(op["search_node_id"] == tree["current_node"], "run must use selected node")
             require(tree["nodes"][tree["current_node"]]["status"] == "open", "node is not open")
             ref = self.reference(op["task"])
             self.markdown(ref, run_id=key, node=op["stage"], search_node_id=op["search_node_id"])
+            if op["stage"] == "develop":
+                self.develop_scope(ref)
             tree["runs"][key] = {"search_node_id": op["search_node_id"], "stage": op["stage"],
                                   "candidate_id": op["candidate_id"], "task": ref, "result": None}
+            if op["stage"] == "develop":
+                tree["runs"][key]["acceptance_policy"] = "develop-acceptance@1"
+        elif action == "develop-batch":
+            self.develop_batch(tree, op)
         elif action == "accept":
             run = tree["runs"][op["id"]]
             require(run["result"] is None, "run already accepted")
             ref = self.reference(op["result"])
             self.markdown(ref, run_id=op["id"], node=run["stage"], search_node_id=run["search_node_id"])
             self.terminal(ref)
+            if run["stage"] == "develop":
+                if op.get("scope"):
+                    require("acceptance_policy" not in run, "new develop cannot replace its frozen scope")
+                    run["acceptance_scope"] = self.reference(op["scope"])
+                    self.markdown(run["acceptance_scope"], run_id=op["id"])
+                run["acceptance"] = self.develop_acceptance(run, ref)
             run["result"] = ref
         elif action == "hot":
             key = identifier(op["id"])
@@ -324,6 +376,50 @@ class Store:
         else:
             raise Invalid(f"unknown operation: {action}")
 
+    def develop_batch(self, tree, op):
+        """Admit an isolated group atomically; the host coordinates execution."""
+        key = identifier(op["id"])
+        require(key not in tree.get("batches", {}), "batch already registered")
+        require(all(run.get("result") for run in tree["runs"].values()),
+                "accept outstanding runs before starting a batch")
+        members = op["members"]
+        require(isinstance(members, list) and len(members) >= 2, "batch needs at least two members")
+        require(isinstance(op["inputs"], dict), "batch inputs must be an object")
+        inputs = {name: self.reference(path) for name, path in op["inputs"].items()}
+        data = self.workspace.load(self.project_id)
+        paths = []
+        ids = []
+        for member in members:
+            run_id = identifier(member["id"])
+            require(run_id not in tree["runs"], "run already registered")
+            node = member["search_node_id"]
+            require(node in tree["nodes"] and tree["nodes"][node]["status"] == "open", "node is not open")
+            repo_ids = member["repo_ids"]
+            require(isinstance(repo_ids, list) and bool(repo_ids), "member needs writable worktrees")
+            for repo_id in repo_ids:
+                identifier(repo_id)
+                require(repo_id in data["repositories"], "unregistered worktree")
+                repo = data["repositories"][repo_id]
+                self.workspace.inventory(self.project_id, {"repositories": {repo_id: repo}})
+                path = self.workspace.local(self.project_id, repo["path"]).resolve()
+                require(not any(path.is_relative_to(other) or other.is_relative_to(path)
+                                for other in paths), "batch worktrees overlap")
+                paths.append(path)
+            task = self.reference(member["task"])
+            expected = self.records / "runs" / run_id / "TASK.md"
+            require(self.local(member["task"]) == expected, "batch TASK must use its own run directory")
+            self.markdown(task, run_id=run_id, node="develop", search_node_id=node,
+                          batch_id=key, analysis_run=member["analysis_run"])
+            self.develop_scope(task)
+            tree["runs"][run_id] = {"search_node_id": node, "stage": "develop",
+                                    "candidate_id": op["candidate_id"], "task": task, "result": None,
+                                    "batch_id": key, "analysis_run": member["analysis_run"],
+                                    "acceptance_policy": "develop-acceptance@1",
+                                    "repo_ids": list(repo_ids)}
+            ids.append(run_id)
+        tree.setdefault("batches", {})[key] = {"members": ids, "inputs": inputs,
+                                               "candidate_id": op["candidate_id"]}
+
     def markdown(self, ref, **expected):
         text = self.local(ref["path"]).read_text(encoding="utf-8")
         if not self.legacy:
@@ -334,6 +430,70 @@ class Store:
                 values = [re.sub(r"^not_applicable\s*[:：]\s*.+$", "not_applicable", item)
                           for item in values]
             require(values == [value], f"manifest {key} must be exactly {value}")
+
+    def value(self, ref, key):
+        text = self.local(ref["path"]).read_text(encoding="utf-8")
+        values = re.findall(rf"^- {re.escape(key)}: ([^\n\r]*)$", text, re.M)
+        require(len(values) == 1 and nonempty(values[0]), f"missing/duplicate {key}")
+        return values[0].strip()
+
+    def develop_scope(self, task):
+        mode = self.value(task, "operation")
+        require(mode in ("implement-and-validate", "verify-only", "collect-only", "code-only"),
+                "invalid develop operation")
+        performance = self.value(task, "performance_required")
+        require(performance in ("true", "false"), "performance_required must be true or false")
+        require(mode not in ("code-only", "collect-only") or performance == "false",
+                "code/diagnostic-only cannot require performance acceptance")
+        if re.search(r"^- diagnostics_required:", self.local(task["path"]).read_text(), re.M):
+            diagnostics = self.value(task, "diagnostics_required")
+            require(diagnostics in ("true", "false"), "diagnostics_required must be true or false")
+            require(mode != "code-only" or diagnostics == "false", "code-only cannot require device diagnostics")
+        return mode, performance == "true"
+
+    def develop_acceptance(self, run, result):
+        """Check declared acceptance and freeze evidence; the coordinator reviews its substance."""
+        scope = run.get("acceptance_scope", run["task"])
+        self.verify_ref(scope)
+        mode, performance_required = self.develop_scope(scope)
+        self.markdown(result, status="completed")
+        accuracy = self.value(result, "accuracy_status")
+        performance = self.value(result, "performance_status")
+        cause = self.value(result, "regression_cause")
+        require(accuracy in ("passed", "not_run", "not_applicable"),
+                "accuracy failure/invalidity must be resolved inside develop")
+        require(mode in ("code-only", "collect-only") or accuracy == "passed",
+                "develop acceptance requires all mandatory accuracy cases to pass")
+        require(performance in ("passed", "failed", "not_run", "not_applicable"),
+                "invalid performance measurement cannot be accepted")
+        require(not performance_required or performance in ("passed", "failed"),
+                "required performance has not been measured")
+        require(cause in ("none", "idea"),
+                "implementation/unknown regression must be resolved inside develop")
+        require(performance != "failed" or cause == "idea", "performance failure needs idea diagnosis")
+        evidence = {}
+        if accuracy == "passed":
+            evidence["accuracy"] = self.reference(self.value(result, "accuracy_evidence"))
+        if performance in ("passed", "failed"):
+            require(accuracy == "passed", "performance acceptance requires accuracy passed")
+            evidence["performance"] = self.reference(self.value(result, "performance_evidence"))
+        if cause == "idea":
+            require(accuracy == "passed" and performance in ("passed", "failed"),
+                    "idea diagnosis needs valid accuracy and performance results")
+            evidence["regression"] = self.reference(self.value(result, "regression_evidence"))
+        # Optional for historical TASKs; current templates explicitly declare the scope.
+        if re.search(r"^- diagnostics_required:", self.local(scope["path"]).read_text(), re.M):
+            ref = self.reference(self.value(result, "analysis_data"))
+            self.markdown(ref, run_id=self.value(result, "run_id"))
+            status = self.value(ref, "status")
+            require(status in ("ready", "partial", "unavailable", "not_run", "not_applicable"),
+                    "invalid analysis data status")
+            require(self.value(scope, "diagnostics_required") != "true" or status == "ready",
+                    "required analysis data is not ready")
+            evidence["analysis_data"] = ref
+        for ref in evidence.values():
+            require(bool(self.local(ref["path"]).read_bytes().strip()), "empty develop evidence")
+        return {"policy": "develop-acceptance@1", "evidence": evidence}
 
     def terminal(self, ref):
         text = self.local(ref["path"]).read_text(encoding="utf-8")

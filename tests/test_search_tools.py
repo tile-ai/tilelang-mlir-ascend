@@ -486,6 +486,99 @@ class SearchToolsTest(unittest.TestCase):
         with self.assertRaisesRegex(search.Invalid, "must run alone"):
             self.record_run("analysis-while-editing", finish=False)
 
+    def port_fixture(self):
+        """Synthetic port evidence; intentionally no optimization-idea diagnosis."""
+        prefix = ".workspace/example/runs/port"
+        identity = "- project_id: example\n- run_id: port\n- node: port-baseline\n- search_node_id: N0\n"
+        task = self.write(prefix + "/TASK.md", identity +
+                          "- operation: port-and-validate\n- performance_required: true\n"
+                          "- diagnostics_required: true\n- aicpu_policy: forbidden\n")
+        candidate = self.write(prefix + "/CANDIDATE.md",
+                               "- project_id: example\n- candidate_id: Cport\n- search_node_id: N0\n"
+                               "- parent_candidate: not_applicable\n")
+        mapping = self.write(prefix + "/PORTING.md", "- contract: operator-harness/porting@1\n"
+                             "- project_id: example\n- run_id: port\n- candidate_id: Cport\n"
+                             "- status: complete\n- aicpu_status: replaced\nSynthetic replacement evidence.\n")
+        data = self.write(prefix + "/ANALYSIS_DATA.md", "- project_id: example\n- run_id: port\n"
+                          "- candidate_id: Cport\n- status: ready\nSynthetic CPU fixture only.\n")
+        accuracy = self.write(prefix + "/accuracy.md", "Synthetic mandatory case results.\n")
+        performance = self.write(prefix + "/performance.md", "Synthetic valid but slow sample.\n")
+        result = self.write(prefix + "/RESULT.md", identity + "- status: completed\n- accuracy_status: passed\n"
+                            f"- accuracy_evidence: {accuracy}\n- performance_status: failed\n"
+                            f"- performance_evidence: {performance}\n- candidate_manifest: {candidate}\n"
+                            f"- porting_evidence: {mapping}\n- analysis_data: {data}\n")
+        operation = dict(id="port", search_node_id="N0", stage="port-baseline", candidate_id=None, task=task)
+        return operation, result, mapping, data
+
+    def test_port_accepts_correct_measured_slow_initial_candidate_and_freezes_mapping(self):
+        operation, result, mapping, _ = self.port_fixture()
+        self.apply("run", **operation)
+        self.apply("accept", id="port", result=result)
+        run = self.store.load()["runs"]["port"]
+        self.assertEqual(run["acceptance"]["policy"], "port-acceptance@1")
+        self.assertNotIn("regression", run["acceptance"]["evidence"])
+        self.apply("candidate", id="Cport", search_node_id="N0", parent_candidate=None,
+                   manifest=".workspace/example/runs/port/CANDIDATE.md")
+        self.record_run("inspect-port", candidate="Cport")
+        with (self.root / mapping).open("a") as stream:
+            stream.write("changed mapping")
+        with self.assertRaisesRegex(search.Invalid, "evidence changed"):
+            self.store.load()
+
+    def test_port_rejects_failed_accuracy_invalid_measurement_and_incomplete_replacement(self):
+        operation, result, mapping, data = self.port_fixture()
+        self.apply("run", **operation)
+        failures = ((result, "accuracy_status: passed", "accuracy_status: failed"),
+                    (result, "status: completed", "status: failed"),
+                    (result, "performance_status: failed", "performance_status: invalid"),
+                    (result, "performance_status: failed", "performance_status: not_run"),
+                    (mapping, "status: complete", "status: incomplete"),
+                    (mapping, "aicpu_status: replaced", "aicpu_status: unresolved"),
+                    (mapping, "candidate_id: Cport", "candidate_id: sibling"),
+                    (data, "candidate_id: Cport", "candidate_id: sibling"),
+                    (data, "status: ready", "status: partial"))
+        for path, old, new in failures:
+            with self.subTest(new=new):
+                file = self.root / path
+                original = file.read_text()
+                file.write_text(original.replace(old, new))
+                try:
+                    with self.assertRaises(search.Invalid):
+                        self.apply("accept", id="port", result=result)
+                    self.assertIsNone(self.store.load()["runs"]["port"]["result"])
+                finally:
+                    file.write_text(original)
+        self.apply("accept", id="port", result=result)
+
+    def test_port_cannot_change_scope_or_run_with_other_workers(self):
+        operation, result, _, _ = self.port_fixture()
+        self.record_run("active-analysis", finish=False)
+        with self.assertRaisesRegex(search.Invalid, "must run alone"):
+            self.apply("run", **operation)
+        task = self.root / ".workspace/example/runs/active-analysis/TASK.md"
+        done = self.write(".workspace/example/runs/active-analysis/RESULT.md", task.read_text() + "- status: completed\n")
+        self.apply("accept", id="active-analysis", result=done)
+        self.apply("run", **operation)
+        for stage in ("analysis", "develop"):
+            with self.assertRaisesRegex(search.Invalid, "must run alone"):
+                self.record_run("concurrent-" + stage, stage, finish=False)
+        with self.assertRaisesRegex(search.Invalid, "frozen scope"):
+            self.apply("accept", id="port", result=result, scope=operation["task"])
+
+    def test_port_requires_validation_and_forbids_aicpu_in_task(self):
+        operation, _, _, _ = self.port_fixture()
+        file = self.root / operation["task"]
+        original = file.read_text()
+        for old, new in (("port-and-validate", "code-only"), ("aicpu_policy: forbidden", "aicpu_policy: allowed"),
+                         ("performance_required: true", "performance_required: false"),
+                         ("diagnostics_required: true", "diagnostics_required: unknown")):
+            file.write_text(original.replace(old, new))
+            with self.subTest(new=new), self.assertRaises(search.Invalid):
+                self.apply("run", **operation)
+            self.assertNotIn("port", self.store.load()["runs"])
+        file.write_text(original)
+        self.apply("run", **operation)
+
     def test_accuracy_failure_cannot_be_accepted_or_hide_behind_failed_status(self):
         operation = self.batch_fixture()
         self.store.apply(operation)

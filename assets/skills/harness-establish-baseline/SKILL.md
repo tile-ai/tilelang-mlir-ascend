@@ -72,4 +72,4 @@ description: 根据任务与已绑定环境建立或更新算子的正确性参�
 
 协调者检查后，在 `.workspace/<project>/BASELINE.md` 发布轻量索引，指向本 run 的不可变基线记录与证据，并更新 STATE/EXPERIMENTS；子 agent 不直接发布。下游 TASK 必须将索引解析为确切的 baseline ID/修订/摘要，不在执行中跟随可变指针。变更参考/case、来源/构建、执行环境或测量协议时，先判断影响范围，保留旧版并更新受影响的基线证据。
 
-最终回复与 RESULT 都应给出**一个主推荐**：具体节点/skill、原因与证据、依赖或缺口、完成/停止条件。标杆 ready 后通常推荐 [harness-analysis](../harness-analysis/SKILL.md)，读取冻结标杆的实现与测量边界，形成首次开发方案；已有分析时按 [统一路由](../harness-resume/references/next-action.md) 检查受影响部分，复用仍适用的结论。环境不足则推荐 prepare-environment 的具体补齐动作。用户要求本节点后停止时仍给建议，但不执行下一节点。
+最终回复与 RESULT 都应给出**一个主推荐**：具体节点/skill、原因与证据、依赖或缺口、完成/停止条件。标杆 ready 且没有适用 TileLang 候选时推荐 [harness-port-baseline](../harness-port-baseline/SKILL.md)，移植参考并验证初版；已有适用候选时按 [统一路由](../harness-resume/references/next-action.md) 进入验证、analysis 或交付，不强制重写。标杆更新仅检查受影响部分，复用仍适用的候选与证据。环境不足则推荐 prepare-environment 的具体补齐动作。用户要求本节点后停止时仍给建议，但不执行下一节点。

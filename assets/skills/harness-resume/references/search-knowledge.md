@@ -57,12 +57,12 @@ python3 .agents/skills/harness-resume/scripts/searchctl.py --workspace . --proje
 | node-status | id, status, reason | open / parked / closed；有未结 run 不可关闭 |
 | candidate | id, search_node_id, parent_candidate, manifest | parent_candidate 是已登记 ID 或 null；manifest 中对应字段为父 manifest 路径或 not_applicable（可附 `: 原因` / `：原因`） |
 | develop-batch | id, candidate_id, inputs, members | 至少两个独立 develop；具体字段与前置检查见 [并行开发契约](parallel-develop.md) 和 JSON 模板；跨 open 策略原子登记，不切换 current_node |
-| run | id, search_node_id, stage, candidate_id, task | 当前 open 节点；stage 为 analysis / develop，普通 develop 独占执行；candidate_id 为输入候选或 null（尚无候选） |
-| accept | id, result；旧 develop 可补 scope | develop 要求 completed 并通过精度/性能归因接收检查；其他阶段为 completed/failed；checkpoint 不接收。scope 仅用于新规则前登记任务的独立范围说明，含 project_id/run_id/operation/performance_required |
+| run | id, search_node_id, stage, candidate_id, task | 当前 open 节点；stage 为 port-baseline / analysis / develop，port-baseline 和普通 develop 独占执行；candidate_id 为输入候选或 null（尚无候选） |
+| accept | id, result；旧 develop 可补 scope | develop 要求 completed 并通过精度/性能归因检查；port-baseline 要求 completed、精度通过、有效性能和完整移植证据，允许性能未达标；其他阶段为 completed/failed；checkpoint 不接收。scope 仅用于新规则前登记任务的独立范围说明，含 project_id/run_id/operation/performance_required |
 | hot | id, base_revision, kind, statement, applicability, limitations, nodes, evidence | base_revision 初次 0，后续须匹配最新；nodes 为节点 ID 列表，evidence 为项目内证据路径列表 |
 | use-cooled | search_node_id, artifact, reason | artifact 指向当前 active cooled JSON；reason 解释条件匹配 |
 
-TASK/RESULT/candidate 必须有与所选项目一致的 `- project_id: ...`。TASK/RESULT 用模板的 `- run_id: ...`、`- node: ...`、`- search_node_id: ...` 精确字段；candidate 使用 `- candidate_id: ...` 和同样的 search_node_id。新测试任务使用 develop 的 verify-only/collect-only，历史 device-test 记录只读/接收兼容。TASK 在执行前登记，RESULT 接收前由协调者按节点契约检查任务摘要、交付、环境、作业和资源；helper 的 accept 对 develop 校验声明的精度/性能判定和退化归因、冻结证据文件摘要；不解析全部样本或证明归因正确，不能代替完整结果验收。候选在生产后登记，develop 的输入候选可以来自父节点或其他分支。
+TASK/RESULT/candidate 必须有与所选项目一致的 `- project_id: ...`。TASK/RESULT 用模板的 `- run_id: ...`、`- node: ...`、`- search_node_id: ...` 精确字段；candidate 使用 `- candidate_id: ...` 和同样的 search_node_id。新测试任务使用 develop 的 verify-only/collect-only，历史 device-test 记录只读/接收兼容。TASK 在执行前登记，RESULT 接收前由协调者按节点契约检查任务摘要、交付、环境、作业和资源；helper 的 accept 对 develop 校验精度/性能与退化归因，对 port-baseline 校验精度/有效性能、PORTING 完成与 AICPU 替代声明及候选身份，冻结证据摘要；不解析全部样本或证明归因正确，不能代替完整结果验收。候选在生产后登记，develop 的输入候选可以来自父节点或其他分支。
 
 ```json
 {

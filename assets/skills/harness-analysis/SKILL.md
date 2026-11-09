@@ -1,6 +1,6 @@
 ---
 name: harness-analysis
-description: 首次分析标杆的实现思路并形成 TileLang 开发方案；后续结合测试反馈、仿真和流水证据定位当前 kernel 问题，交接可验证的修改假设。用于 Operator Harness 的 analysis 节点。
+description: 针对已有 TileLang kernel，结合标杆、移植差异、测试反馈、仿真和流水证据定位缺陷，交接可验证的修改假设。无候选时先移植标杆，用于 Operator Harness 的 analysis 节点。
 ---
 
 # Harness Analysis
@@ -11,19 +11,19 @@ description: 首次分析标杆的实现思路并形成 TileLang 开发方案；
 
 当前会话或独立 agent 均可执行本节点。已收到 TASK 的子 agent 直接按 [节点契约](../harness-resume/references/node-contract.md) 读取输入，不递归执行主 agent 的派发流程；直接交互时先按 [harness-resume](../harness-resume/SKILL.md) 恢复或补齐 TASK。记录任务理解与结果，确保不继承聊天的新 agent 也能接手。委派子 agent 只写所分配产物，由主 agent 中继问询并汇总共享记录；直接交互时当前 agent 完成同样的收尾检查后可继续后续节点，不要求新会话。
 
-默认流程是 `establish-baseline → analysis → develop → analysis …`；develop 内完成实现与测试。目标已达成或用户要求停止时收尾，不为循环新增分析。读取 `.workspace/<project>/STATE.md`、TASK 固定的标杆/候选和最近测试结果，明确本次是首次方案分析还是后续问题诊断；不能只凭 run 编号判断首次。
+默认流程是 `establish-baseline → port-baseline → analysis → develop → analysis …`；已有适用候选时跳过移植。目标已达成或用户要求停止时收尾，不为循环新增分析。读取 `.workspace/<project>/STATE.md`、TASK 固定的候选、标杆和最近测试结果，明确当前实现的待解释问题。
 
-## 首次：分析标杆与开发思路
+## 输入必须有实际候选
 
-首次进入本任务的 analysis 时，读取确切 BASELINE ID/修订/摘要、来源覆盖与候选选择依据、选中实现源码和适配、case/输出契约及测量边界；源码与实际测量包无法对应的范围须保留为限制。分析算法阶段与完整调用链、数据组织/布局、并行划分、同步和中间存储，解释逐 shape 分派及其依据；将源码事实、测量观察和待验证推断分开，不从耗时单独猜实现。
+绑定实际 TileLang 候选、case/输出契约、确切 BASELINE 身份及最新测试结果。新生成的初版同时读取 PORTING，了解参考阶段与候选的对应、能力替代（尤其 AICPU）及性能差距。已接入的现有候选没有移植记录是正常情况，直接核对实际实现与证据，不补造历史。
 
-结合指定 TileLang/后端能力提出可执行初版方案：哪些思路可复用、哪些需要重新映射、关键正确性风险，以及交给 develop 的一个实现方案和后续验证 case。尚无目标候选是正常情况，不要求先创建 kernel 或先做目标 kernel 仿真。仅离线任务可以分析已有参考并注明未测边界，不强制先建立无关性能标杆；当前任务依赖的标杆缺失/失效时明确交接 establish-baseline。
+没有候选时推荐 [标杆移植](../harness-port-baseline/SKILL.md)，不把只研究参考算子写成本节点已完成当前 kernel 诊断。标杆用于对照解释候选，不再单独承担初版方案生成；仍可在本节点读取参考源码、比较布局/划分/同步/融合策略。当前相对性能判断需要的标杆缺失/失效时交接 establish-baseline，已授权的离线候选分析可以继续并注明限制。
 
-## 后续：定位当前 kernel 的问题
+## 定位当前 kernel 的问题
 
-绑定当前候选与最新测试结果，按精度反例、构建日志、逐 case 性能差距和已有采集，确定本次要解释的问题。首次进入但已有失败候选时，既补齐标杆思路，也分析该候选。已有有效首次分析可直接引用；标杆或契约改变时只重新分析受影响部分。
+按构建日志、逐 case 性能差距和已有采集确定问题。初版慢于标杆直接进入诊断，不要求先证明思路失败；已有历史失败候选或用户明确请求诊断时可分析反例，但不能据此接收当前 port-baseline/develop 内的精度失败。已有分析按输入身份复用，标杆或契约改变时只分析受影响部分。
 
-优先读取 develop 交付的 ANALYSIS_DATA 及其原始上板流水/指标，核对真实 kernel、case、候选/构建、采集配置和覆盖范围。按 [上板数据分析方法](references/analysis-method.md#上板流水与指标) 形成优化判断；已有数据足够时不重复采集。
+优先读取 port-baseline/develop 交付的 ANALYSIS_DATA 及其原始上板流水/指标，核对真实 kernel、case、候选/构建、采集配置和覆盖范围。按 [上板数据分析方法](references/analysis-method.md#上板流水与指标) 形成优化判断；已有数据足够时不重复采集。
 
 按问题需要执行仿真和流水分析，定位源码/IR/生成代码中的问题，提出下一次 develop 的具体修改假设、预期效果与验证办法；本节点不修改正式候选。明确反例已足以定位时可做简短分析，不强制采集。无动态证据时静态结论标为假设，不能虚构瓶颈或收益。
 
@@ -57,7 +57,7 @@ description: 首次分析标杆的实现思路并形成 TileLang 开发方案；
 
 ## 交付与下一节点
 
-RESULT 记录分析类型、确切输入身份、源码/测试/trace 证据、观察与推断、具体方案或修改假设、未决问题、验证 case 和完成/停止条件；纯源码分析将仿真与 trace 判定写为 not_run 或 not_applicable，不能伪造采集。
+RESULT 记录具体候选与问题、确切输入身份、源码/测试/trace 证据、观察与推断、修改假设、未决问题、验证 case 和完成/停止条件；纯源码分析将仿真与 trace 判定写为 not_run 或 not_applicable，不能伪造采集。候选继续遵守不引入 AICPU 的项目能力边界，不将新增 AICPU 支持交给 develop。
 
 正常完成后的主推荐是 [harness-develop](../harness-develop/SKILL.md)，交接上述方案/假设；确有必需采集或能力缺口时，推荐具体 develop collect-only 采集或 prepare-environment 补齐动作，并说明返回本 analysis 的条件。用户要求本节点后停止时只给推荐。已接收且输入仍适用的分析不重复做，下一步按 [统一路由](../harness-resume/references/next-action.md) 选择。
 

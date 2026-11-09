@@ -1,4 +1,4 @@
 interface:
   display_name: "Harness Analysis"
-  short_description: "首次分析标杆实现思路，后续通过测试反馈、仿真与流水证据定位当前内核问题"
-  default_prompt: "使用 $harness-analysis 分析标杆或当前 kernel 的问题，形成有证据的开发方案和验证假设。"
+  short_description: "结合标杆、测试反馈与流水证据，定位已有 TileLang 内核的缺陷"
+  default_prompt: "使用 $harness-analysis 分析当前 TileLang kernel 的问题，形成有证据的修改假设和验证计划。"

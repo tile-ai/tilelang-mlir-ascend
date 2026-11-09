@@ -1,4 +1,4 @@
-# 上板流水与指标：develop 交给 analysis 的数据
+# 上板流水与指标：实现节点交给 analysis 的数据
 
 ## 主采集入口与补充入口
 
@@ -37,7 +37,7 @@ Harness 保留整组指标交给工具处理，不在 Python 中复制 PMU 事�
 
 ## 采集前固定计划
 
-普通性能优化 develop 默认交付分析数据，不等待下一 analysis 再从零采集。TASK 预先写 `diagnostics_required`、代表性/退化 case、kernel 阶段、所需指标、环境权限和有界额度；仅代码/精度任务可以明确不采，仍给出 ANALYSIS_DATA 中的范围说明。新分派路径和发生退化的 case 优先；数据仍适用时复用确切旧产物，不机械重跑所有 shape。
+port-baseline 初版与普通性能优化 develop 默认交付分析数据，不等待下一 analysis 再从零采集。TASK 预先写 `diagnostics_required`、代表性/退化 case、kernel 阶段、所需指标、环境权限和有界额度；仅代码/精度任务可以明确不采，仍给出 ANALYSIS_DATA 中的范围说明。新分派路径和发生退化的 case 优先；数据仍适用时复用确切旧产物，不机械重跑所有 shape。
 
 先检查选定环境中 `msprof op --help`（或明确选择的 msopprof）、torch_npu API/源码、工具版本、芯片与指标支持。能力差异记录在共享环境修订/项目 TASK，不为某一芯片设计通用排障流程。当前上游把 PipeTimeline 限在特定产品，且采样可能只覆盖部分 core；这不是“所有芯片、所有核、所有指令都支持”的承诺。unsupported 不填零，也不偷偷删参数继续报告完整采集。
 
@@ -120,4 +120,4 @@ report = capture_diagnostics(
 
 analysis 先核对身份与范围，再看流水空隙/重叠、核间负载、内存流量/带宽及 Roofline 位置，将观察映射到实际实现，提出可检验假设。Occupancy 在该工具中是核间负载分析，不应直接套用其他硬件的 warp occupancy 含义；Roofline 是模型边界，不能代替实测或自动成为验收标杆。采样 core 数不等于启动核数，PipeTimeline 不是逐指令完整轨迹。
 
-必需数据缺失时 develop 保留未验收检查点，在原预算内修复采集/适配；超出权限或能力时报告具体缺口，不能默降必需项。明确未要求的可选项可记录 partial/unsupported，但不因此抹去独立有效的精度/性能结果。诊断数据用于实现/思路归因；精度失败和实现问题仍在 develop 内修复，不能借“交付分析数据”跳过上一轮约定。
+必需数据缺失时原 port-baseline/develop 保留未验收检查点，在原预算内修复采集/适配；超出权限或能力时报告具体缺口，不能默降必需项。明确未要求的可选项可记录 partial/unsupported，但不因此抹去独立有效的精度/性能结果。诊断数据用于实现/思路归因；精度失败和实现问题仍在原实现节点内修复，不能借“交付分析数据”跳过上一轮约定。

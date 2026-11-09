@@ -1,4 +1,6 @@
-# Develop 内的设备验证
+# 实现节点内的设备验证
+
+port-baseline 与 develop 复用本方法及采集脚本，编写后在同一节点内验证。下文 develop 的优化退化归因仅用于优化迭代；port-baseline 按其 skill 的初版接收规则执行，允许已验证初版暂未达性能目标。
 
 读取 `.workspace/<project>/STATE.md`、任务契约、候选与 [证据记录](../../harness-resume/references/execution-records.md)，使用 TASK 固定的 **device 专属约定快照**；实时 ENVIRONMENT 索引只核对漂移/撤权，不替换本次绑定。按 [环境复用规则](../../harness-prepare-environment/references/environment-contract.md) 检查必需能力、身份、预算与设备队列/锁，沿用已确定的连接、容器和限制，不重新问整套环境。
 

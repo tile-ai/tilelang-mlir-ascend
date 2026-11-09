@@ -183,7 +183,7 @@ class Store:
         for key, run in tree["runs"].items():
             identifier(key)
             require(run["search_node_id"] in nodes, "unknown run node")
-            require(run["stage"] in ("analysis", "develop", "device-test"), "invalid workflow stage")
+            require(run["stage"] in ("port-baseline", "analysis", "develop", "device-test"), "invalid workflow stage")
             self.verify_ref(run["task"])
             self.markdown(run["task"], run_id=key, node=run["stage"],
                           search_node_id=run["search_node_id"])
@@ -195,8 +195,8 @@ class Store:
                               search_node_id=run["search_node_id"])
                 self.terminal(run["result"])
                 if "acceptance" in run:
-                    require(run["acceptance"] == self.develop_acceptance(run, run["result"]),
-                            "develop acceptance evidence changed")
+                    require(run["acceptance"] == self.run_acceptance(run, run["result"]),
+                            "develop/port acceptance evidence changed")
             if run.get("batch_id"):
                 require(run["batch_id"] in tree.get("batches", {}), "unknown develop batch")
                 require(key in tree["batches"][run["batch_id"]]["members"], "unlisted batch run")
@@ -315,14 +315,14 @@ class Store:
             tree["candidates"][key] = {"search_node_id": op["search_node_id"],
                                        "parent_candidate": parent, "manifest": ref}
         elif action == "run":
-            require(op["stage"] in ("analysis", "develop"),
-                    "new runs use analysis or develop; device-test is legacy only")
+            require(op["stage"] in ("port-baseline", "analysis", "develop"),
+                    "new runs use port-baseline, analysis or develop; device-test is legacy only")
             require(not any(run.get("batch_id") and not run.get("result")
                             for run in tree["runs"].values()), "develop batch is outstanding")
             require(not any(not run.get("result") and
-                            (op["stage"] == "develop" or run["stage"] != "analysis")
+                            (op["stage"] != "analysis" or run["stage"] != "analysis")
                             for run in tree["runs"].values()),
-                    "ordinary develop must run alone; use develop-batch for parallel work")
+                    "ordinary develop/port-baseline must run alone; use develop-batch for parallel optimization")
             key = identifier(op["id"])
             require(key not in tree["runs"], "run already registered")
             require(op["search_node_id"] == tree["current_node"], "run must use selected node")
@@ -331,10 +331,14 @@ class Store:
             self.markdown(ref, run_id=key, node=op["stage"], search_node_id=op["search_node_id"])
             if op["stage"] == "develop":
                 self.develop_scope(ref)
+            elif op["stage"] == "port-baseline":
+                self.port_scope(ref)
             tree["runs"][key] = {"search_node_id": op["search_node_id"], "stage": op["stage"],
                                   "candidate_id": op["candidate_id"], "task": ref, "result": None}
             if op["stage"] == "develop":
                 tree["runs"][key]["acceptance_policy"] = "develop-acceptance@1"
+            elif op["stage"] == "port-baseline":
+                tree["runs"][key]["acceptance_policy"] = "port-acceptance@1"
         elif action == "develop-batch":
             self.develop_batch(tree, op)
         elif action == "accept":
@@ -349,6 +353,9 @@ class Store:
                     run["acceptance_scope"] = self.reference(op["scope"])
                     self.markdown(run["acceptance_scope"], run_id=op["id"])
                 run["acceptance"] = self.develop_acceptance(run, ref)
+            elif run["stage"] == "port-baseline":
+                require(not op.get("scope"), "port-baseline cannot replace its frozen scope")
+                run["acceptance"] = self.port_acceptance(run, ref)
             run["result"] = ref
         elif action == "hot":
             key = identifier(op["id"])
@@ -483,17 +490,54 @@ class Store:
             evidence["regression"] = self.reference(self.value(result, "regression_evidence"))
         # Optional for historical TASKs; current templates explicitly declare the scope.
         if re.search(r"^- diagnostics_required:", self.local(scope["path"]).read_text(), re.M):
-            ref = self.reference(self.value(result, "analysis_data"))
-            self.markdown(ref, run_id=self.value(result, "run_id"))
-            status = self.value(ref, "status")
-            require(status in ("ready", "partial", "unavailable", "not_run", "not_applicable"),
-                    "invalid analysis data status")
-            require(self.value(scope, "diagnostics_required") != "true" or status == "ready",
-                    "required analysis data is not ready")
-            evidence["analysis_data"] = ref
+            evidence["analysis_data"] = self.analysis_data_ref(scope, result)
         for ref in evidence.values():
             require(bool(self.local(ref["path"]).read_bytes().strip()), "empty develop evidence")
         return {"policy": "develop-acceptance@1", "evidence": evidence}
+
+    def analysis_data_ref(self, scope, result):
+        ref = self.reference(self.value(result, "analysis_data"))
+        self.markdown(ref, run_id=self.value(result, "run_id"))
+        status = self.value(ref, "status")
+        require(status in ("ready", "partial", "unavailable", "not_run", "not_applicable"),
+                "invalid analysis data status")
+        require(self.value(scope, "diagnostics_required") != "true" or status == "ready",
+                "required analysis data is not ready")
+        return ref
+
+    def port_scope(self, task):
+        self.markdown(task, operation="port-and-validate", performance_required="true", aicpu_policy="forbidden")
+        require(self.value(task, "diagnostics_required") in ("true", "false"),
+                "diagnostics_required must be true or false")
+
+    def port_acceptance(self, run, result):
+        """Initial ports may miss the performance target, but must be correct and measured."""
+        scope = run["task"]
+        self.verify_ref(scope)
+        self.port_scope(scope)
+        self.markdown(result, status="completed", accuracy_status="passed")
+        require(self.value(result, "performance_status") in ("passed", "failed"),
+                "port-baseline requires valid performance measurement")
+        evidence = {name: self.reference(self.value(result, field)) for name, field in (
+            ("accuracy", "accuracy_evidence"), ("performance", "performance_evidence"),
+            ("porting", "porting_evidence"), ("candidate", "candidate_manifest"))}
+        candidate = self.value(evidence["candidate"], "candidate_id")
+        self.markdown(evidence["candidate"], search_node_id=run["search_node_id"])
+        self.markdown(evidence["porting"], contract="operator-harness/porting@1", status="complete",
+                      run_id=self.value(result, "run_id"), candidate_id=candidate)
+        require(self.value(evidence["porting"], "aicpu_status") in ("not_used", "replaced"),
+                "port-baseline must resolve AICPU dependencies")
+        evidence["analysis_data"] = self.analysis_data_ref(scope, result)
+        self.markdown(evidence["analysis_data"], candidate_id=candidate)
+        for ref in evidence.values():
+            require(bool(self.local(ref["path"]).read_bytes().strip()), "empty port evidence")
+        return {"policy": "port-acceptance@1", "evidence": evidence}
+
+    def run_acceptance(self, run, result):
+        if run["stage"] == "port-baseline":
+            return self.port_acceptance(run, result)
+        require(run["stage"] == "develop", "unexpected acceptance policy for stage")
+        return self.develop_acceptance(run, result)
 
     def terminal(self, ref):
         text = self.local(ref["path"]).read_text(encoding="utf-8")

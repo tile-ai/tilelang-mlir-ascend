@@ -211,7 +211,8 @@ class ProjectTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((source / '.agents').exists())
         installed = nested / '.agents/skills'
-        self.assertEqual(len(list(installed.iterdir())), 12)
+        self.assertEqual(len(list(installed.iterdir())), 13)
+        self.assertTrue((installed / 'harness-port-baseline/assets/templates/porting.md').is_file())
         self.assertFalse((installed / 'harness-device-test').exists())
         measure = installed / 'harness-develop/scripts'
         smoke = subprocess.run([sys.executable, '-c',

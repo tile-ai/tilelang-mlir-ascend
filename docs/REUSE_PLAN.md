@@ -69,4 +69,4 @@ M2优先建设候选执行契约与设备工具，M4在其基础上扩展仿真M
 
 每项资产经过“来源和接口明确 → 契约适配 → 单独调用验证 → harness端到端验证”。安装成功、配置存在、文档描述或编译通过均不替代实际输出比较。
 
-节点职责见 [四节点设计](nodes/design.md)，方法资料见 [技能来源](nodes/skill-sources.md)。默认按 `establish-baseline → analysis → develop → analysis` 推进，仿真是否执行由具体问题和预算决定；后续实现按 [路线图](ROADMAP.md) 安排。
+节点职责见 [五节点设计](nodes/design.md)，方法资料见 [技能来源](nodes/skill-sources.md)。默认按 `establish-baseline → analysis → develop → analysis` 推进，仿真是否执行由具体问题和预算决定；后续实现按 [路线图](ROADMAP.md) 安排。

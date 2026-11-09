@@ -2,7 +2,7 @@
 
 - contract: operator-harness/analysis-data@1
 - project_id: {{项目身份}}
-- run_id: {{develop run}}
+- run_id: {{port-baseline / develop run}}
 - candidate_id: {{实测候选；多次尝试分别生成本文件}}
 - status: {{ready / partial / unavailable / not_run / not_applicable}}
 - purpose: analysis_only
@@ -43,7 +43,7 @@
 | --- | --- | --- |
 | {{数据事实}} | {{与实际源码/IR/生成代码的联系；避免把利用率直接当重叠}} | {{调整后预期哪些计数/流水变化}} |
 
-{{性能退化归因与本文件交叉链接。实现问题仍在 develop 内修复；思路问题连同精度通过、正式性能证据、实际实现核对和本分析数据交给下一 analysis。}}
+{{port-baseline 交叉链接 PORTING、初版性能差距与替代影响；develop 交叉链接性能退化归因。精度/实现/测量问题仍在原节点修复；初版差距或 develop 的思路问题连同有效证据交给下一 analysis。}}
 
 ## 未完成项与接收
 

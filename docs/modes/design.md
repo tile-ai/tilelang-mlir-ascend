@@ -18,7 +18,7 @@
 
 这些是 skill 名与自然语言入口，不新增裸 slash command，也不是 npm CLI 命令。status 默认只反映记录；用户额外要求实时查询才在现有约定下有限查询，需标明数据时间。
 
-## 3. 与四节点的关系
+## 3. 与五节点的关系
 
 ```mermaid
 flowchart TD
@@ -34,11 +34,11 @@ flowchart TD
     E -->|完成或停止条件| F[保存状态与交付]
 ```
 
-resume 继续提供读取、TASK/RESULT、接收与共享记录规则。三入口共用 [下一步规则](../../assets/skills/harness-resume/references/next-action.md)；四个节点仍遵守 [节点契约](../../assets/skills/harness-resume/references/node-contract.md)。协调入口不成为额外的算子执行节点，子 agent 不递归调用 automatic。
+resume 继续提供读取、TASK/RESULT、接收与共享记录规则。三入口共用 [下一步规则](../../assets/skills/harness-resume/references/next-action.md)；五个节点仍遵守 [节点契约](../../assets/skills/harness-resume/references/node-contract.md)。协调入口不成为额外的算子执行节点，子 agent 不递归调用 automatic。
 
 ## 4. 决策与推进
 
-按当前任务选取相关记录，实际证据优先于陈旧的“下一步”文字。先处理在途/未知作业及未接收交付，再判断目标达成、缺失选择、环境缺口、相对性能所需标杆的建立/更新、首次标杆分析、候选构造、精度/性能测试及后续kernel问题分析。默认循环为analysis → develop → analysis；已接收分析按输入身份复用，精度失败/实现问题留在 develop 修复，思路问题才带证据交回 analysis，目标完成则停止。只检查当前目标必需的条件：静态交付不用等待设备，旧 trace 分析不用重建仿真环境，可选仿真不用强行执行。
+按当前任务选取相关记录，实际证据优先于陈旧的“下一步”文字。先处理在途/未知作业及未接收交付，再判断目标达成、缺失选择、环境缺口、相对性能所需标杆的建立/更新、缺少候选时的标杆移植与初版验证、候选构造、精度/性能测试及后续kernel问题分析。默认循环为analysis → develop → analysis；已接收分析按输入身份复用，精度/实现/测量失败留在原 port-baseline/develop 修复；初版差距可交 analysis，develop 的退化须排除实现问题再交接，目标完成则停止。只检查当前目标必需的条件：静态交付不用等待设备，旧 trace 分析不用重建仿真环境，可选仿真不用强行执行。
 
 缺少 STATE 或任务歧义：status 报告缺口与建议；next 直接开始必要的初始化/澄清；automatic 在明确范围前问必要选择，不默认执行整个路线图。已有准备好的 TASK 也须检查身份和范围，不能因文件存在就执行。
 
@@ -81,7 +81,7 @@ NODE TASK/RESULT、候选、独立环境约定继续使用六份节点模板；�
 
 status 不改变正在进行的 automatic，普通查询报告后继续原工作；“只看状态，先别继续”包含独立的显式暂停。用户要求 next 时，单成员绑定原在途动作/待接收交付，多成员按并行契约选择一个成员或全体停在检查点，到完成、needs_input 或 blocked 边界即返回，连续模式保持 paused。普通问题回答不恢复 automatic；用户明确切回 automatic 才恢复连续推进。有原批次时沿用其计数，新批次接入原 next 动作只计一个接续步骤，不重投。独立 next 的新动作记为本次单步授权，不清零旧批次或扩张设备额度。
 
-暂停须通知活跃节点。四节点在新探针、编译、提交、重试或文件修改前及工具返回后检查 live 决定，安全保存后停止新操作；不等待整个多实验节点跑完才响应。暂停不等于已取消正在执行的工具/外部 job，记录和约定内必要回收仍需完成。节点 needs_input/blocked/interrupted 是可接续检查点，completed/failed 才是不可改写终态。
+暂停须通知活跃节点。五节点在新探针、编译、提交、重试或文件修改前及工具返回后检查 live 决定，安全保存后停止新操作；不等待整个多实验节点跑完才响应。暂停不等于已取消正在执行的工具/外部 job，记录和约定内必要回收仍需完成。节点 needs_input/blocked/interrupted 是可接续检查点，completed/failed 才是不可改写终态。
 
 已占步骤的在途节点、已完成待接收结果和原 job 的必要恢复，属于原步骤收尾，不重复占步；控制上限不能成为丢弃其记录或不接收结果的理由。恢复仍受原操作权限、查询上限和环境资源约束，不借收尾新增实验或释放未知占用。
 

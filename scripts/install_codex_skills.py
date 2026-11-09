@@ -10,7 +10,7 @@ import sys
 SOURCE = Path(__file__).resolve().parents[1] / "assets" / "skills"
 NAMES = (
     "harness-new-project", "harness-onboard", "harness-resume",
-    "harness-prepare-environment", "harness-establish-baseline", "harness-analysis",
+    "harness-prepare-environment", "harness-establish-baseline", "harness-port-baseline", "harness-analysis",
     "harness-develop",
     "harness-status", "harness-next", "harness-automatic",
     "harness-archive-project", "harness-restore-project",

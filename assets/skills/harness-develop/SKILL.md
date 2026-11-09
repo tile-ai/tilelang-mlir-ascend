@@ -11,7 +11,9 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 
 当前会话或独立 agent 均可执行本节点。已收到 TASK 的子 agent 直接按 [节点契约](../harness-resume/references/node-contract.md) 读取输入，不递归执行主 agent 的派发流程；直接交互时先按 [harness-resume](../harness-resume/SKILL.md) 恢复或补齐 TASK。记录任务理解与结果，确保不继承聊天的新 agent 也能接手。委派子 agent 只写所分配产物，由主 agent 中继问询并汇总共享记录；直接交互时当前 agent 完成同样的收尾检查后可继续后续节点，不要求新会话。
 
-按 TASK 输入清单读取当前任务、已接收的 analysis 方案/诊断、父候选和相关实验，按本次操作使用 TASK 固定的 development/device 约定快照；实时 ENVIRONMENT 索引只检查漂移/撤权，不重新替换绑定。implement-and-validate 由 analysis 交接首次标杆思路或后续修改假设；此模式缺少适用分析时按统一路由先进入 [harness-analysis](../harness-analysis/SKILL.md)。用户明确只要求编写时遵循该范围并记录所据方案与未验证项。缺少环境信息时只补当前动作所需能力，允许继续授权内的离线编写。
+按 TASK 输入清单读取当前任务、已接收的 analysis 方案/诊断、父候选和相关实验，按本次操作使用 TASK 固定的 development/device 约定快照；实时 ENVIRONMENT 索引只检查漂移/撤权，不重新替换绑定。implement-and-validate 落实针对已有候选的修改假设；缺少适用分析时先进入 [harness-analysis](../harness-analysis/SKILL.md)，没有候选则先进入 [标杆移植](../harness-port-baseline/SKILL.md)。用户明确只要求编写时遵循该范围并记录所据方案与未验证项。缺少环境信息时只补当前动作所需能力，允许继续授权内的离线编写。
+
+延续初版的能力约束：TileLang 候选不引入 AICPU，不将其支持开发列为优化前置；保持已验证替代方案的语义和计时边界，后续优化也不能借 host/AICPU 回退绕过约束。
 
 需要性能比较时，读取 TASK 固定的 BASELINE 记录，复用已验收的参考、case 和协议；缺少/失效时建议 [标杆建立](../harness-establish-baseline/SKILL.md)。仅编写或精度任务仍可在明确范围内创建独立参考，不以未测性能标杆阻塞授权内编写；不得把候选的自测时间直接发布为标杆。
 

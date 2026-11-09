@@ -11,7 +11,7 @@
 
 </div>
 
-> **项目状态：早期建设中。** 已提供面向 Codex 的初始化、接入、接续及四个节点 skills，以及 status、next、automatic 入口。另有 torch_npu 性能采集方法和解析脚本。节点职责见 [节点设计](docs/nodes/design.md)；通用执行适配、程序 gate、MCP 和 npm 分发见 [路线图](docs/ROADMAP.md)。
+> **项目状态：早期建设中。** 已提供面向 Codex 的初始化、接入、接续及五个节点 skills，以及 status、next、automatic 入口。另有 torch_npu 性能采集方法和解析脚本。节点职责见 [节点设计](docs/nodes/design.md)；通用执行适配、程序 gate、MCP 和 npm 分发见 [路线图](docs/ROADMAP.md)。
 
 ## 什么是 Operator Harness
 
@@ -37,27 +37,28 @@ Operator Harness 旨在把算子开发中的需求、知识、工具和验证结
 每个算子围绕同一条主路径推进：
 
 ```mermaid
-flowchart LR
+flowchart TD
     R[明确需求] --> E[准备环境]
     E --> B[建立标杆]
-    B --> A[analysis：首次分析标杆思路]
-    A --> D[develop：实现、精度验证及性能测量]
-    D --> C{目标与停止条件}
-    C -->|继续改进| X[analysis：定位当前kernel问题]
-    X --> D
+    B -->|无适用候选| P[port-baseline：移植并验证初版]
+    B -->|已有适用候选| C{检查证据与目标}
+    P --> C
+    C -->|需优化| A[analysis：诊断当前 TileLang kernel]
+    A --> D[develop：实现优化并验证]
+    D --> C
     C -->|达标或停止| O[交付证据与差距]
 ```
 
 1. **明确需求**：确定功能语义、动态 shape 行为、case 范围、数值要求和外部约束。
 2. **准备环境**：多轮确定 Python、TileLang、torch/torch_npu 与 CANN，准备并验证共享上板环境；后续复用确切绑定，只补变化或缺口。simulator 接入另行设计。
 3. **构造标杆**：分别建立正确性参考和性能基线，固定输入、误差容限与测量协议。
-4. **首次分析与实现**：analysis 分析标杆的算法、布局、并行与适配思路，交给 develop 编写 TileLang 初版，并在同一任务中完成验证。
+4. **标杆移植**：没有适用候选时，port-baseline 将参考策略映射为 TileLang 初版，自行替代 AICPU 等缺口，在同一节点内完成精度、性能测量及诊断交付；已有候选跳过。
 5. **迭代调优**：测试后需要改进时回到 analysis，通过反例、仿真和流水证据定位问题，形成修改假设，交给 develop 实现并再次验证。
 6. **回归与交付**：保留最佳已验证候选，汇总全部必选 case；预算耗尽时明确报告尚未达成的目标。
 
 analysis 是默认迭代节点；是否运行新仿真或流水采集由问题、已有证据和预算决定，纯源码分析不依赖仿真就绪。单独测试使用 `harness-develop` 的 verify-only 模式。目标达成就结束，性能收益最终通过约定的实卡测量验证。
 
-精度失败必须在 develop 内修复，节点不予接收。性能退化先归因：实现问题在节点内修复，思路问题附精度通过、性能结果及归因证据交给下一 analysis；预算或环境阻塞保留未验收状态。
+port-baseline 与 develop 的精度失败都在原节点修复，不能接收。初版精度通过、实现符合移植方案且测量有效时，可以带性能差距交给 analysis。性能退化先归因：实现问题在节点内修复，思路问题附精度通过、性能结果及归因证据交给下一 analysis；预算或环境阻塞保留未验收状态。
 
 多个独立分析方案可通过 [并行开发](assets/skills/harness-resume/references/parallel-develop.md) 分别实现和测试：每个任务独立 worktree、缓存和产物，同一设备上的测量排队。协调者比较结果后选择候选，组合修改后重新验证。
 
@@ -68,7 +69,8 @@ analysis 是默认迭代节点；是否运行新仿真或流水采集由问题�
 | TileLang 算子编写 | 按当前上游文档、示例和任务约束生成与修改算子 |
 | 实卡精度验证 | 独立参考、边界 case、全部输出比较和可复现失败样本 |
 | 实卡性能验证 | 固定基线、预热与重复采样、逐 case 对比，保留回退结果 |
-| 标杆与kernel分析 | 首次提炼标杆实现方案，后续按需仿真/流水分析定位当前问题 |
+| 标杆移植 | 生成并验证 TileLang 初版，记录移植对应与能力替代 |
+| kernel 分析 | 对照标杆与实测证据，按需仿真/流水分析定位已有候选缺陷 |
 | 多环境执行 | 在本地或远程的 host/docker 环境完成任务并回收结果 |
 | 实验记录与恢复 | 保存候选、日志、环境身份、阶段状态和验证证据 |
 | 项目接入与分发 | 通过 CLI 将所需能力安装到用户已有的算子项目 |
@@ -114,14 +116,15 @@ $harness-next 直接推进一个下一步，完成后返回。
 $harness-automatic 在已有目标和预算内连续推进当前任务。
 $harness-prepare-environment 多轮确定 Python、TileLang 配套与 CANN，准备并验证本项目使用的上板环境。
 $harness-establish-baseline 根据已绑定环境调查参考实现，验证并固定正确性参考和性能标杆。
-$harness-analysis 首次分析标杆实现思路，后续通过仿真和流水分析定位当前 kernel 的问题。
+$harness-port-baseline 将参考标杆移植为 TileLang 初版，自行替代 AICPU 等缺口并验证。
+$harness-analysis 对照标杆、测试与流水证据，定位当前 TileLang kernel 的问题。
 $harness-develop 按已接收的分析方案和开发约定编写或修复 TileLang 候选。
 $harness-develop 只验证当前候选：使用已有上板约定完成精度和性能测试。
 ```
 
 `harness-new-project` 用于新项目的需求澄清和规划；`harness-onboard` 用于已有项目接入，这里的 onboard 不执行 NPU 上板。CLI/IDE 也可通过 `/skills` 选择技能；本项目没有注册 `/harness-*` 顶层 slash commands。若技能尚未出现在宿主中，重启会话后再检查。发现与调用方式见 [Codex 技能文档](https://learn.chatgpt.com/docs/build-skills)。
 
-四个节点 skills 提供方法与工具路由，使用已核实的实际工具。环境准备先确定 conda/venv 等 Python 方案、TileLang 与 torch/torch_npu 版本，再与 CANN 的复用或安装方案核对；已有选择不重复问。共享上板描述位于 `.workspace/environments/onboard/<id>/`，项目绑定确切修订及自身使用约定。simulator 新接入后续设计，旧仿真约定仍可读取；上板验证不等于仿真验证。详见 [环境契约](assets/skills/harness-prepare-environment/references/environment-contract.md)。
+五个节点 skills 提供方法与工具路由，使用已核实的实际工具。环境准备先确定 conda/venv 等 Python 方案、TileLang 与 torch/torch_npu 版本，再与 CANN 的复用或安装方案核对；已有选择不重复问。共享上板描述位于 `.workspace/environments/onboard/<id>/`，项目绑定确切修订及自身使用约定。simulator 新接入后续设计，旧仿真约定仍可读取；上板验证不等于仿真验证。详见 [环境契约](assets/skills/harness-prepare-environment/references/environment-contract.md)。
 
 `harness-new-project` 和 `harness-onboard` 共用连续追问流程：沿着回答深入，用具体场景澄清歧义，理解充分后复述并进入规划，或按用户选择继续探索。已有项目先吸收代码和文档，只追问未知项与实际冲突；明确的“直接生成”指令不再重复确认。未结束的讨论暂存在 `.workspace/<project>/drafts/`，已有阻塞问题在下次调用时继续澄清。
 
@@ -210,7 +213,7 @@ npx <package>@<version> doctor
 | [开发路线图](docs/ROADMAP.md) | 阶段安排、验收条件和待决事项 |
 | [需求与工作流](docs/REQUIREMENTS.md) | 算子需求清单、标杆构造、阶段检查和执行矩阵 |
 | [现有资产复用计划](docs/REUSE_PLAN.md) | Skills、simulator、Onboard 与 GSD 的检查结果和迁移方向 |
-| [四节点设计](docs/nodes/design.md) | 环境问询与分立约定、节点交接、证据身份、失败恢复和验收 |
+| [五节点设计](docs/nodes/design.md) | 环境问询与分立约定、节点交接、证据身份、失败恢复和验收 |
 | [运行模式](docs/modes/design.md) | status 只读汇报、next 单步执行、automatic 有界协调与恢复 |
 | [技能参考来源](docs/nodes/skill-sources.md) | 外部资料入口、许可核对、采纳位置及适用边界 |
 

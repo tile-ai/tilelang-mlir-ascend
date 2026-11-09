@@ -61,13 +61,17 @@
 
 {{逐次候选与真实父候选、最终选定候选、对共同基线逐 case 比较、环境/协议差异、仍在运行的作业、源码是否仍有写入者。主 agent 核对后接收；成员不得自行更新全局最佳或合并兄弟实现。}}
 
-## Develop 接收判定（其他节点删除）
+## 实现与验证接收判定（port-baseline / develop 填写）
 
 - analysis_data: {{本 run 的 ANALYSIS_DATA.md 路径，相对 workspace_root；不采也交付范围/原因}}
 - accuracy_status: {{passed / failed / not_run / invalid / not_applicable}}
 - accuracy_evidence: {{精度 passed 时必填证据文件路径，相对 workspace_root；覆盖全部必选 case 并绑定候选}}
 - performance_status: {{passed / failed / not_run / invalid / not_applicable；指目标判定}}
 - performance_evidence: {{性能 passed/failed 时必填逐 case 原始样本及比较证据文件路径}}
+ANALYSIS_DATA 使用 [分析数据模板](../../../harness-develop/assets/templates/analysis-data.md)，描述原始文件、摘要、实际 kernel/case/构建/环境、指标覆盖、诊断命令与观察。TASK diagnostics_required=true 时须核对到 ready 才能接收；false 时也保留未采/不适用依据，不将 pending_review 的采集脚本输出直接认作完整交付。
+
+## Develop 退化判定（仅 develop 填写）
+
 - regression_cause: {{none / idea / implementation / unknown / measurement；未达性能目标或有任何退化时必须归因}}
 - regression_evidence: {{idea 时必填独立归因文件路径；其余可注明不适用}}
 
@@ -75,4 +79,11 @@
 
 精度失败、实现问题、未知归因不能接收；在本节点修复后重验。预算/环境/权限阻塞保存 blocked/needs_input/interrupted，不以 failed 终态绕过。实现符合方案且精度通过的思路退化，可在保留性能 failed 的同时 completed 并交回 analysis；接收不等于最佳候选晋升。
 
-ANALYSIS_DATA 使用 [分析数据模板](../../../harness-develop/assets/templates/analysis-data.md)，描述原始文件、摘要、实际 kernel/case/构建/环境、指标覆盖、诊断命令与观察。TASK diagnostics_required=true 时须核对到 ready 才能接收；false 时也保留未采/不适用依据，不将 pending_review 的采集脚本输出直接认作完整交付。
+## 标杆移植接收（仅 port-baseline 填写）
+
+- candidate_manifest: {{实际交付 CANDIDATE 文件路径，相对 workspace_root}}
+- porting_evidence: {{PORTING 文件路径，相对 workspace_root}}
+
+使用 [PORTING 模板](../../../harness-port-baseline/assets/templates/porting.md)。本节点要求 status=completed、accuracy_status=passed、performance_status=passed/failed；PORTING status=complete、aicpu_status=not_used/replaced。PORTING 和 ANALYSIS_DATA 必须绑定本 run 及 CANDIDATE 的同一 candidate_id。实际调用链仍由协调者核验，字段不能代替设备证据。
+
+未达性能目标可以接收并交给 analysis，不填写 develop 的 regression_cause 来伪造优化失败。精度/实现/测量失败、AICPU 未替代或必需分析数据未就绪则继续节点内修复或保留未验收检查点。不能把接收初版当作最终性能达标。

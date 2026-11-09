@@ -213,6 +213,8 @@ class ProjectTest(unittest.TestCase):
         installed = nested / '.agents/skills'
         self.assertEqual(len(list(installed.iterdir())), 13)
         self.assertTrue((installed / 'harness-port-baseline/assets/templates/porting.md').is_file())
+        self.assertTrue((installed / 'harness-analysis/scripts/profile_summary.py').is_file())
+        self.assertTrue((installed / 'harness-analysis/assets/templates/diagnosis.md').is_file())
         self.assertFalse((installed / 'harness-device-test').exists())
         measure = installed / 'harness-develop/scripts'
         smoke = subprocess.run([sys.executable, '-c',

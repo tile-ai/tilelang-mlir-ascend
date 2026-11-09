@@ -11,6 +11,7 @@
 - status: {{running / needs_input / blocked / completed / failed / interrupted}}
 - updated_at: {{日期时间与时区}}
 - batch_id: {{与 TASK 一致}}
+- queue_item_id: {{与 TASK 一致；search@1 删除}}
 - analysis_run: {{与 TASK 一致}}
 - analysis_data: {{本 run 的 ANALYSIS_DATA.md 路径，相对 workspace_root；不采也交付范围/原因}}
 - accuracy_status: {{passed / failed / not_run / invalid / not_applicable}}
@@ -68,6 +69,10 @@
 ## 结论与下一节点建议
 
 {{已完成/未完成、观察与假设的区别、应保留/放弃的候选、一个主推荐的节点/skill、原因与证据、依赖/缺口及完成/停止条件、精确恢复点；委派子 agent 只建议；直接交互在收尾记录后可继续授权内下一节点；最终回复同样呈现该建议，不能仅给记录链接}}
+
+## 分析交付（仅 analysis 填写）
+
+{{链接或内联 harness-analysis 的诊断报告：当前缺陷/瓶颈、原始证据与源码对应、算子工作量、可执行优化方向及限制。列 plan_id/mechanism_id、优先级、expected/falsifier/keep/discard/simplification、prior_nodes/新依据、同节点或子节点建议、补采范围；保留 TASK 的 search_node_id。统计摘要不等于瓶颈结论。}}
 
 ## 并行成员交付（非成员删除）
 

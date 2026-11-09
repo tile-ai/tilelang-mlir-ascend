@@ -57,6 +57,10 @@ flowchart TD
 
 用户确定的默认循环为 analysis → develop → analysis，develop 包含实现、精度验证和任务要求的性能测量。无适用候选时先由 port-baseline 移植并验证初版，analysis 专注已有 TileLang kernel 的问题；仿真与流水采集按需执行，已有源码/trace也可用于分析。目标达成或用户停止时不再循环；分析不替代实卡精度和性能验收。
 
+analysis 应具备当前缺陷/瓶颈诊断、上板 trace/aicMetric/CSV 分析和算子优化方向推导能力；方案结合探索树的机制历史、反证及验证计划，详见 [analysis 架构](nodes/analysis.md)。已有证据优先复用，补采通过 develop collect-only 执行。
+
+analysis/develop 使用持久依赖队列时，是否等待全部方案由编排 agent 决定；程序核对显式依赖、冻结候选、独立工作空间和预算。一个已接收候选的分析可与无关 develop 并存。develop 按需具备局部实现设计、正确性检视与测试可信度方法，详见 [队列设计](scheduling/design.md) 与 [开发能力](develop-capabilities/design.md)。
+
 | 阶段 | 主要产物 | 进入下一阶段的条件 |
 | --- | --- | --- |
 | 需求确定 | 带版本的任务规格、case 集、验收规则 | 关键语义、约束和目标已明确 |
@@ -148,7 +152,7 @@ flowchart TD
 - 每次迭代的上下文、文档和调度成本是否可接受。
 - 是否能复用现有宿主，而不要求每个小调整都创建 PR 或完整阶段。
 
-强约束来自可执行的阶段检查。提示词、额外 reviewer 或更多文档本身不构成正确性保证。五节点使用落盘 TASK/RESULT、候选与独立环境约定，让全新 agent 也能恢复任务；用户决定同样落盘。允许同一会话连续执行多个节点，无隔离工具不阻塞，必要时只建议用户新开会话。automatic 已通过 skill 提供当前宿主内的有界主/子 agent 协调；status 和 next 分别只读汇报与单步执行，详见 [运行模式](modes/design.md)。宿主内多方案并行开发已按独立 worktree、批次账本和逐成员接收组织；独立后台调度服务仍属后续选项。接续流程见 [harness-resume](../assets/skills/harness-resume/SKILL.md)。
+强约束来自可执行的阶段检查。提示词、额外 reviewer 或更多文档本身不构成正确性保证。五节点使用落盘 TASK/RESULT、候选与独立环境约定，让全新 agent 也能恢复任务；用户决定同样落盘。允许同一会话连续执行多个节点，无隔离工具不阻塞，必要时只建议用户新开会话。automatic 已通过 skill 提供当前宿主内的有界主/子 agent 协调；status 和 next 分别只读汇报与单步执行，详见 [运行模式](modes/design.md)。宿主内多方案并行开发已按独立 worktree、依赖队列和逐成员接收组织，旧 search@1 保留批次规则；独立后台调度服务仍属后续选项。接续流程见 [harness-resume](../assets/skills/harness-resume/SKILL.md)。
 
 ## 6. 下一步需要确定的内容
 

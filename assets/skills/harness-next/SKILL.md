@@ -17,4 +17,6 @@ description: 根据 Operator Harness 项目记录直接执行当前任务的一�
 
 一次推进到所选动作的完成或明确等待/阻塞边界，完成本步共享记录更新后返回。若需要用户回答，实际提出对应问题并保存 needs_input；目标已完成就汇总，不自动选择新任务。
 
+search@2 使用 [依赖队列](../harness-resume/references/task-queue.md) 的 ready/reconcile 选择一个明确动作；一个已接收 develop 的分析可先于无关 develop 完成。是否等待更多结果由协调者判断并记录，不把整组队列作为一步。接收/安全关闭后核实 writer/job 并释放原占用；响应丢失先查原派发身份。
+
 最终说明本步动作、产物、实际结果/未测项、阻塞（若有）和新的推荐下一步。给建议不等于继续第二步；只有用户另有连续执行要求时才切换到 [automatic](../harness-automatic/SKILL.md)。

@@ -30,9 +30,10 @@ def reconciled(tree, run_id):
 
 def admission(tree, operation):
     c = tree.get("control")
-    if c is None or operation["op"] not in ("run", "develop-batch"):
+    if c is None or operation["op"] not in ("run", "develop-batch", "queue-admit"):
         return
-    runs = ([operation["id"]] if operation["op"] == "run" else
+    runs = ([operation['run_id']] if operation['op'] == 'queue-admit' else
+            [operation["id"]] if operation["op"] == "run" else
             [member["id"] for member in operation["members"]])
     require(not c["paused"], "control is paused")
     require(len(c["steps"]) + len(runs) <= c["step_limit"], "control step budget exhausted")
@@ -64,6 +65,9 @@ def apply(store, tree, op):
         for key, budget in budgets.items():
             require(isinstance(key, str) and key and number(budget.get("limit"))
                     and isinstance(budget.get("unit"), str) and budget["unit"], "invalid budget")
+            require('exclusive_resource' not in budget or
+                    isinstance(budget['exclusive_resource'], str) and budget['exclusive_resource'].strip(),
+                    'invalid exclusive resource identity')
         tree["control"] = {"step_limit": op["step_limit"], "steps": [], "budgets": budgets,
                            "reservations": {}, "jobs": {}, "paused": False,
                            "authority": store.reference(op["authority"])}
@@ -90,6 +94,10 @@ def apply(store, tree, op):
         require(isinstance(key, str) and key and key not in c["reservations"], "reservation already exists/invalid")
         require(pool in c["budgets"] and number(op["amount"], positive=True), "invalid reservation")
         require(op["amount"] <= available(c, pool), "resource budget exhausted")
+        resource = c['budgets'][pool].get('exclusive_resource')
+        require(not resource or not any(not reservation['settled'] and
+                c['budgets'][reservation['pool']].get('exclusive_resource') == resource
+                for reservation in c['reservations'].values()), 'physical resource is reserved')
         c["reservations"][key] = {"run_id": op["run_id"], "pool": pool, "amount": op["amount"],
                                   "settled": False, "used": 0}
     elif action == "control-job":

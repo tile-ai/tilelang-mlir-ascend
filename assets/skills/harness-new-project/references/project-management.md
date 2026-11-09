@@ -104,6 +104,8 @@ TASK 的 owner 是派发时归属快照。接管后通过 project.json 的 claim
 
 jobs/unsettled_resources/open_runs 列出尚未解决的事项，未知也必须列出，不能为了归档填空。安全暂停但尚未终态的搜索 run 可放 paused_runs，映射 run_id 到项目内 checkpoint 相对路径；其状态只能 interrupted/blocked/needs_input。工具核对这些字段与搜索树，但不能自行探测 SSH 作业或认证人的陈述，skill 必须先取得真实证据。
 
+search@2 的未释放工作空间还需 `stopped_workspace_leases: {"<run_id>": <generation>}` 精确覆盖，逐项核实 writer 已停。冻结/归档保留占用，不自动释放；恢复时先核对原派发身份，再续原 run 或释放已收尾占用。见 [依赖队列](../../harness-resume/references/task-queue.md)。
+
 生命周期检查点使用不同文件名保留历史，不覆盖已关闭快照引用的文件。
 
 关闭时保存仓库 HEAD、分支、状态、跟踪文件差异及未跟踪文件摘要。原 worktree、未提交改动、依赖和构建目录留在原位，不自动 commit/stash/reset/delete。忽略文件和依赖二进制不做完整备份；这不是灾备打包工具。项目记录/源码迁移与磁盘回收另行规划。

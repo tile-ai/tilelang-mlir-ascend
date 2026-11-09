@@ -62,6 +62,6 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 完成记录后可在同一会话继续用户已授权的下一节点，或交给其他 agent。最终回复与 RESULT 都说明结果、差距和一个主推荐：具体节点/skill、原因与证据、依赖/缺口、完成或停止条件。即使用户要求本节点后停止，也要给出建议而不执行；没有适用节点时明确指出流程缺口。记录检查与 @4 程序 gate 配合使用；程序不能代替科学内容和真实执行状态核验。
 
-多个已接收的独立分析方案按 [并行开发契约](references/parallel-develop.md) 建立隔离 worktree 与有界 develop 批次。共享记录仍由单一协调者更新；子任务分别实现并测试，不共用源码或可写缓存。
+新项目按 [依赖队列](references/task-queue.md) 在安全边界启用 search@2，analysis/develop 逐项入队、冻结输入和准入；编排 agent 自主决定等全部结果还是先分析已接收候选。多个方向使用独立 worktree、build/JIT/cache 和 run 输出，共享设备排队。结果接收后确认 writer/job 停止，再释放空间供新任务复用。共享记录仍由单一协调者更新；search@1 在途项目保持 [旧批次契约](references/parallel-develop.md)，不自动迁移。
 
 新任务同时读取 [执行控制契约](references/execution-control.md)：@4 结构化验收、工具身份、失败关闭和控制对账。需要改变冻结范围时先安全结束原 run，再建立关联任务；不把 close-run 当作 accept。当前候选/最佳候选选择保持证据条件，旧规则结果单独标注。

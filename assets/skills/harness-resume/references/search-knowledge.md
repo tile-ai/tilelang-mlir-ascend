@@ -55,9 +55,11 @@ python3 .agents/skills/harness-resume/scripts/searchctl.py --workspace . --proje
 | add-node | id, parent, hypothesis, scope | 父节点已存在；不改父关系 |
 | select | id, reason | 无未接收且未关闭 run，节点 open |
 | node-status | id, status, reason | open / parked / closed；有未结 run 不可关闭 |
-| candidate | id, search_node_id, parent_candidate, manifest | parent_candidate 是已登记 ID 或 null；manifest 中对应字段为父 manifest 路径或 not_applicable（可附 `: 原因` / `：原因`） |
-| develop-batch | id, candidate_id, inputs, members | 至少两个独立 develop；具体字段与前置检查见 [并行开发契约](parallel-develop.md) 和 JSON 模板；跨 open 策略原子登记，不切换 current_node |
-| run | id, search_node_id, stage, candidate_id, task | 当前 open 节点；stage 为 prepare-environment / establish-baseline / port-baseline / analysis / develop；只有 analysis 可普通并行，其余独占执行；candidate_id 为输入候选或 null（尚无候选） |
+| candidate | id, search_node_id, parent_candidate, manifest | parent_candidate 是已登记 ID 或 null；新 manifest 中对应字段为父候选 ID 或 not_applicable（可附 `: 原因` / `：原因`）；旧格式兼容父 manifest 路径 |
+| develop-batch | id, candidate_id, inputs, members | 仅 search@1；至少两个独立 develop，见 [旧批次契约](parallel-develop.md) |
+| run | id, search_node_id, stage, candidate_id, task | search@1 使用原阶段互斥规则；search@2 仅用于维护阶段，analysis/develop 使用 queue-admit；candidate_id 为输入候选或 null |
+| queue-enable / enqueue / queue-revise / queue-admit | 见 [依赖队列](task-queue.md) | search@2 显式启用、按依赖准入；TASK 绑定候选、策略与 queue_item_id |
+| ready / queue-defer / queue-cancel / release-workspace / comparison-group | 见依赖队列 | 就绪投影、选择理由、取消、独立释放与固定比较组，不自动派发 |
 | accept | id, result；旧 develop 可补 scope | develop 要求 completed 并通过精度/性能归因检查；port-baseline 要求 completed、精度通过、任务要求的有效性能和完整移植证据，允许性能未达标；其他阶段为 completed/failed；checkpoint 不接收。scope 仅用于新规则前登记任务的独立范围说明，含 project_id/run_id/operation/performance_required |
 | hot | id, base_revision, kind, statement, applicability, limitations, nodes, evidence | base_revision 初次 0，后续须匹配最新；nodes 为节点 ID 列表，evidence 为项目内证据路径列表 |
 | use-cooled | search_node_id, artifact, reason | artifact 指向当前 active cooled JSON；reason 解释条件匹配 |
@@ -98,6 +100,8 @@ python3 .agents/skills/harness-resume/scripts/searchctl.py --workspace . --proje
 此版本不提供 MCTS、自动策略评分、向量检索或自动发布。由 agent 基于已有证据选择节点；搜索树组织决策，现有阶段工作流执行实验。
 
 search@1 新增可选 batches 索引，成员 run 带 batch_id、analysis_run、repo_ids；旧树不要求这些字段。普通 run 仍受 current_node 约束；只有 develop-batch 可跨策略登记。同批成员乱序 accept，尚有未接收且未关闭成员时不切换策略或启动新工作；登记幂等、全部成功或全部不落盘。helper 不核实科学结论，不代替主 agent 的任务输入/权限/资源与结果接收检查。
+
+search@2 新增 scheduling（items/leases/groups），保持原搜索谱系和知识历史。它以显式依赖及空间占用替代上述全局屏障；current_node 仅导航，一个 analysis 的多个方案可进入不同节点队列。接收与最佳晋升继续分开，机制重试仍须新增证据或条件变化；排队不会自行增加知识结论。升级与 CLI 详见 [依赖队列](task-queue.md)。
 
 develop 新登记 run 带 acceptance_policy；接收保存 acceptance 的证据摘要，后续读取校验漂移。历史已接收记录不伪造新版接收结论；旧未接收任务补 scope 时保留原 TASK，协调者核对补充范围与原约定一致，不能通过补充降低标准。新任务禁止替换冻结 scope。
 

@@ -17,6 +17,9 @@
 - diagnostics_required: {{true / false；性能优化默认 true；仅代码/精度等有限范围明确 false 并说明依据}}
 - aicpu_policy: forbidden
 - batch_id: {{develop-batch 的 id}}
+- queue_item_id: {{search@2 队列项 ID；search@1 删除}}
+- plan_id: {{本次选定方案 ID；队列声明时必填}}
+- mechanism_id: {{本次优化机制 ID；队列声明时必填}}
 - analysis_run: {{已接收 analysis run ID}}
 - evaluation_plan: {{实现/精度验证任务的 evaluation-plan@1 JSON 路径；code-only/collect-only 可省略}}
 - initial_design: {{仅 initial-and-validate 填写已固定的初版方案路径，其他模式删除}}
@@ -54,6 +57,7 @@ PROJECT.md 的确切修订与摘要或不可变副本作为 snapshot，绑定本
 - 资源与预算：{{计数单位、单次/总上限、本次 reservation_id/分配额度、账本入口、探针/JIT/失败/失联扣减}}
 - 排他资源与获取/释放：{{设备、锁/队列入口、等待上限；不适用说明原因}}
 - 可修改文件：{{确切文件或有边界的目录}}
+- 工作空间占用：{{queue run 的 lease generation、repo_ids、独立 build/JIT/cache、远端规范资源身份；分析只读快照}}
 - 只读/不得修改：{{需求、参考、容限、其他候选和共享摘要等}}
 - 输出目录：{{本 run 专属目录}}
 - 在途作业与恢复入口：{{job/request ID、状态、查询/回收/取消命令与占用；确无作业写 none}}
@@ -66,6 +70,12 @@ PROJECT.md 的确切修订与摘要或不可变副本作为 snapshot，绑定本
 
 {{已知缺口、会阻塞哪些动作、可独立推进的部分；没有则写 none}}
 {{给下一节点的建议及其所需输入；仅建议，由主 agent 决定并新建任务}}
+
+## 分析约定（仅 analysis 填写）
+
+- 问题与输入：{{实际候选、待解释 case/阶段、前序 ANALYSIS_DATA/原始 trace/aicMetric/CSV 的身份和覆盖；精度/实现故障诊断或性能优化的具体范围}}
+- 搜索上下文：{{search_node_id、相关机制/历史节点、已绑定 hot/cooled、重复探索需要核对的条件；未启用搜索树写不适用}}
+- 交付：{{按 harness-analysis 的诊断模板给出当前瓶颈/缺陷、源码映射、优化方向、优先级/反证/验证和同节点/子节点提案；需要较大实验时保存 search-plan@1}}
 
 ## 实现与验证约定（port-baseline / develop 填写）
 

@@ -122,19 +122,24 @@ def worker(store, context):
 
 
 def candidate(store, run_id, candidate_id, source, build, launch, parent_id):
-    tree = store.load()
-    run = tree['runs'][run_id]
     directory = store.records / 'runs' / run_id / 'candidates' / searchctl.identifier(candidate_id)
     artifacts = {key: store.reference(path) for key, path in (('source', source), ('build', build), ('launch', launch))}
-    record = {'contract': 'operator-harness/candidate@2', 'project_id': store.project_id,
-              'search_node_id': run['search_node_id'], 'candidate_id': candidate_id,
-              'producer_run': run_id, 'parent_candidate': parent_id or 'not_applicable'}
-    for key, ref in artifacts.items():
-        record[key] = ref['path']
-        record[key + '_sha256'] = ref['sha256']
     path = directory / 'CANDIDATE.md'
-    text = render('Candidate', record)
     with store.write():
+        tree = store.load()
+        run = tree['runs'][run_id]
+        if run.get('queue_item_id'):
+            searchctl.require(not searchctl.settled(run) and
+                              not tree['scheduling']['leases'][run_id]['released'],
+                              'candidate writer run is settled or released')
+            artifacts = {key: searchctl.scheduler.frozen_blob(store, ref) for key, ref in artifacts.items()}
+        record = {'contract': 'operator-harness/candidate@2', 'project_id': store.project_id,
+                  'search_node_id': run['search_node_id'], 'candidate_id': candidate_id,
+                  'producer_run': run_id, 'parent_candidate': parent_id or 'not_applicable'}
+        for key, ref in artifacts.items():
+            record[key] = ref['path']
+            record[key + '_sha256'] = ref['sha256']
+        text = render('Candidate', record)
         if path.exists():
             searchctl.require(path.read_text() == text, 'candidate_id already exists with different artifacts; use a new candidate_id')
         else:
@@ -228,6 +233,10 @@ def evaluate(store, run_id, candidate_path, request_id, reservation=None):
               'regression_cause': 'unknown' if performance == 'failed' and store.value(run['task'], 'operation') == 'implement-and-validate' else 'none'}
     if run.get('batch_id'):
         fields.update(batch_id=run['batch_id'], analysis_run=run['analysis_run'])
+    if run.get('queue_item_id'):
+        fields['queue_item_id'] = run['queue_item_id']
+        if run.get('analysis_run'):
+            fields['analysis_run'] = run['analysis_run']
     if context['operation'] == 'collect-only':
         diagnostic = emission.diagnostics(dict(context, workspace_root=str(store.root)),
             output / 'diagnostic-evidence.json', produced['diagnostics'])

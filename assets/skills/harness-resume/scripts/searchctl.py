@@ -22,6 +22,7 @@ import projectctl
 from records import metadata
 import evidence
 import control
+import scheduler
 from evidence import Invalid
 
 
@@ -151,7 +152,7 @@ class Store:
 
     def validate(self, tree):
         """Validate ledger topology without reading historical artifacts."""
-        require(isinstance(tree, dict) and tree.get("schema") == "operator-harness/search@1", "unsupported search schema")
+        require(isinstance(tree, dict) and tree.get("schema") in ("operator-harness/search@1", scheduler.SCHEMA), "unsupported search schema")
         require(self.legacy or tree.get("project_id") == self.project_id, "search project identity mismatch")
         fields(tree, "operator", "task_contract")
         nodes, candidates, runs = tree["nodes"], tree["candidates"], tree["runs"]
@@ -199,6 +200,7 @@ class Store:
             require(binding["search_node_id"] in nodes, "unknown knowledge consumer")
             fields(binding, "reason")
         control.validate(self, tree, artifacts=False)
+        scheduler.validate(tree)
 
     def audit(self, tree):
         """Explicit historical integrity scan. Damage is reported, not a load lock."""
@@ -244,6 +246,7 @@ class Store:
 
     def verify_run(self, tree, run_id):
         run = tree["runs"][run_id]
+        scheduler.verify_run(self, tree, run_id)
         self.verify_ref(run["task"])
         if run.get("input_candidate"):
             self.verify_ref(run["input_candidate"])
@@ -284,7 +287,7 @@ class Store:
 
     def apply(self, operation):
         """One idempotent, serialized operation; immutable blobs precede its index."""
-        with self.write(closing=operation.get("op") in ("accept", "close-run", "control-job", "control-settle", "control-pause")):
+        with self.write(closing=operation.get("op") in ("accept", "close-run", "control-job", "control-settle", "control-pause", "release-workspace", "queue-cancel")):
             tree = self.load()
             event_id = identifier(operation["event_id"])
             for event in tree["events"]:
@@ -300,7 +303,9 @@ class Store:
 
     def mutate(self, tree, op):
         action = op["op"]
-        if action.startswith("control-"):
+        if action in scheduler.OPERATIONS:
+            scheduler.apply(self, tree, op)
+        elif action.startswith("control-"):
             control.apply(self, tree, op)
         elif action == "add-node":
             key = identifier(op["id"])
@@ -323,7 +328,7 @@ class Store:
             fields(op, "reason")
             if action == "select":
                 require(tree["nodes"][op["id"]]["status"] == "open", "reopen node before selecting")
-                require(all(settled(run) for run in tree["runs"].values()),
+                require(tree['schema'] == scheduler.SCHEMA or all(settled(run) for run in tree["runs"].values()),
                         "accept outstanding runs before switching strategy")
                 tree["current_node"] = op["id"]
             else:
@@ -331,6 +336,10 @@ class Store:
                 require(op["status"] == "open" or all(
                     settled(run) or run["search_node_id"] != op["id"]
                     for run in tree["runs"].values()), "node has outstanding runs")
+                require(op['status'] == 'open' or not any(
+                    not lease['released'] and tree['runs'][key]['search_node_id'] == op['id']
+                    for key, lease in tree.get('scheduling', {}).get('leases', {}).items()),
+                    'node still has workspace writers')
                 tree["nodes"][op["id"]]["status"] = op["status"]
         elif action == "candidate":
             key = identifier(op["id"])
@@ -345,7 +354,21 @@ class Store:
             self.parent(ref, parent, tree["candidates"][parent]["manifest"] if parent else None)
             tree["candidates"][key] = {"search_node_id": op["search_node_id"],
                                        "parent_candidate": parent, "manifest": ref}
+            producer_id = metadata(self.local(ref['path']).read_text()).get('producer_run')
+            producer = tree['runs'].get(producer_id, {})
+            if producer.get('queue_item_id'):
+                require(not settled(producer) and not tree['scheduling']['leases'][producer_id]['released'],
+                        'candidate writer run is settled or released')
+                require(producer['stage'] == 'develop' and self.value(producer['task'], 'operation') in
+                        ('implement-and-validate', 'initial-and-validate', 'code-only'),
+                        'read-only task cannot register a new candidate')
+                require(op['search_node_id'] == producer['search_node_id'] and parent == producer['candidate_id'],
+                        'candidate writer lineage mismatch')
+                scheduler.candidate_inputs(self, tree, key)
         elif action == "run":
+            if tree['schema'] == scheduler.SCHEMA:
+                require(op['stage'] not in ('analysis', 'develop'), 'use queue-admit for analysis/develop')
+                scheduler.before_maintenance(tree)
             require(op["stage"] in ("prepare-environment", "establish-baseline", "port-baseline", "analysis", "develop"),
                     "new runs use the five current stages; device-test is legacy only")
             require(not any(run.get("batch_id") and not settled(run)
@@ -372,6 +395,7 @@ class Store:
             elif op["stage"] == "port-baseline":
                 tree["runs"][key].setdefault("acceptance_policy", "port-acceptance@1")
         elif action == "develop-batch":
+            require(tree['schema'] != scheduler.SCHEMA, 'use queue and optional comparison-group')
             self.develop_batch(tree, op)
         elif action == "accept":
             run = tree["runs"][op["id"]]
@@ -396,10 +420,14 @@ class Store:
                 run["acceptance"] = self.run_acceptance(run, ref)
             if run.get("batch_id"):
                 self.markdown(ref, batch_id=run["batch_id"], analysis_run=run["analysis_run"])
+            if run.get('queue_item_id'):
+                self.markdown(ref, queue_item_id=run['queue_item_id'])
             verified = run.get("acceptance", {}).get("validation", {})
             if verified:
                 candidate = tree["candidates"].get(verified["candidate_id"])
                 require(candidate and candidate["manifest"] == verified["candidate"], "register the exact output candidate before acceptance")
+                if run.get('queue_item_id'):
+                    scheduler.candidate_inputs(self, tree, verified['candidate_id'])
             control.receipts(self, tree, op["id"], verified)
             run["result"] = ref
         elif action == "close-run":
@@ -778,6 +806,7 @@ class Store:
         return {"project_id": self.project_id, "event_watermark": len(tree["events"]), "stale_inputs": stale,
                 "corrupted_artifacts": self.audit(tree),
                 "best": tree.get("best"), "control": control.snapshot(tree),
+                "scheduling": scheduler.view(self, tree),
                 "outstanding_runs": [key for key, run in tree["runs"].items() if not settled(run)],
                 "closed_runs": [key for key, run in tree["runs"].items() if run.get("closure")],
                 "legacy_acceptances": [key for key, run in tree["runs"].items()
@@ -915,6 +944,8 @@ def main():
     commands.add_parser("review")
     commands.add_parser("reconcile")
     commands.add_parser("mechanisms")
+    commands.add_parser("ready")
+    commands.add_parser("freeze").add_argument("path")
     commands.add_parser("reference").add_argument("path")
     apply = commands.add_parser("apply")
     apply.add_argument("record", type=Path)
@@ -938,6 +969,11 @@ def main():
             result = {"artifact": store.promote(read(args.decision), args.output_dir or f"knowledge/cooled/{store.project_id}")}
         elif args.command == "reference":
             result = store.reference(args.path)
+        elif args.command == "freeze":
+            with store.write():
+                result = scheduler.frozen_blob(store, store.reference(args.path))
+        elif args.command == "ready":
+            result = scheduler.view(store, store.load())
         elif args.command == "mechanisms":
             result = store.mechanisms()
         elif args.command == "reconcile":

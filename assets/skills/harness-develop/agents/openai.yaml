@@ -1,4 +1,4 @@
 interface:
   display_name: "Harness Develop"
   short_description: "落实分析方案编写昇腾 TileLang 算子，并在同一任务内完成精度与性能验证"
-  default_prompt: "使用 $harness-develop 落实已接收的分析方案，实现当前算子并按绑定协议验证精度与性能。"
+  default_prompt: "使用 $harness-develop 在分配的独立工作空间落实已接收方案，按需检视索引/缓冲/同步与测试可信度，冻结候选后按绑定协议验证精度、性能并交付分析数据。"

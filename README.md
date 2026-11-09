@@ -213,6 +213,8 @@ npx <package>@<version> doctor
 | --- | --- |
 | [整改状态与剩余缺口](docs/workflow-improvements.md) | Harness 工程审查、已实施修复和验证边界 |
 | [安装升级](docs/installation-upgrades.md) | 安装清单、升级计划、恢复与回滚 |
+| [依赖队列](assets/skills/harness-resume/references/task-queue.md) | 自主选择 analysis/develop、冻结输入、独立工作空间与恢复 |
+| [开发能力](docs/develop-capabilities/design.md) | cannbot 方法接入、实现检视与测试可信度 |
 | [多项目管理](docs/projects/design.md) | 项目定位、源码隔离、冻结与恢复 |
 | [开发路线图](docs/ROADMAP.md) | 阶段安排、验收条件和待决事项 |
 | [需求与工作流](docs/REQUIREMENTS.md) | 算子需求清单、标杆构造、阶段检查和执行矩阵 |

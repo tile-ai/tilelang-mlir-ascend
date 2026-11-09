@@ -42,6 +42,8 @@
 
 {{记录在设备进程执行的命令/argv、脚本与参数、工作目录、激活入口、查询/回收方式；worker/msprof/runner 退出与所需资源 receipt。无匹配 kernel、空数据、权限/工具不支持与采集失败分别记录，不能仅凭退出码为0标 ready。}}
 
+为 [analysis 离线解析](../../../harness-analysis/references/device-profile.md) 留下确切入口：trace 是事件数组还是 traceEvents 对象、目标事件 name/category/pid/tid/args 的实际筛选字段；CSV 的真实表头、kernel/launch 行及无 kernel 名逐核表的归属依据。标明 aicMetric 是配置还是实际值、指标嵌套位置、单位和分母、同次事件与 PMU 分组的对应。无需改变工具原始格式或强制生成固定数量 CSV；身份不明确时写缺口，不靠目录顺序猜测 case。
+
 ## 给 analysis 的观察与问题
 
 | 观察（含原始文件行/事件/core/pipe） | 推断及不确定性 | 可检验的下一问题 |

@@ -33,6 +33,34 @@
 
 详细适配方向见 [复用计划](../REUSE_PLAN.md)。这些外部技能不是用户必须预装的隐含依赖。
 
+## cannbot-skills 的分析方法
+
+来源：[cann/cannbot-skills](https://gitcode.com/cann/cannbot-skills)。Harness 独立编写内部参考与解析工具，将以下方法融入 analysis；不直接打包外部脚本或整套调优流程，也不引入该 checkout 的运行依赖。外部资料的实际版本在用户任务证据中记录，使用时核对许可证与平台适用性。
+
+| 来源技能与资料 | 内置能力 | 适配边界 |
+| --- | --- | --- |
+| `ops/tilelang-op-profiling/Ascend950`：instructions、csv_fields_reference、optimization_quickref | [上板分析](../../assets/skills/harness-analysis/references/device-profile.md)：实例筛选、逐核表/指标与源码对应、先统计再归因 | 不固定 CSV 数量、芯片阈值或峰值，不把 profiling 耗时替换正式性能 |
+| `ops/tilelang-perf-optimization/Ascend950/references/evidence-and-diagnosis.md`、`plan-and-validation.md` | [算子诊断](../../assets/skills/harness-analysis/references/operator-diagnosis.md)：竞争解释、API/lowering 准入、case 风险与验证 | 采用项目实际 TileLang 后端；实现和复测仍在 develop |
+| `ops/ops-profiling` | trace/指标来源区分、实际工作量与指标联合解释 | 保留 Harness 既有采集与测量协议，不迁入外部 warmup/统计规则或新采集循环 |
+| `ops/ops-theoretical-performance-estimation` | 分层流量、计算类型、稳态重叠与尾块/填充排空边界 | 不移植固定硬件 JSON、标定常数或模型门槛；模型只辅助诊断 |
+| `ops/pypto-op-perf-tune/perf-analyzer` | 核间负载差异、等待与依赖的联合分析思路 | PyPTO bubble 日志公式和星级阈值不直接用于 TileLang；仅消费实际工具提供的事件语义 |
+
+搜索归属、mechanism 查重、search-plan、hot/cooled 和预算继续由 Harness 管理，详见 [analysis 架构](analysis.md)。外部 skill 自带的实现/测试循环不嵌套进 analysis。
+
+## cannbot-skills 的开发方法
+
+同一 cannbot 来源的方法已整理为 Harness 内部参考，外部 checkout 为可选查询资料；不复制其 agent 编排、collector、设备环境命令或固定交付结构。
+
+| 来源 | 内置落点 | 适用边界 |
+| --- | --- | --- |
+| `tilelang-op-develop` / `tilelang-op-design` | [方案落实](../../assets/skills/harness-develop/references/tilelang-workflow.md)：索引、数据流、buffer 与局部设计，最早失败阶段定位 | 沿 TASK 的方案、目标 API/后端与 initial_design；不新增设计节点 |
+| `tilelang-performance-best-practices` | 同上：按机制核对搬运、分块、流水、生成代码与实际收益 | 按架构/后端/算子族选择参考，容量和核数不写死，模板成熟度不等于候选验证 |
+| `tilelang-review` 的正确性规则 | [正确性检视](../../assets/skills/harness-develop/references/correctness-review.md) | 按改动选择索引、尾块、整数宽度、初值、竞争与生命周期检查 |
+| `tilelang-op-test-design/Ascend950/references/test-credibility.md` | [测试可信度](../../assets/skills/harness-develop/references/test-credibility.md) | 核对契约、独立参考、完整断言与实际路径；不擅改冻结容限/case |
+| `tilelang-op-profiling` / `ops-profiling` | 复用 develop 的 onboard-diagnostics 与 analysis 数据解析 | 保持正式性能协议与诊断重放的区别 |
+
+API/programming-model 资料按实际目标分支查询；目标分支缺失时查绑定源码，不自动采用其他架构的默认规则。具体能力路由与范围见 [开发能力设计](../develop-capabilities/design.md)。
+
 ## 环境边界
 
 开发、device和simulation分别配置与验证。版本、路径、设备映射、资源限制和授权按当前任务环境生效；上板成功不等于仿真可用，文档存在也不等于编译或运行通过。具体机器和运行记录不写入产品资源。

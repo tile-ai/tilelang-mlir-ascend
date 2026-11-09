@@ -46,6 +46,8 @@ python3 .agents/skills/harness-develop/scripts/evaluate.py \
 
 控制账本未启用时省略 pool/amount；已启用时预算池单位使用 seconds 或 executions。工具每次返回生成的结果路径。已有同 request 只恢复和整理原结果；精度失败返回非零，保留反例并跳过计时；失联查询原 job。
 
+search@2 的 candidate 命令先把 source/build/launch 及显式 artifact-index 复制到项目内容快照，再生成清单；传入的多文件索引须包含重建所需源码、补丁和未跟踪文件。适配器必须使用 context 中冻结的引用，不能绕回可变 worktree。评测计划与 initial_design 在队列准入前用 searchctl freeze 固定，完整流程见 [依赖队列](../../harness-resume/references/task-queue.md)。
+
 产物位于 `runs/<run>/evaluations/<request>/`，进程与账本观察位于 `runs/<run>/jobs/<request>/`。RESULT.generated.md 的头部已填写机器字段，正文用于补充实现说明。性能未达标的常规优化保留 unknown 归因，需要真实分析后提交独立 RESULT；移植还需补 PORTING。然后按 [执行控制](../../harness-resume/references/execution-control.md) accept，符合目标的候选再独立 promote-candidate。
 
 collect-only 自动生成 diagnostic-evidence，并保留 not_run/not_applicable 精度性能状态。采集器通过 evidence_context 可直接输出同一 schema，内部旧 collection.json/pass 文件列表仅用于具体工具诊断。

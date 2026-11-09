@@ -26,8 +26,8 @@ description: 在当前 Operator Harness 任务与预算内连续选择、执行�
 每步遵循 [统一下一步规则](../harness-resume/references/next-action.md)：
 
 1. 读取最新用户决定、在途状态和结果，核对目标是否已满足及是否仍有必须收尾的事项。目标满足就交付，不能因为还有步骤就扩大工作。
-2. 选择一个下一步，或将多个适用且已接收的独立分析方案组织为有界 develop 批次，记录原因、输入身份、完成条件和本次步骤号。无可执行动作、需要真实回答或预算不足时按下节停止。
-3. 按 [harness-resume](../harness-resume/SKILL.md) 生成/复用 TASK，预留该环境的资源。单方案派发一个全新、无父会话历史的节点子 agent；多个独立方案按 [并行开发契约](../harness-resume/references/parallel-develop.md) 准备独立 worktree 与 TASK、原子登记 develop-batch 后并行派发，默认上限 2。每个成员各占一个控制步骤，派发前预留全部成员步数和资源；不可将 N 个 develop 计为一步。只传项目根和 TASK 路径；主 agent 保持协调与接收职责，子 agent 不递归启动 automatic。没有子 agent 工具时记录 `execution_strategy: inline`，由当前 agent 按相同契约顺序执行，不强迫用户开新会话，也不假装已隔离上下文。
+2. 按 [依赖队列](../harness-resume/references/task-queue.md) 查看 ready/reconcile，选择一个或多个适用项，记录原因、输入身份、完成条件和步骤号。一个 analysis 可给多个 develop 方案；是否等全组结果由编排 agent 决定并写成依赖，不用无关在途任务阻塞已完成候选的分析。对长期未选项记录 queue-defer 理由。无可执行动作、需要真实回答或预算不足时按下节停止。
+3. 按 [harness-resume](../harness-resume/SKILL.md) 生成/复用 TASK，准备独立 worktree/build/JIT/cache 和冻结输入。search@2 逐项 queue-admit，默认并发上限 2（包含 analysis）或复用已定配置；原子占一步与空间后保存稳定 request 意图，再派发全新、无父会话历史的节点子 agent。设备资源在实际执行前另行预留。search@1 在途项目保持 [旧批次契约](../harness-resume/references/parallel-develop.md)，安全边界再启用队列。每个成员各计一步，只传项目根和 TASK 路径；主 agent 协调与接收，子 agent 不递归 automatic。没有子 agent 工具时记录 `execution_strategy: inline` 并顺序执行。
 4. 逐成员保存实际 agent/run/job 身份与 in_flight_steps（包括 prepared）。等待节点时持续处理其问题和用户新指令，先落盘切换请求再等待；停止请求须传给全部活跃节点。按环境约定有界查询/回收，工具等待采用短的有界调用。不要提交后即宣称任务已完成或保证会话结束后后台继续。
 5. 检查交付、身份、精度/性能/采集判定、作业与预算，接收后更新 STATE、EXPERIMENTS、环境或候选及控制日志。只有必要证据满足任务验收才更新最佳候选和目标达成状态。
 6. 比较本步前后：有新候选、有效证据、已解除缺口或明确的新失败线索才继续推进相应路线。相同输入/环境/动作已失败且没有新依据时停止，不通过换 agent、改 run ID 或重写摘要掩盖无进展。未达性能目标但有新假设且预算允许时可继续优化。
@@ -48,10 +48,10 @@ status 查询只读，不改变循环。用户请求 next 时先持久化切换�
 
 搜索树只组织策略，不改变本模式的控制步数、阶段验收或资源预算。按 [搜索与知识契约](../harness-resume/references/search-knowledge.md) 记录节点内迭代；达成目标即交付，整理可冷却 hot 的清单，不自动批准或发布，未完成的知识审批不阻塞算子交付。
 
-并行成员可以乱序接收，一个失败不覆盖兄弟结果；全部成员收尾前不派新批次。选择最佳以共同基线与验收为准，组合不同方案后必须作为新候选重验。搜索账本不自动派发或合并代码，实际执行与资源查询由宿主协调者完成。
+并行成员可以乱序接收，一个失败不覆盖兄弟结果。search@2 的后继按显式依赖准入，已接收成员经 writer/job 核实后独立释放空间；search@1 保持全批收尾屏障。选择最佳以共同基线与验收为准，组合不同方案后必须作为新候选重验。搜索账本不自动派发或合并代码，实际执行与资源查询由宿主协调者完成。
 
 ## 结构化控制入口
 
 新批次在安全边界按 [执行控制](../harness-resume/references/execution-control.md) 初始化 control，复用既有明确额度；不因采用工具重问已有许可。五节点登记前占步，设备/仿真动作前 control-reserve/control-job 保存意图，观测与结算使用稳定事件 ID。AUTOMATIC/RESOURCE_USAGE/STATE 引用同一事实源，旧在途任务先按旧契约收尾再接入，不批量迁移。启动/接收前运行只读 reconcile；暂停先落 control-pause 再通知执行者。工具不能自动测量 agent 消耗或替宿主查询远端。
 
-成员无法继续但已安全收尾时允许 close-run，失败结论保留；所有成员 accepted 或 closed 后才开启下一批次。使用工具不扩大目标、额度或发布权限。
+成员无法继续但已安全收尾时允许 close-run，失败结论保留；随后核实并 release-workspace。依赖 accepted 的后继仍阻塞，显式失败诊断或等待 settled 的汇总可继续。新项目在首次 analysis/develop 前启用 search@2，已有项目只在安全边界升级。使用工具不扩大目标、额度或发布权限。

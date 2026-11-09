@@ -1,6 +1,6 @@
 ---
 name: harness-analysis
-description: 针对已有 TileLang kernel，结合标杆、移植差异、测试反馈、仿真和流水证据定位缺陷，交接可验证的修改假设。无候选时先移植标杆，用于 Operator Harness 的 analysis 节点。
+description: 分析已有 TileLang 算子的精度/实现缺陷与性能瓶颈，读取上板 trace、aicMetric 和指标表，结合源码提出优化实验并融合探索树机制历史。用于 Operator Harness 的 analysis 节点；无候选先移植标杆。
 ---
 
 # Harness Analysis
@@ -21,9 +21,11 @@ description: 针对已有 TileLang kernel，结合标杆、移植差异、测试
 
 ## 定位当前 kernel 的问题
 
+按 [算子缺陷与优化空间](references/operator-diagnosis.md) 对齐需求、完整调用、参考算法、TileLang/生成代码和逐 case 结果，区分精度/实现、测量/采集、性能机制与原因未明。每个问题给出触发条件、预期/实际行为、源码位置、证据强度及最小验证办法；按阶段核算工作量、资源与并行度，形成针对当前瓶颈的优化方向。诊断失败实现或新发现反例时保留原验收状态，交原 develop 修复/重验，不以分析报告替代正确性门槛。
+
 按构建日志、逐 case 性能差距和已有采集确定问题。初版慢于标杆直接进入诊断，不要求先证明思路失败；已有历史失败候选或用户明确请求诊断时可分析反例，但不能据此接收当前 port-baseline/develop 内的精度失败。已有分析按输入身份复用，标杆或契约改变时只分析受影响部分。
 
-优先读取 port-baseline/develop 交付的 ANALYSIS_DATA 及其原始上板流水/指标，核对真实 kernel、case、候选/构建、采集配置和覆盖范围。按 [上板数据分析方法](references/analysis-method.md#上板流水与指标) 形成优化判断；已有数据足够时不重复采集。
+优先读取 port-baseline/develop 交付的 ANALYSIS_DATA 及其原始上板流水/指标，核对真实 kernel、case、候选/构建、采集配置和覆盖范围。有 trace、aicMetric 或指标 CSV 时读取 [上板文件分析](references/device-profile.md)，使用配套离线摘要工具或匹配版本的官方解析器定位原始事件/表格；结合源码形成当前瓶颈判断、竞争解释和下一优化方向。已有数据足够时不重复采集；计数缺失、单位不明或私有格式无法解析时保留局部结论与明确缺口。
 
 按问题需要执行仿真和流水分析，定位源码/IR/生成代码中的问题，提出下一次 develop 的具体修改假设、预期效果与验证办法；本节点不修改正式候选。明确反例已足以定位时可做简短分析，不强制采集。无动态证据时静态结论标为假设，不能虚构瓶颈或收益。
 
@@ -57,11 +59,13 @@ description: 针对已有 TileLang kernel，结合标杆、移植差异、测试
 
 ## 交付与下一节点
 
+使用 [诊断报告模板](assets/templates/diagnosis.md) 组织 RESULT 正文或附件：逐 case 当前瓶颈/缺陷、原始证据定位、算子阶段及工作量、按优先级排序的可执行优化方案、机制历史与未决问题。简单问题可直接写入 RESULT，避免复制整份报告；`profile-summary` 只是统计证据，不是缺陷诊断或性能验收结论。
+
 RESULT 记录具体候选与问题、确切输入身份、源码/测试/trace 证据、观察与推断、修改假设、未决问题、验证 case 和完成/停止条件；纯源码分析将仿真与 trace 判定写为 not_run 或 not_applicable，不能伪造采集。候选继续遵守不引入 AICPU 的项目能力边界，不将新增 AICPU 支持交给 develop。
 
 正常完成后的主推荐是 [harness-develop](../harness-develop/SKILL.md)，交接上述方案/假设；确有必需采集或能力缺口时，推荐具体 develop collect-only 采集或 prepare-environment 补齐动作，并说明返回本 analysis 的条件。用户要求本节点后停止时只给推荐。已接收且输入仍适用的分析不重复做，下一步按 [统一路由](../harness-resume/references/next-action.md) 选择。
 
-启用搜索树时，沿用 TASK 的 `search_node_id`，在 RESULT（以及 develop 生成的候选清单）保留同一归属；阶段执行者不自行切换策略节点。将可复用发现与证据交给协调者归入关联节点的 hot，区分观测、假设和结论。见 [搜索与知识](../harness-resume/references/search-knowledge.md)。
+启用搜索树时，按 [诊断与搜索融合](references/search-integration.md) 读取当前策略、`searchctl mechanisms` 和相关知识后制定方案。沿用 TASK 的 `search_node_id`；同机制修复/参数调整/补采留在原节点，独立新策略建议子节点，重试给出 prior_nodes 及新依据。阶段执行者只提交方案和 hot 提案，协调者接收后按现有搜索/预算契约登记，不自行切换策略节点。
 
 ## Develop 的退化交接
 

@@ -56,7 +56,7 @@ live 记录允许正常追加，不以整个文件摘要变化判定候选失效
 | prepare-environment | 本任务计划启用的能力、已知环境事实/选择、各侧已有权限来源、尚未解决的问题；允许只做访谈 | RESULT；Python、TileLang/torch/torch_npu 与 CANN 选择及来源；共享上板描述与项目绑定提案；实际探针证据或未测原因 |
 | establish-baseline | 语义与必选 case、正确性参考或允许创建范围、目标/实现限制、调查与选择规则、已有标杆与变更原因；实测绑定 development/device 约定和测量协议（允许在 run 内先生成并冻结） | RESULT；BASELINE；可重建参考/适配、case/协议快照、来源覆盖、候选资格/排除理由、复查条件、全部必需正确性与原始性能证据或逐项缺口；复测入口 |
 | port-baseline | 确切标杆源码与适配、case/全部输出/容限/计时协议、PROJECT、TileLang 后端能力、development/device 约定、修复与诊断预算 | RESULT；可重建初版 CANDIDATE、PORTING、PRECHECK、全部必选精度、有效逐 case 性能、ANALYSIS_DATA 及作业/资源记录 |
-| analysis | 当前 TileLang 候选、测试结果、具体问题、标杆及移植差异（若有）；新仿真绑定 simulation 约定/模型/配置，旧 trace 绑定历史身份 | RESULT；当前 kernel 缺陷诊断、源码/测试/trace 证据与限制、观察/解释/可验证假设、交给 develop 的修改及验证计划 |
+| analysis | 当前 TileLang 候选、测试结果、具体问题、标杆及移植差异（若有）、前序 ANALYSIS_DATA 和原始 trace/aicMetric/指标表、适用的搜索机制历史；新仿真绑定 simulation 约定/模型/配置，旧 trace 绑定历史身份 | RESULT；逐 case 缺陷/瓶颈诊断、源码/测试/trace 证据与限制、算子工作量与优化空间、有优先级及反证的方案、搜索归属与历史比较、交给 develop 的修改/补采及验证计划 |
 | develop | 已接收 analysis 方案、父候选、语义/case/参考/容限、PROJECT 与 PRECHECK 计划、development/device 绑定、性能标杆/协议及有界修复预算；verify-only/collect-only 只需确切候选及验证/采集计划；code-only 明确未测范围 | RESULT；实现任务交付逐次 CANDIDATE 与可重建源码；适用的 PRECHECK、全部必选精度、逐 case 原始性能样本/对比、失败反例、作业/回收状态、ANALYSIS_DATA（原始流水/指标、身份、覆盖与观察）及未运行原因 |
 
 develop 默认在同一 TASK 内实现并验证。只有明确 code-only 的源码任务可以在设备精度 not_run 时完成约定交付；默认任务缺少环境时保留检查点与缺口。精度 failed/invalid 或必选精度 not_run 不允许 develop 接收；性能退化只有已排除实现问题、归因为思路问题且精度通过时，才可带证据交回 analysis。已有 trace 分析不要求重新准备环境，但不能掩盖原产物的身份或正确性缺口。
@@ -117,7 +117,7 @@ TASK、RESULT、candidate 的 search_node_id 在未启用树时可省略；未�
 
 ## 并行开发与旧记录
 
-多个已接收分析方案可按 [并行开发契约](parallel-develop.md) 形成隔离批次。batch_id、analysis_run 是 TASK/RESULT 的可选扩展，仅批次成员必填；历史 @2 记录保留身份与证据。新节点为 prepare-environment、establish-baseline、port-baseline、analysis、develop；port-baseline 独占执行，不加入 develop-batch。
+新项目 analysis/develop 按 [依赖队列](task-queue.md) 独立准入：TASK/RESULT 保留 queue_item_id，implement-and-validate 绑定 analysis_run，分方案时绑定 plan_id/mechanism_id。一个分析可指导多个 develop，后续 analysis 可消费多个冻结结果；无需等待无关任务。search@1 按 [旧批次契约](parallel-develop.md)，其成员保留 batch_id、analysis_run；历史 @2 记录保留身份与证据。prepare-environment、establish-baseline、port-baseline 仍独占执行。
 
 已删除 harness-device-test 入口。历史 `node: device-test` TASK/RESULT 保留身份与摘要，searchctl 仍可读取并接收这些已登记任务；不再登记新 device-test run。恢复旧任务时读取 develop 的设备验证方法，严格遵守原测试范围，不追加代码修改；新补充任务使用 develop 的 verify-only/collect-only。
 

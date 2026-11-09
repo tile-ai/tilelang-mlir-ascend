@@ -20,7 +20,7 @@
 
 已补充 develop → analysis 的上板分析数据交付，以 msprof op/msopprof 完成多指标分组重放及流水采集，torch_npu 原生 profiler 按需补充调用映射和基础指标；提供命令构造、可选 MSTX 选区与原始产物摘要。交付记录内存恢复范围及多轮观测边界，实现与源码依据见 [上板诊断](../assets/skills/harness-develop/references/onboard-diagnostics.md)；当前有 CPU 协议测试，具体硬件/工具版本的实测支持仍按环境验收，不据此宣称全芯片覆盖。
 
-已合并 develop 与设备验证；多 analysis 方案通过 [并行开发契约](../assets/skills/harness-resume/references/parallel-develop.md) 分别实现并测试。searchctl 的 develop-batch 校验独立 worktree、输入摘要、分析归属并原子登记，宿主协调者负责实际派发、设备排队与比较接收；不代表独立并发调度服务已实现。
+已合并 develop 与设备验证；多 analysis 方案通过 [并行开发契约](../assets/skills/harness-resume/references/parallel-develop.md) 分别实现并测试。新 search@2 使用依赖队列逐项准入，旧 search@1 的 develop-batch 保留独立 worktree 与批次登记；宿主协调者负责实际派发、设备排队与比较接收；不代表独立并发调度服务已实现。
 
 项目管理已支持同工作目录下多个目标、独立源码 worktree、会话归属和冻结/归档/恢复；实现边界见 [多项目管理](projects/design.md)。共享环境节点的进一步改造与子项目机制另行设计。
 
@@ -40,6 +40,8 @@
 除明确标为已实现的入口外，命令和目录名称为规划示意。阶段以验收结果推进，暂不承诺日历日期。
 
 ### 近期环境改造与后续事项
+
+- **已实现依赖队列与 develop 能力增强。** [任务队列](scheduling/design.md) 通过 search@2 显式启用，编排 agent 决定阶段启动与等待范围，程序检查依赖、冻结输入和工作空间独占；search@1 保留旧批次规则。[develop 能力](develop-capabilities/design.md) 已内置实现方法、正确性检视和测试可信度，复用现有采集链。CPU 测试覆盖准入竞争、依赖、恢复和评测闭环；真实远端/设备互斥仍按已授权环境验证。
 
 共享环境按 `onboard`（上板）和 `simulator`（仿真）两类组织。开发、编译、运行仍是执行链中的职责，不再据此要求用户配置第三类独立环境。共享上板环境的多轮问询、v2 模板和发布/复用约定已写入 skill，见 [环境契约](../assets/skills/harness-prepare-environment/references/environment-contract.md)。实际安装由已核实工具执行；没有自动环境管理器，旧记录不自动迁移。
 
@@ -208,7 +210,7 @@ CLI 的版本更新和已安装资源的更新分别管理。升级时识别用�
 - 按需求评估 AscendC 等语言扩展，以及更多 agent 宿主、芯片/工具链组合和首批矩阵之外的执行适配。
 - 扩展仿真 MCP 和其他工具服务；按实际需求决定 Onboard 的 MCP 接口。
 - 在正确性验证之后增加性能优化策略与实验比较。
-- 有实际吞吐需求时再引入任务队列与并发调度服务；为隔离上下文使用宿主子 agent 的接续流程已提前提供。
+- 已提供宿主驱动的项目依赖队列；独立后台并发调度服务仍按实际吞吐需求另行设计。
 
 每项扩展需要具体用例、兼容性说明和独立验收条件，验证是否改善任务完成率、复现能力或执行效率。
 

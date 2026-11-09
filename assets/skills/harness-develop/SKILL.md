@@ -27,6 +27,8 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 
 ## 建立可检验的起点
 
+按任务加载内部能力：implement-and-validate / initial-and-validate 使用 [实现与性能方案落实](references/tilelang-workflow.md)，涉及索引、规约、缓冲或同步时使用 [正确性检视](references/correctness-review.md)；验证适配、精度故障及 verify-only 使用 [测试可信度](references/test-credibility.md)；collect-only 沿用 [上板诊断](references/onboard-diagnostics.md)；code-only 仅使用已授权的实现与低成本检查。方法吸收自 cannbot 的开发、设计、性能实践、review 和测试设计，安装后的 Harness 可独立使用，不要求另装外部 skill。外部资料仅作匹配版本的参考，不引入其编排、设备命令或报告格式。
+
 确认功能语义、shape/动态性、dtype/累加、layout/stride、尾部、原地/别名、非法输入、误差与性能目标。任务中未确定且会改变实现的事项先问清，不从示例的固定尺寸推断通用支持。
 
 检查独立参考与 case：小型可手算样例、边界输入和数学不变量；随机输入保留 seed，必要时保存实际输入。正确性参考和性能基线可以不同。修复参考、容限或 case 需要向主 agent 提交变更提案，接收并更新任务后再执行受影响验证，不能为了候选通过而同时放宽验收。
@@ -75,7 +77,7 @@ RESULT 同时交付实现与测试结果，分别标注编译、精度、性能�
 
 目标达成且没有未解决的接收条件时交协调者汇总/交付；有效但未达性能目标的结果也须先完成上述归因，再交给 analysis。明确 code-only 或 collect-only 沿用 TASK 的有限范围，不能将失败任务事后改成这些模式规避验收。
 
-启用搜索树时沿用 TASK 的 `search_node_id`。并行成员在 RESULT 保留 `batch_id`、`analysis_run`；执行者只交付本 run，协调者串行登记候选、接收结果和更新最佳候选。候选谱系引用真实输入候选，不能把兄弟的通过标记继承给合并结果。
+启用搜索树时沿用 TASK 的 `search_node_id`。search@2 在 RESULT 保留 queue_item_id 和适用的 analysis_run，冻结 source/build/launch 后交付；旧批次保留 batch_id、analysis_run。执行者只交付本 run，协调者登记候选、接收结果、确认停止并释放空间，最佳候选另行晋升。候选谱系引用真实输入候选，不能把兄弟的通过标记继承给合并结果。
 
 ## 初版构建与程序验收
 

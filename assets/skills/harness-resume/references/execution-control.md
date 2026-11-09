@@ -11,7 +11,7 @@ TASK/RESULT @4 使用单个头部 `<!-- harness-metadata -->` 区块保存机器
 
 plan 支持 performance_kind=measured/absolute/model/none，以及 mean/median 和逐 case 最大耗时。相对目标先由冻结标杆换算上限，换算依据及标杆文件列入 protocol 依赖。模型注明推导和假设；用户仅要求精度时，port-baseline/develop 都可使用 none。
 
-implement-and-validate 必须产生新候选且父候选是本次输入。verify-only/collect-only 登记时必须已有候选，执行后保持同一清单。新批次所有成员的比较输入、case/目标和统计方式一致，baseline 列入评测依赖。
+implement-and-validate 必须产生新候选且父候选是本次输入。verify-only/collect-only 登记时必须已有候选，执行后保持同一清单。声明比较的成员须有相同输入、case/目标和统计方式，baseline 列入评测依赖；search@2 的独立队列项不因同时执行就被视为可比较。
 
 采集脚本接受 evidence_context 后直接生成标准证据。execution-receipt 由 evaluate 核对实际子进程退出、执行前后依赖及 backend 后生成；process-receipt 只描述通用命令进程。完整性检查继续覆盖显式原始依赖；科学归因与诊断覆盖由协调者审阅。
 
@@ -34,7 +34,7 @@ run 绑定评测 Python 代码身份，技能说明和模板的文字改动不�
 {"event_id":"close-r1","op":"close-run","id":"r1","disposition":"superseded","successor":"r2","reason":"修复需要新范围","checkpoint":".workspace/example/runs/r1/RESULT.md","evidence":".workspace/example/runs/r1/closure.json"}
 ```
 
-closure 使用 run-closure@1，包含 project_id/run_id、summary、writers_stopped=true、jobs=[]、unsettled_resources=[] 和非空 evidence 引用；引用实际查询/回收记录。checkpoint 可为 blocked/interrupted/needs_input/failed/completed。disposition 可选 rejected/abandoned/superseded，只有 superseded 关联新 successor。批次成员 accepted 或安全 closed 后可以换策略；未知作业和未结预留继续阻止关闭。
+closure 使用 run-closure@1，包含 project_id/run_id、summary、writers_stopped=true、jobs=[]、unsettled_resources=[] 和非空 evidence 引用；引用实际查询/回收记录。checkpoint 可为 blocked/interrupted/needs_input/failed/completed。disposition 可选 rejected/abandoned/superseded，只有 superseded 关联新 successor。search@1 全批收尾才启动新工作；search@2 按 [队列依赖](task-queue.md) 选择后继，关闭后仍要显式 release-workspace。未知作业和未结预留继续阻止关闭。
 
 ## 控制账本
 

@@ -22,6 +22,8 @@
 
 同会话可连续执行；委派时传工作目录根和 TASK 路径，节点产物须支持新 agent 独立接续。并行 develop 使用独立 worktree，共享设备排队；协调者统一接收。授权内工作持续推进，实际缺失且影响当前动作的信息才补问。
 
+新项目在安全边界启用 search@2 依赖队列，analysis/develop 逐项冻结输入并准入。是否等待所有 develop 由协调者用显式依赖决定；任务接收后确认 writer/job 停止再释放工作空间。search@1 在途项目保持旧批次规则，收尾后显式升级；细则见 harness-resume 的 task-queue.md。
+
 status 只读汇报，next 执行一步，automatic 在目标和预算内连续协调。新 automatic 批次启用 searchctl control；runctl/evaluate 自动记录已配置的预留、作业观察和结算。未知作业先查询原请求。reconcile 汇报漂移与未结工作，STATE 保存摘要；check 做完整性扫描。
 
 搜索树、机制历史和 hot/cooled 知识由 harness-resume 的 searchctl.py 管理；知识冷却保留交付时的真实人工批准，远端发布单独授权。冻结/归档使用 harness-archive-project，恢复使用 harness-restore-project；恢复后按记录选择下一步。旧 `.workspace/STATE.md` 显式按 legacy 读取并保留原路径。

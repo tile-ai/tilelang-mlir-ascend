@@ -27,13 +27,15 @@ def _name(value):
 
 def msprof_command(application, *, kernel_name, output, range_name=None, launch_count=1,
                    metrics=OP_METRICS, tool=("msprof", "op"), replay_mode="kernel",
-                   launch_skip_before_match=0):
+                   launch_skip_before_match=0, mstx_value="on"):
     """Return argv, never a shell string or an execution/permission grant.
 
     Verify tool help and chip support before calling. Kernel-name filtering is
     prefix-based in msOpProf; actual collected kernels still require inspection.
-    MSTX is optional and needs a verified torch_npu/collector binding. Skip counts
-    all launches before filtering, not just launches matching kernel_name.
+    MSTX is optional and needs a verified torch_npu/collector binding. Select
+    mstx_value="on" or "true" from the installed tool's help; releases use
+    different boolean CLI spellings. Skip counts all launches before filtering,
+    not just launches matching kernel_name.
     Keep the metric combination in one invocation; metric count is not replay
     count. The collector backs up/restores tracked device memory during ordinary
     kernel replay. Verify that coverage for the target's state; Python prepare
@@ -52,10 +54,13 @@ def msprof_command(application, *, kernel_name, output, range_name=None, launch_
         raise ValueError("invalid launch_skip_before_match")
     if replay_mode not in ("kernel", "application"):
         raise ValueError("unsupported replay mode for this diagnostic recipe")
+    if mstx_value not in ("on", "true"):
+        raise ValueError("select the enabled MSTX spelling from installed tool help")
     if (not isinstance(metrics, (list, tuple)) or not metrics
             or len(set(metrics)) != len(metrics) or any(x not in OP_METRICS for x in metrics)):
         raise ValueError("select supported metrics from the documented diagnostic recipe")
-    selection = [] if range_name is None else ["--mstx=on", "--mstx-include=" + _name(range_name)]
+    selection = [] if range_name is None else ["--mstx=" + mstx_value,
+                                               "--mstx-include=" + _name(range_name)]
     return [*tool, "--aic-metrics=" + ",".join(metrics),
             "--kernel-name=" + _name(kernel_name), *selection,
             f"--launch-count={launch_count}",

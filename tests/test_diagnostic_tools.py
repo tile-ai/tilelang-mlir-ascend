@@ -150,14 +150,26 @@ class DiagnosticToolsTest(unittest.TestCase):
         self.assertEqual(argv[-4:], application)
         self.assertIn("--aic-metrics=Default,PipeTimeline,Occupancy,Roofline,Memory", argv)
         self.assertIn("--mstx-include=target", argv)
+        self.assertIn("--mstx=on", argv)
         self.assertIn("--launch-count=1", argv)
         for key, value in (("kernel_name", "*"), ("range_name", "a|b"),
                            ("replay_mode", "range"), ("launch_count", 0),
-                           ("launch_skip_before_match", -1), ("launch_skip_before_match", 1001)):
+                           ("launch_skip_before_match", -1), ("launch_skip_before_match", 1001),
+                           ("mstx_value", "false"), ("mstx_value", True)):
             options = dict(kernel_name="target", range_name="target", output=self.root)
             options[key] = value
             with self.assertRaises(ValueError):
                 diagnostics.msprof_command(application, **options)
+
+    def test_mstx_boolean_spelling_follows_installed_tool_help(self):
+        argv = diagnostics.msprof_command(["python3", "worker.py"], kernel_name="kernel",
+                                          output=self.root, range_name="target", mstx_value="true")
+        self.assertIn("--mstx=true", argv)
+        self.assertIn("--mstx-include=target", argv)
+        self.assertNotIn("--mstx=on", argv)
+        plain = diagnostics.msprof_command(["python3", "worker.py"], kernel_name="kernel",
+                                           output=self.root, mstx_value="true")
+        self.assertFalse(any(arg.startswith("--mstx") for arg in plain))
 
     def test_msprof_without_mstx_uses_explicit_launch_selection(self):
         argv = diagnostics.msprof_command(["python3", "worker.py"], kernel_name="kernel",

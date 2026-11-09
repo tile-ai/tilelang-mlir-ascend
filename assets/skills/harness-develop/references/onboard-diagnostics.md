@@ -85,6 +85,8 @@ msprof op --aic-metrics=Default,PipeTimeline,Occupancy,Roofline,Memory \
 
 `operator_worker.py` 是项目实际测试适配，需实现上述 msprof 模式；不是 harness 现成的通用 runner。`msprof_command()` 为一个目标生成包含完整指标组合的无 shell argv，默认不加 MSTX，传 `range_name` 才启用选区；不再按该组合里的指标逐一生成原生 profiler 作业。记录完整 argv、退出码和日志。helper 不提交作业或授予设备权限。其他阶段可单独采集并汇总，不把一个 kernel 的数据声称为完整调用覆盖。
 
+MSTX 开关的 CLI 拼写随工具版本不同：上例采用 `on/off`；若安装版本的 `--help` 使用 `true/false`，命令改用 `--mstx=true`，helper 传 `mstx_value="true"`。这只适配参数拼写，不证明 torch_npu 的范围标记已打通；仍须验证实际选区，不能因参数被接受就宣称 MSTX 可用。
+
 重要的采集语义：
 
 - `--kernel-name` 可能按前缀匹配；即使填了完整真实名字，也须检查实际捕获结果。`--launch-count` 默认有限，不能将“有输出”当成全部阶段已采集。MSTX 过滤后仍需检查 warmup/JIT、辅助 kernel 和目标实例。
@@ -113,6 +115,8 @@ report = capture_diagnostics(
 - 每个指标用独立 pass，在一次完整调用外包 profile，使用 `schedule(wait=0,warmup=0,active=1,repeat=1,skip_first=0)` 和一次 `prof.step()`。`tensorboard_trace_handler(..., analyse_flag=True, async_mode=False)` 同步解析，`data_simplification=False` 保留数据。具体接口见 [profiler 实现](https://github.com/Ascend/pytorch/blob/master/torch_npu/profiler/profiler.py)。
 - helper 拒绝混入 msprof 专属指标，检查安装版本暴露的枚举，保存 identity、指标、版本与各文件 SHA256。失败保存 collection.json 并传播异常；已有文件不覆盖。`pending_review` 仅表示有文件生成，需核对指标列、目标 kernel、阶段和设备覆盖，不能直接写 ready。
 - 不同 pass 是不同次执行，不能把计数拼接成同一时刻的并发流水；基础 PipeUtilization 只能给出忙碌比例，不能独立证明 MTE2/V/MTE3 的重叠关系。
+
+实际导出的 `trace_view.json` 可能直接是事件数组，也可能是含 `traceEvents` 的对象，读取前先辨别结构。自定义 launch 可能已出现在 `task_time.csv`、`kernel_details.csv` 和设备 trace 中，但解析器仍提示缺少 ACL→NPU flow。此时分别核对设备 kernel/指标覆盖与框架关联：保留日志，将自动调用链映射记为 partial；不能用 `operator_details.csv` 中未关联的设备时间 0 推断算子没有设备开销，也不能仅因有文件而认定映射完整。
 
 ## 交付及 analysis 的使用
 

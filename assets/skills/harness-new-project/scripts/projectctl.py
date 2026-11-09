@@ -255,8 +255,14 @@ class Workspace:
             tree = self.local(project_id, "search/tree.json")
             paused = {}
             if tree.exists():
-                for run_id, run in read(tree)["runs"].items():
-                    if run.get("result"):
+                search = read(tree)
+                control = search.get("control", {})
+                require(all(job["status"] in ("exited", "cancelled", "not_submitted")
+                            for job in control.get("jobs", {}).values()) and
+                        all(item["settled"] for item in control.get("reservations", {}).values()),
+                        "search control has outstanding jobs or resources")
+                for run_id, run in search["runs"].items():
+                    if run.get("result") or run.get("closure"):
                         continue
                     relative = check.get("paused_runs", {}).get(run_id)
                     require(relative, "search contains outstanding runs without paused checkpoints")

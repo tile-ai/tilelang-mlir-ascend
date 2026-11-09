@@ -1,10 +1,10 @@
 # 节点任务
 
-- contract: operator-harness/node-task@3
+- contract: operator-harness/node-task@4
 - search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - run_id: {{项目内唯一编号}}
 - node: {{prepare-environment / establish-baseline / port-baseline / analysis / develop，仅一个}}
-- operation: {{port-baseline 为 port-and-validate；develop 为 implement-and-validate / verify-only / collect-only / code-only；其他节点写具体操作}}
+- operation: {{port-baseline 为 port-and-validate；develop 为 implement-and-validate / initial-and-validate / verify-only / collect-only / code-only；其他节点写具体操作}}
 - workspace_root: {{相对 TASK 所在目录的工作目录根路径；标准 .workspace/<project>/runs/<id>/ 下为 ../../../..}}
 - project_id: {{与 project.json 一致}}
 - project_dir: .workspace/{{project_id}}
@@ -81,3 +81,10 @@ PROJECT.md 的确切修订与摘要或不可变副本作为 snapshot，绑定本
 - analysis_run: {{已接收 analysis run ID}}
 
 并绑定批次 inputs 的同一快照与摘要；源码白名单列出批次 repo_ids，所有可变目录独占。详见 [并行开发契约](../../references/parallel-develop.md)。
+
+## 结构化验收（@4）
+
+- evaluation_plan: {{实现/精度验证任务的 evaluation-plan@1 JSON 路径；code-only/collect-only 可省略}}
+- initial_design: {{仅 initial-and-validate 填写已固定的初版方案路径，其他模式删除}}
+
+按 [执行控制契约](../../references/execution-control.md) 注册 run 前冻结 plan 和全部评测依赖；工具保存验收脚本及 skill 包身份。范围内源码尝试不改变冻结输入。需要变更时先安全关闭/替代原 run，不改写 TASK。

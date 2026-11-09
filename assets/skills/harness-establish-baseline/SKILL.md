@@ -73,3 +73,9 @@ description: 根据任务与已绑定环境建立或更新算子的正确性参�
 协调者检查后，在 `.workspace/<project>/BASELINE.md` 发布轻量索引，指向本 run 的不可变基线记录与证据，并更新 STATE/EXPERIMENTS；子 agent 不直接发布。下游 TASK 必须将索引解析为确切的 baseline ID/修订/摘要，不在执行中跟随可变指针。变更参考/case、来源/构建、执行环境或测量协议时，先判断影响范围，保留旧版并更新受影响的基线证据。
 
 最终回复与 RESULT 都应给出**一个主推荐**：具体节点/skill、原因与证据、依赖或缺口、完成/停止条件。标杆 ready 且没有适用 TileLang 候选时推荐 [harness-port-baseline](../harness-port-baseline/SKILL.md)，移植参考并验证初版；已有适用候选时按 [统一路由](../harness-resume/references/next-action.md) 进入验证、analysis 或交付，不强制重写。标杆更新仅检查受影响部分，复用仍适用的候选与证据。环境不足则推荐 prepare-environment 的具体补齐动作。用户要求本节点后停止时仍给建议，但不执行下一节点。
+
+## 无适用性能源码的有界出口
+
+调查范围内没有适用性能实现时，保留未发现/不可用/不适用的来源证据及停止理由，独立正确性参考仍需小样例或不变量核验。用户已有绝对目标可直接固定；需要模型目标时保存公式、流量/计算/同步假设、硬件参数来源与适用范围，确认实际验收口径，不自定效率阈值。BASELINE 标明 performance_kind=absolute/model/none，与 measured 实测基线区别；none 仅用于明确不要求性能的任务。
+
+准备好本次正确性参考与目标后，可交 develop initial-and-validate，TASK 固定 evaluation_plan 和 initial_design；不要求为进入初版无限搜索或把 Torch 时间冒充高性能标杆。程序当前接受逐 case 最大耗时目标；不支持的汇总口径保留缺口，不悄悄改变需求。推断标杆公式的科学有效性仍须按证据核验，模型值不标为设备测量。

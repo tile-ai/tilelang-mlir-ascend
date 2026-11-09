@@ -6,7 +6,7 @@
 
 - 每个项目有独立 `.workspace/<project>/search/tree.json`，绑定项目级目标契约。项目可包含多个算子及融合策略，operator 字段用于描述该探索对象或算子组；节点 scope 与 TASK 明确具体范围。不同任务的结果不可仅凭同项目归属混作一个基线。根目标改变时保留旧项目并建立新项目，不改写旧树身份。
 - 新的算子探索初始化 N0；已有任务在下一个安全边界接入。历史归属不明确时不臆造节点、循环或结论，原记录仍可读取。已有在途任务先按旧契约回收。
-- 先恢复在途 run/job、接收终态结果，再选择策略节点和阶段。`select` 不执行实验；切换前必须接收树内所有未结 run，协调者还须检查外部作业和资源账本。工具不判断 job 是否已退出。
+- 先恢复在途 run/job、接收终态结果，再选择策略节点和阶段。`select` 不执行实验；切换前必须接收或安全关闭树内所有未结 run，协调者还须检查外部作业和资源账本。工具不判断 job 是否已退出。
 - 同一假设继续原节点；新策略用 `add-node`，再 `select` 并记原因；回到旧分支同样 select。closed/parked 节点先用 node-status 重新 open。失败和无收益的分支保留。
 - TASK、RESULT、候选清单记录准确的 `search_node_id`；重测旧候选只新增 run，不复制候选或节点。一个 run 对应一次阶段调用，不强制固定数量的 run 构成完整 loop。
 - 树存引用和 SHA256，不复制候选代码。Hot 登记时将所引用的证据字节保存到 `.workspace/<project_id>/knowledge/evidence/<sha256>.snapshot`，并记录源路径供定位；校验以不可变快照为准，源 RESULT 的后续更新不影响历史 hot。STATE 链接树和当前节点，仍管理当前/最佳已验证候选；EXPERIMENTS 仍记录执行结果。切分支不会自动更换最佳候选、重置预算或提升验证状态。
@@ -53,16 +53,16 @@ python3 .agents/skills/harness-resume/scripts/searchctl.py --workspace . --proje
 | op | 除 event_id、op 外的字段 | 约束 |
 | --- | --- | --- |
 | add-node | id, parent, hypothesis, scope | 父节点已存在；不改父关系 |
-| select | id, reason | 无未接收 run，节点 open |
+| select | id, reason | 无未接收且未关闭 run，节点 open |
 | node-status | id, status, reason | open / parked / closed；有未结 run 不可关闭 |
 | candidate | id, search_node_id, parent_candidate, manifest | parent_candidate 是已登记 ID 或 null；manifest 中对应字段为父 manifest 路径或 not_applicable（可附 `: 原因` / `：原因`） |
 | develop-batch | id, candidate_id, inputs, members | 至少两个独立 develop；具体字段与前置检查见 [并行开发契约](parallel-develop.md) 和 JSON 模板；跨 open 策略原子登记，不切换 current_node |
-| run | id, search_node_id, stage, candidate_id, task | 当前 open 节点；stage 为 port-baseline / analysis / develop，port-baseline 和普通 develop 独占执行；candidate_id 为输入候选或 null（尚无候选） |
+| run | id, search_node_id, stage, candidate_id, task | 当前 open 节点；stage 为 prepare-environment / establish-baseline / port-baseline / analysis / develop；只有 analysis 可普通并行，其余独占执行；candidate_id 为输入候选或 null（尚无候选） |
 | accept | id, result；旧 develop 可补 scope | develop 要求 completed 并通过精度/性能归因检查；port-baseline 要求 completed、精度通过、有效性能和完整移植证据，允许性能未达标；其他阶段为 completed/failed；checkpoint 不接收。scope 仅用于新规则前登记任务的独立范围说明，含 project_id/run_id/operation/performance_required |
 | hot | id, base_revision, kind, statement, applicability, limitations, nodes, evidence | base_revision 初次 0，后续须匹配最新；nodes 为节点 ID 列表，evidence 为项目内证据路径列表 |
 | use-cooled | search_node_id, artifact, reason | artifact 指向当前 active cooled JSON；reason 解释条件匹配 |
 
-TASK/RESULT/candidate 必须有与所选项目一致的 `- project_id: ...`。TASK/RESULT 用模板的 `- run_id: ...`、`- node: ...`、`- search_node_id: ...` 精确字段；candidate 使用 `- candidate_id: ...` 和同样的 search_node_id。新测试任务使用 develop 的 verify-only/collect-only，历史 device-test 记录只读/接收兼容。TASK 在执行前登记，RESULT 接收前由协调者按节点契约检查任务摘要、交付、环境、作业和资源；helper 的 accept 对 develop 校验精度/性能与退化归因，对 port-baseline 校验精度/有效性能、PORTING 完成与 AICPU 替代声明及候选身份，冻结证据摘要；不解析全部样本或证明归因正确，不能代替完整结果验收。候选在生产后登记，develop 的输入候选可以来自父节点或其他分支。
+TASK/RESULT/candidate 必须有与所选项目一致的 `- project_id: ...`。TASK/RESULT 用模板的 `- run_id: ...`、`- node: ...`、`- search_node_id: ...` 精确字段；candidate 使用 `- candidate_id: ...` 和同样的 search_node_id。新测试任务使用 develop 的 verify-only/collect-only，历史 device-test 记录只读/接收兼容。TASK 在执行前登记，RESULT 接收前由协调者按节点契约检查任务摘要、交付、环境、作业和资源；helper 的 accept 对 develop 校验精度/性能与退化归因，对 port-baseline 校验精度/有效性能、PORTING 完成与 AICPU 替代声明及候选身份，冻结证据摘要。@4 进一步核对候选、全部必选 case/输出、样本及回执并重算目标判定；legacy 仍只有声明与摘要检查。工具不证明科学归因或执行真实性，不能代替完整结果验收。候选在生产后登记，develop 的输入候选可以来自父节点或其他分支。
 
 ```json
 {
@@ -97,6 +97,12 @@ python3 .agents/skills/harness-resume/scripts/searchctl.py --workspace . --proje
 
 此版本不提供 MCTS、自动策略评分、向量检索或自动发布。由 agent 基于已有证据选择节点；搜索树组织决策，现有阶段工作流执行实验。
 
-search@1 新增可选 batches 索引，成员 run 带 batch_id、analysis_run、repo_ids；旧树不要求这些字段。普通 run 仍受 current_node 约束；只有 develop-batch 可跨策略登记。同批成员乱序 accept，未接收完不切换策略或启动新工作；登记幂等、全部成功或全部不落盘。helper 不核实科学结论，不代替主 agent 的任务输入/权限/资源与结果接收检查。
+search@1 新增可选 batches 索引，成员 run 带 batch_id、analysis_run、repo_ids；旧树不要求这些字段。普通 run 仍受 current_node 约束；只有 develop-batch 可跨策略登记。同批成员乱序 accept，尚有未接收且未关闭成员时不切换策略或启动新工作；登记幂等、全部成功或全部不落盘。helper 不核实科学结论，不代替主 agent 的任务输入/权限/资源与结果接收检查。
 
 develop 新登记 run 带 acceptance_policy；接收保存 acceptance 的证据摘要，后续读取校验漂移。历史已接收记录不伪造新版接收结论；旧未接收任务补 scope 时保留原 TASK，协调者核对补充范围与原约定一致，不能通过补充降低标准。新任务禁止替换冻结 scope。
+
+## @4 执行控制扩展
+
+新任务、结构化评测清单、candidate 晋升、close-run、预算/job 对账及机制查重见 [执行控制](execution-control.md)。新 run/develop-batch 默认要求 TASK @4；旧记录仅显式 legacy=true 补登记，不自动迁移，不获得新晋升资格。阶段允许完整五节点；旧 device-test 仍只接受已登记历史。
+
+关闭和接收分别保存 closure/result，前者不会填入 result 或伪造精度通过。操作仍共用原 event_id 幂等与原子树更新。control 启用后，节点接收及关闭还要求其已登记 job 和资源已收尾。`reconcile`、`mechanisms`、`reference` 都只读，不创建记录。

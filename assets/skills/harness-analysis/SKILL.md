@@ -72,3 +72,5 @@ RESULT 记录具体候选与问题、确切输入身份、源码/测试/trace �
 有多个独立优化点时，分别给出 plan_id、输入候选、证据/假设、预期收益、改动范围、风险和逐 case 验证计划；说明方案是互斥比较、可独立尝试还是依赖前一方案结果。允许多个 analysis RESULT 分别形成方案，不为凑并发重复分析同一问题。
 
 协调者接收后，独立方案可按 [并行开发契约](../harness-resume/references/parallel-develop.md) 分配给不同 worktree 的 develop，分别实现并验证。analysis 不自行派发/改写兄弟候选；方案依赖或输入不可比时先顺序推进。
+
+较大实验前使用 [执行控制中的机制查重](../harness-resume/references/execution-control.md) 对照同机制成功/失败/关闭节点，保存 search-plan 的新增依据、可证伪条件、保留/淘汰标准及简化计划。已有叠加优化按预算选有价值的移除对照，收益相当时优先简单实现，不强制为凑表采集。

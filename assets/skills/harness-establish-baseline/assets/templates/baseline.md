@@ -65,3 +65,9 @@
 {{ready 的证据或保持 draft/stale 的原因；任务/参考/case/构建/环境/协议变化影响哪些结果}}
 {{选中实现的完整调用链、实际分派与适配入口；port-baseline / analysis 必读源码和无法确认部分}}
 {{下游读取确切版本，不能将标杆 ready 等同候选正确或目标达标；下一步与缺口}}
+
+## 性能目标类型（新建记录填写）
+
+- performance_kind: {{measured / absolute / model / none}}
+
+measured 关联适用实现和实测原始证据；absolute 关联用户既定逐 case 目标；model 保存推导、硬件参数来源、假设和用户验收决定；none 说明仅精度任务。无性能源码的已就绪正确性参考可交 develop initial-and-validate，不能称为已完成高性能实现移植。目标换算在采样前固定，不修改模型以让已有结果达标。

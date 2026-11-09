@@ -1,6 +1,6 @@
 # status、next 与 automatic
 
-> 状态：三个 skill 入口与宿主内编排流程已提供；独立后台调度器、npm CLI 和自动程序 gate 未实现。实际节点能力取决于项目已有工具及环境证据。
+> 状态：三个 skill 入口与宿主内编排流程已提供；已增加 @4 结构化接收与可选步数/资源/job 账本，见 [执行控制](../../assets/skills/harness-resume/references/execution-control.md)；独立后台调度器和 npm CLI 未实现。实际节点能力取决于项目已有工具及环境证据。
 
 ## 1. 目标与范围
 

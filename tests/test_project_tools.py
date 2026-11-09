@@ -146,7 +146,7 @@ class ProjectTest(unittest.TestCase):
         root = self.ws.project('first')
         task = root / 'TASK.md'
         task.write_text('- project_id: first\n- run_id: r1\n- node: analysis\n- search_node_id: N0\n')
-        store.apply(dict(event_id='r1', op='run', id='r1', search_node_id='N0', stage='analysis',
+        store.apply(dict(event_id='r1', op='run', legacy=True, id='r1', search_node_id='N0', stage='analysis',
                          candidate_id=None, task=str(task.relative_to(self.root))))
         self.ws.begin_close('first', 'session1', 'frozen')
         with self.assertRaises(project.Invalid):

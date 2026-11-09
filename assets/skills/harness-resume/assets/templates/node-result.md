@@ -1,6 +1,6 @@
 # 节点结果 / 检查点
 
-- contract: operator-harness/node-result@3
+- contract: operator-harness/node-result@4
 - project_id: {{与 TASK/project.json 一致}}
 - search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - run_id: {{与 TASK 一致}}
@@ -79,9 +79,16 @@ ANALYSIS_DATA 使用 [分析数据模板](../../../harness-develop/assets/templa
 
 精度失败、实现问题、未知归因不能接收；在本节点修复后重验。预算/环境/权限阻塞保存 blocked/needs_input/interrupted，不以 failed 终态绕过。实现符合方案且精度通过的思路退化，可在保留性能 failed 的同时 completed 并交回 analysis；接收不等于最佳候选晋升。
 
+## 结构化验证（新 @4 实现/验证任务）
+
+- candidate_manifest: {{实际候选 CANDIDATE @2 路径；只读任务必须沿用输入候选}}
+- validation_evidence: {{implement-and-validate / initial-and-validate / verify-only / port-baseline 的 validation@1 JSON 路径；其他模式删除}}
+- diagnostic_evidence: {{仅 collect-only 的 diagnostic-evidence@1 JSON 路径；其他模式删除}}
+
+逐 case/输出、样本、源码/构建/launch 及回执按 [执行控制契约](../../references/execution-control.md) 关联。代码或纯采集模式不获得最佳候选晋升资格。initial-and-validate 是初版构建，正确且有效测量的目标差距可以交给 analysis，不强制写 idea；实现/精度/测量问题仍在节点内解决。
+
 ## 标杆移植接收（仅 port-baseline 填写）
 
-- candidate_manifest: {{实际交付 CANDIDATE 文件路径，相对 workspace_root}}
 - porting_evidence: {{PORTING 文件路径，相对 workspace_root}}
 
 使用 [PORTING 模板](../../../harness-port-baseline/assets/templates/porting.md)。本节点要求 status=completed、accuracy_status=passed、performance_status=passed/failed；PORTING status=complete、aicpu_status=not_used/replaced。PORTING 和 ANALYSIS_DATA 必须绑定本 run 及 CANDIDATE 的同一 candidate_id。实际调用链仍由协调者核验，字段不能代替设备证据。

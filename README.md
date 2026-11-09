@@ -11,7 +11,7 @@
 
 </div>
 
-> **项目状态：早期建设中。** 已提供面向 Codex 的初始化、接入、接续及五个节点 skills，以及 status、next、automatic 入口。另有 torch_npu 性能采集方法和解析脚本。节点职责见 [节点设计](docs/nodes/design.md)；通用执行适配、程序 gate、MCP 和 npm 分发见 [路线图](docs/ROADMAP.md)。
+> **项目状态：早期建设中。** 已提供面向 Codex 的初始化、接入、接续及五个节点 skills，以及 status、next、automatic 入口。另有 torch_npu 性能采集方法和解析脚本。节点职责见 [节点设计](docs/nodes/design.md)；已实现结构化接收、失败关闭、可选预算/job 账本、本地进程 runner 和安装升级回滚；通用设备适配、MCP 和 npm 分发见 [路线图](docs/ROADMAP.md)。
 
 ## 什么是 Operator Harness
 
@@ -40,7 +40,9 @@ Operator Harness 旨在把算子开发中的需求、知识、工具和验证结
 flowchart TD
     R[明确需求] --> E[准备环境]
     E --> B[建立标杆]
-    B -->|无适用候选| P[port-baseline：移植并验证初版]
+    B -->|无候选且有参考源码| P[port-baseline：移植并验证初版]
+    B -->|无性能源码且独立参考就绪| I[develop：构建并验证初版]
+    I --> C
     B -->|已有适用候选| C{检查证据与目标}
     P --> C
     C -->|需优化| A[analysis：诊断当前 TileLang kernel]
@@ -52,7 +54,7 @@ flowchart TD
 1. **明确需求**：确定功能语义、动态 shape 行为、case 范围、数值要求和外部约束。
 2. **准备环境**：多轮确定 Python、TileLang、torch/torch_npu 与 CANN，准备并验证共享上板环境；后续复用确切绑定，只补变化或缺口。simulator 接入另行设计。
 3. **构造标杆**：分别建立正确性参考和性能基线，固定输入、误差容限与测量协议。
-4. **标杆移植**：没有适用候选时，port-baseline 将参考策略映射为 TileLang 初版，自行替代 AICPU 等缺口，在同一节点内完成精度、性能测量及诊断交付；已有候选跳过。
+4. **标杆移植**：没有适用候选时，port-baseline 将参考策略映射为 TileLang 初版，自行替代 AICPU 等缺口，在同一节点内完成精度、性能测量及诊断交付；已有候选跳过；无适用性能源码时固定独立正确性参考、初版方案和绝对/模型目标，使用 develop 的 initial-and-validate。
 5. **迭代调优**：测试后需要改进时回到 analysis，通过反例、仿真和流水证据定位问题，形成修改假设，交给 develop 实现并再次验证。
 6. **回归与交付**：保留最佳已验证候选，汇总全部必选 case；预算耗尽时明确报告尚未达成的目标。
 
@@ -134,7 +136,7 @@ $harness-develop 只验证当前候选：使用已有上板约定完成精度和
 python3 scripts/install_codex_skills.py --workspace operator-workspace
 ```
 
-安装到用户显式选择的工作目录，不自动提升到 Git 根；旧 --project-dir 参数作为 --workspace 的别名。安装器复制十三项技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件或已有 Harness AGENTS 区块存在不同内容时在复制前报告冲突，保留用户文件；不静默沿用旧路径入口。升级与卸载另按路线图建设。
+安装到用户显式选择的工作目录，不自动提升到 Git 根；旧 --project-dir 参数作为 --workspace 的别名。安装器复制十三项技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件或已有 Harness AGENTS 区块存在不同内容时在复制前报告冲突，保留用户文件；不静默沿用旧路径入口。安装清单、升级计划、中断恢复和回滚已提供，见 [升级说明](docs/installation-upgrades.md)；卸载与 npm 分发继续按路线图建设。
 
 Agent 在选定项目的 `.workspace/<project>/` 中维护 `PROJECT.md`、`REQUIREMENTS.md`、`ROADMAP.md` 和 `STATE.md`，接入已有项目时补充 `codebase/MAP.md`。这些都是可以直接编辑的 Markdown，按项目进展逐步建立；未决问题和下一步留在状态记录中，草稿与研究材料按需保存。
 
@@ -144,7 +146,7 @@ PROJECT 使用 [项目模板](assets/skills/harness-new-project/assets/templates
 
 后续工作通过 `harness-resume` 接续：`STATE.md` 保存当前候选、最佳已验证候选、性能概况与下一步；`EXPERIMENTS.md` 记录成功、失败和无收益的尝试；`runs/<编号>/` 保存对应代码、详细结果与日志。新的 agent 先读摘要，再按需要打开相关实验。
 
-允许同一会话连续执行多个节点，同时保证记录足以让全新 agent 独立接续。当前 agent 可以完成节点与共享汇总，也可按需委派；全新 agent 只接收工作目录根和 TASK 路径。上下文过长时只建议用户新开会话，不强制切换，也不因缺少委派工具阻塞。`automatic` 已通过当前宿主的主/子 agent 能力串行协调节点，无委派工具时明确采用 inline；不是脱离会话的后台服务。使用新机器或 worktree 时，需要带上被 Git 忽略的 `.workspace/` 记录和相关产物。具体交接方法见 [节点契约 与六份模板](assets/skills/harness-resume/references/node-contract.md)。TASK 包含做什么、输入身份、工具入口/执行步骤、权限预算与完成条件；用户问询答案保存到 DECISIONS，环境预算的实时占用另记 RESOURCE_USAGE。
+允许同一会话连续执行多个节点，同时保证记录足以让全新 agent 独立接续。当前 agent 可以完成节点与共享汇总，也可按需委派；全新 agent 只接收工作目录根和 TASK 路径。上下文过长时只建议用户新开会话，不强制切换，也不因缺少委派工具阻塞。`automatic` 已通过当前宿主的主/子 agent 能力串行协调节点，无委派工具时明确采用 inline；不是脱离会话的后台服务。使用新机器或 worktree 时，需要带上被 Git 忽略的 `.workspace/` 记录和相关产物。具体交接方法见 [节点契约 与六份模板](assets/skills/harness-resume/references/node-contract.md)。TASK 包含做什么、输入身份、工具入口/执行步骤、权限预算与完成条件；用户问询答案保存到 DECISIONS，启用结构化控制后，实时占用以 search/tree.json 的 control 为准，RESOURCE_USAGE 保存索引；未启用的旧任务保留原账本。
 
 ### 查看、单步与自动推进
 
@@ -160,7 +162,7 @@ PROJECT 使用 [项目模板](assets/skills/harness-new-project/assets/templates
 
 一个项目的算子或融合优化方向组织成多层搜索树，每个节点可以经历多轮分析、编写、测试；候选谱系、当前/最佳候选和资源预算仍独立管理。Hot 关联一个或多个节点并保留证据与修订；交付时整理筛选，经真实人工审批后生成可版本管理的 cooled 知识，供后续探索按需引用。
 
-随 harness-resume 安装的 Python 标准库工具 `searchctl.py` 提供原子记录、幂等恢复、引用校验及知识晋升/失效管理，不启动实验或自动发布。见 [架构示例](docs/search/design.md) 和 [CLI 与契约](assets/skills/harness-resume/references/search-knowledge.md)。
+随 harness-resume 安装的 Python 标准库工具 `searchctl.py` 提供原子记录、幂等恢复、引用校验及知识晋升/失效管理。@4 任务增加逐 case 验收与候选晋升、安全关闭、机制查重入口，以及可选步数/资源/job 账本和只读 reconcile；见 [执行控制契约](assets/skills/harness-resume/references/execution-control.md)。工具不启动实验或自动发布；[本地 runner](assets/skills/harness-develop/references/local-runner.md) 只执行已有 Linux 前台命令，不代表通用 NPU 执行适配已完成。见 [架构示例](docs/search/design.md) 和 [CLI 与契约](assets/skills/harness-resume/references/search-knowledge.md)。
 
 ### 规划中：npm 分发与执行闭环
 
@@ -190,17 +192,17 @@ npx <package>@<version> doctor
 - 超时、缺少设备数据和残缺采集保留诊断记录，不记为成功。
 - 保留全部必选 case 的结果，以及性能回退、未达标和未验证项。
 
-这些规则将进入工作流和评测实现，并由 skills 指导 agent 正确使用。
+结构化检查已进入 @4 接收实现；原始比较器、设备适配和科学解释仍需独立核验。CPU 回归不代表真实 NPU 闭环通过。
 
 ## 路线图
 
 | 阶段 | 交付目标 | 当前状态 |
 | --- | --- | --- |
 | M0–M1 | 项目定位、任务需求、环境与验收契约 | 文档与资产初查已建立，任务契约待冻结 |
-| M2 | 首个 TileLang 实卡开发与验证闭环 | 待开始 |
+| M2 | 首个 TileLang 实卡开发与验证闭环 | 接收/控制与本地进程工具已实现；通用设备适配和实卡验收待完成 |
 | M3 | CLI 初始化和一个 agent 宿主接入 | Codex 初始化 skills 与源码安装器已实现；npm CLI 待建设 |
 | M4 | 执行矩阵、仿真 MCP、流水分析能力与恢复 | 待开始 |
-| M5 | 升级、卸载和独立发布 | 待开始 |
+| M5 | 升级、卸载和独立发布 | 源码安装的升级/回滚已实现；卸载与独立发布待完成 |
 | M6 | 更多算子、宿主与按需语言扩展 | 后续演进 |
 
 阶段验收条件与待决事项见 [完整路线图](docs/ROADMAP.md)。
@@ -209,6 +211,8 @@ npx <package>@<version> doctor
 
 | 文档 | 内容 |
 | --- | --- |
+| [整改状态与剩余缺口](docs/workflow-improvements.md) | Harness 工程审查、已实施修复和验证边界 |
+| [安装升级](docs/installation-upgrades.md) | 安装清单、升级计划、恢复与回滚 |
 | [多项目管理](docs/projects/design.md) | 项目定位、源码隔离、冻结与恢复 |
 | [开发路线图](docs/ROADMAP.md) | 阶段安排、验收条件和待决事项 |
 | [需求与工作流](docs/REQUIREMENTS.md) | 算子需求清单、标杆构造、阶段检查和执行矩阵 |

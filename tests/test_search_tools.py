@@ -33,6 +33,8 @@ class SearchToolsTest(unittest.TestCase):
 
     def apply(self, action, **values):
         self.sequence += 1
+        if action in ("run", "develop-batch"):
+            values.setdefault("legacy", True)
         return self.store.apply({"event_id": f"e{self.sequence}", "op": action, **values})
 
     def add_node(self, key="N1", parent="N0"):
@@ -370,7 +372,7 @@ class SearchToolsTest(unittest.TestCase):
                             "repo_ids": [repo], "task": task})
         inputs = {name: self.write(f".workspace/example/inputs/{name}.md", name)
                   for name in ("requirements", "baseline", "cases", "protocol", "environment")}
-        return {"event_id": "batch-event", "op": "develop-batch", "id": "B1",
+        return {"event_id": "batch-event", "op": "develop-batch", "legacy": True, "id": "B1",
                 "candidate_id": "C0", "inputs": inputs, "members": members}
 
     def finish_member(self, key, status="completed"):

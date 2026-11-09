@@ -33,7 +33,7 @@ automatic 另按其 [控制模板](../../harness-automatic/assets/templates/auto
 
 按需实例化，不预填假数据，不一次创建空项目骨架。模板中的 `{{...}}` 必须替换，未知用 `unknown：原因/影响`，不适用用 `not_applicable：原因`，不能以空字符串假装满足门槛。模板按各自声明的契约版本定义字段；扩展小节可以增加，必填语义不能删除。
 
-新 TASK 使用 node-task@3，固定 workspace_root、project_id、project_dir 与 owner。workspace_root 相对 TASK 所在目录解析（标准 `.workspace/<project>/runs/<id>/TASK.md` 使用 `../../../..`）；project_dir 必须是该工作目录下的 `.workspace/<project_id>`，身份须与 project.json 一致。输入和产物路径字段相对 workspace_root，Markdown 链接仍按文件自身位置解析。源码 cwd 位于 project_dir/repos 中，不等于记录根。旧 TASK v1 的 project_root 仍按旧语义解析，不自动迁移。命令另写执行机器、容器、工作目录及环境变量。远端路径标明所属环境，不能拿本地相对路径代替。运行目录和输入快照在结束后保留，复制到另一 worktree 时保持相对布局；确有外部依赖则明确解析入口，缺失即报告缺口。
+新 TASK 使用 node-task@4，固定 workspace_root、project_id、project_dir 与 owner。workspace_root 相对 TASK 所在目录解析（标准 `.workspace/<project>/runs/<id>/TASK.md` 使用 `../../../..`）；project_dir 必须是该工作目录下的 `.workspace/<project_id>`，身份须与 project.json 一致。输入和产物路径字段相对 workspace_root，Markdown 链接仍按文件自身位置解析。源码 cwd 位于 project_dir/repos 中，不等于记录根。旧 TASK v1 的 project_root 仍按旧语义解析，不自动迁移。命令另写执行机器、容器、工作目录及环境变量。远端路径标明所属环境，不能拿本地相对路径代替。运行目录和输入快照在结束后保留，复制到另一 worktree 时保持相对布局；确有外部依赖则明确解析入口，缺失即报告缺口。
 
 ## 3. TASK 的公共必填内容
 
@@ -105,7 +105,7 @@ RESULT 作为当前检查点可以更新；覆盖前将已交接或用于问询�
 - 后端作业状态独立，沿用 queued/running/unknown 等实际语义；completed 节点也可能只完成对 unknown 作业的诊断，必须留下一步恢复入口。
 - 委派时协调者记录派发状态：`prepared / dispatched / accepted / rejected / blocked`；直接交互则在 EXPERIMENTS 写本节点接收结论，不需虚构派发状态。没有通过接收检查的结果不能作为下游的“已验证”输入。
 
-TASK、RESULT、candidate 新模板分别使用 `operator-harness/node-task@3`、`node-result@3`、`candidate@2`，必填 project_id；TASK 同时固定工作目录、记录目录和 owner。其余记录保留各自版本。v1 旧记录只读兼容；新工具不将旧项目根解释为新记录目录。增加可选字段不改变既有语义，必填字段或含义改变则升主版本；不理解版本时停止并报告。已有记录迁移只补缺失事实与引用，保留旧证据；没有历史信息就标 unknown，不补造身份或许可。当前按此契约人工/agent 检查；未来程序校验首先验证这些稳定字段与引用，不另造第二套事实源。
+TASK、RESULT、candidate 新模板分别使用 `operator-harness/node-task@4`、`node-result@4`、`candidate@2`，必填 project_id；TASK 同时固定工作目录、记录目录和 owner。其余记录保留各自版本。v1 旧记录只读兼容；新工具不将旧项目根解释为新记录目录。增加可选字段不改变既有语义，必填字段或含义改变则升主版本；不理解版本时停止并报告。已有记录迁移只补缺失事实与引用，保留旧证据；没有历史信息就标 unknown，不补造身份或许可。当前 searchctl 检查显式版本、稳定身份与适用的结构化证据；科学内容、实际执行范围及授权来源仍由宿主核验，详见执行控制契约。
 
 ## 搜索树兼容扩展
 
@@ -123,7 +123,7 @@ TASK、RESULT、candidate 的 search_node_id 在未启用树时可省略；未�
 
 ## Develop 接收字段
 
-TASK @3 的 operation 使用四种 develop 模式之一，并以 `performance_required: true / false` 固定是否要求性能验收。RESULT @3 为 develop 增加 accuracy_status、performance_status、regression_cause 及证据路径，字段定义见模板；必须与结果表和实际候选一致。
+TASK @4 的 operation 使用五种 develop 模式之一，并以 `performance_required: true / false` 固定是否要求性能验收。RESULT @4 为 develop 增加 accuracy_status、performance_status、regression_cause 及证据路径，字段定义见模板；必须与结果表和实际候选一致。
 
 searchctl 新登记 develop 时检查范围字段，accept 要求 completed，拒绝精度失败、无效精度、必选精度未测、性能要求未测、无效性能以及 implementation/unknown/measurement 归因。idea 必须具有精度通过、有效性能与独立归因文件；接收时冻结相关证据摘要。它检查声明和证据身份，协调者仍核对逐 case 覆盖、结果表一致性、实际源码/测量身份及归因内容，不把一行 idea 当作证明。
 
@@ -131,14 +131,22 @@ searchctl 新登记 develop 时检查范围字段，accept 要求 completed，�
 
 ## Port-baseline 接收字段
 
-port-baseline 复用 TASK/RESULT @3 公共字段，为新增节点定义条件字段：TASK operation=port-and-validate、performance_required=true、aicpu_policy=forbidden、diagnostics_required=true/false（默认 true）；RESULT 使用公共精度/性能/analysis_data 字段，另有 candidate_manifest、porting_evidence。旧节点字段含义不变。
+port-baseline 复用 TASK/RESULT @4 公共字段，为新增节点定义条件字段：TASK operation=port-and-validate、performance_required=true、aicpu_policy=forbidden、diagnostics_required=true/false（默认 true）；RESULT 使用公共精度/性能/analysis_data 字段，另有 candidate_manifest、porting_evidence。旧节点字段含义不变。
 
 searchctl 登记时固定范围；accept 要求 completed、精度 passed、性能 passed/failed，PORTING 为 complete 且 aicpu_status=not_used/replaced，并核对项目/run/候选身份、必需诊断 ready、冻结证据摘要。源码确已落实方案、调用链无候选 AICPU 依赖、融合/计时边界及精度覆盖由协调者核验。性能未达标可接收为初版差距，无需 idea 归因；精度/实现/测量或替代问题仍须节点内解决。预算耗尽保留未验收检查点，不用 failed 终态规避。参考可以使用 AICPU，候选不得引入该能力或隐藏 host 回退。
 
 ## 实现节点 → analysis 的上板数据
 
-新 TASK @3 显式填写 diagnostics_required 及诊断计划；普通性能优化任务默认 true，明确仅代码/精度等范围可为 false。该字段兼容扩展到当前模板，不追溯改写历史 TASK。RESULT 的 analysis_data 引用 [ANALYSIS_DATA](../../harness-develop/assets/templates/analysis-data.md)：实际候选/构建/case/环境身份、真实 kernel 来源与调用链映射、torch_npu/msprof 原始数据与摘要、指标/流水覆盖、命令日志和观察。即使未采也交付原因与影响，不留空项。
+新 TASK @4 显式填写 diagnostics_required 及诊断计划；普通性能优化任务默认 true，明确仅代码/精度等范围可为 false。该字段兼容扩展到当前模板，不追溯改写历史 TASK。RESULT 的 analysis_data 引用 [ANALYSIS_DATA](../../harness-develop/assets/templates/analysis-data.md)：实际候选/构建/case/环境身份、真实 kernel 来源与调用链映射、torch_npu/msprof 原始数据与摘要、指标/流水覆盖、命令日志和观察。即使未采也交付原因与影响，不留空项。
 
 采集方法与工具在 [上板诊断](../../harness-develop/references/onboard-diagnostics.md)。任务要求的分析数据必须 ready 才能接收；helper 冻结该文档摘要并检查项目/run/状态，协调者核对实际原始文件、完整性、来源与覆盖，不因工具退出为0或文件存在判成功。旧 TASK 没有 diagnostics_required 时保持原范围；更新诊断范围应按既有冻结输入变更流程处理。
 
 完整多指标交给 msprof op/msopprof 编排，torch_npu 原生采集按需补充。交付须说明实际可核实的采集分组、工具设备内存恢复范围和运行差异，不将指标数当作重放次数，不把不同 pass 合并成同步观测。analysis 优先消费该交付，关联正式性能结果与流水/指标，区分观察、假设和下一验证点。诊断重放的数据不能作为稳态性能验收；只采部分 core/pipe 不能推断全硬件状态。仿真用于补充问题，不是分析上板数据的前置条件。
+
+## 程序化接收与安全关闭
+
+新任务使用 [执行控制契约](execution-control.md) 的 @4 输入/验证清单、policy@2、工具包身份及独立候选晋升；历史 @1–@3 兼容读取或显式 legacy 补登记，保留原通过含义，不能冒充新版验收。失败仍不允许 accept，但可在执行者停止、作业和资源对账后 close-run 为 rejected/abandoned/superseded。关闭不授予任何验证资格；范围/预算变化可以安全关闭旧任务并关联新 TASK，不再要求失败任务先成功才能继续。终态 RESULT 不改写。
+
+control 启用后使用同一搜索账本的步数/预留/job/结算事件，RESOURCE_USAGE/STATE 只保存对应摘要或链接；reconcile 报告实际账本水位。外部观察、科学结论、权限真实性及共享环境发布仍由宿主核验。
+
+无适用高性能参考且没有候选时，可按已验收的独立正确性参考和用户明确的绝对/模型目标进入 develop initial-and-validate。TASK 固定 initial_design 与 evaluation_plan；模型目标不称为设备标杆。初版精度、实现与测量必须有效，性能差距可以交给 analysis；已有性能源码时仍优先 port-baseline。

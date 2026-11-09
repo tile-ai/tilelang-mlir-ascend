@@ -20,10 +20,10 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "harness-new-project/scripts"))
 import projectctl
+import evidence
+import control
+from evidence import Invalid
 
-
-class Invalid(ValueError):
-    pass
 
 
 def require(condition, message):
@@ -57,6 +57,10 @@ def digest(data):
 
 def read(path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def settled(run):
+    return bool(run.get("result") or run.get("closure"))
 
 
 def now():
@@ -159,6 +163,9 @@ class Store:
             identifier(key)
             fields(node, "hypothesis", "scope")
             require(node["status"] in ("open", "parked", "closed"), "invalid node status")
+            if node.get("plan"):
+                plan = self.search_plan(node["plan"])
+                require(node.get("mechanism_id") == plan["mechanism_id"], "mechanism identity mismatch")
             seen = set()
             cursor = key
             while cursor is not None:
@@ -168,6 +175,7 @@ class Store:
         for key, candidate in tree["candidates"].items():
             identifier(key)
             require(candidate["search_node_id"] in nodes, "unknown candidate node")
+            self.contract(candidate["manifest"], "candidate")
             self.verify_ref(candidate["manifest"])
             self.markdown(candidate["manifest"], candidate_id=key,
                           search_node_id=candidate["search_node_id"])
@@ -183,13 +191,21 @@ class Store:
         for key, run in tree["runs"].items():
             identifier(key)
             require(run["search_node_id"] in nodes, "unknown run node")
-            require(run["stage"] in ("port-baseline", "analysis", "develop", "device-test"), "invalid workflow stage")
+            require(run["stage"] in ("prepare-environment", "establish-baseline", "port-baseline", "analysis", "develop", "device-test"), "invalid workflow stage")
             self.verify_ref(run["task"])
+            self.contract(run["task"], "node-task")
             self.markdown(run["task"], run_id=key, node=run["stage"],
                           search_node_id=run["search_node_id"])
             candidate = run["candidate_id"]
             require(candidate is None or candidate in tree["candidates"], "unknown input candidate")
+            if run.get("evaluation_plan") and run.get("result"):
+                _, dependencies = evidence.plan(self, run["evaluation_plan"])
+                require(dependencies == run["evaluation_inputs"], "frozen evaluation inputs changed")
+            if run.get("closure"):
+                require(not run.get("result"), "closed run cannot also be accepted")
+                self.validate_closure(key, run)
             if run.get("result"):
+                self.contract(run["result"], "node-result")
                 self.verify_ref(run["result"])
                 self.markdown(run["result"], run_id=key, node=run["stage"],
                               search_node_id=run["search_node_id"])
@@ -234,6 +250,7 @@ class Store:
                 hot = read(self.local(ref["path"]))
                 require(hot["id"] == key and hot["revision"] == revision, "invalid hot revision")
                 self.validate_hot(hot, tree)
+        control.validate(self, tree)
         for binding in tree["cooled_inputs"]:
             require(binding["search_node_id"] in nodes, "unknown knowledge consumer")
             fields(binding, "reason")
@@ -265,7 +282,7 @@ class Store:
 
     def apply(self, operation):
         """One idempotent, serialized operation; immutable blobs precede its index."""
-        with self.write(closing=operation.get("op") == "accept"):
+        with self.write(closing=operation.get("op") in ("accept", "close-run")):
             tree = self.load()
             event_id = identifier(operation["event_id"])
             for event in tree["events"]:
@@ -273,6 +290,7 @@ class Store:
                     require(event["operation"] == operation, "event ID reused with different content")
                     return tree
             self.mutate(tree, operation)
+            control.admission(tree, operation)
             self.validate(tree)
             tree["events"].append({"at": now(), "operation": deepcopy(operation)})
             atomic(self.path, tree)
@@ -280,25 +298,36 @@ class Store:
 
     def mutate(self, tree, op):
         action = op["op"]
-        if action == "add-node":
+        if action.startswith("control-"):
+            control.apply(self, tree, op)
+        elif action == "add-node":
             key = identifier(op["id"])
             require(key not in tree["nodes"], "node already exists")
             require(op["parent"] in tree["nodes"], "unknown parent")
             fields(op, "hypothesis", "scope")
             tree["nodes"][key] = {name: op[name] for name in ("parent", "hypothesis", "scope")}
             tree["nodes"][key]["status"] = "open"
+            if op.get("plan"):
+                ref = self.reference(op["plan"])
+                plan = self.search_plan(ref)
+                prior = [k for k, node in tree["nodes"].items() if node.get("mechanism_id") == plan["mechanism_id"]]
+                require(set(prior) <= set(plan["prior_nodes"]), "search plan omits matching prior mechanisms")
+                require(all(k in tree["nodes"] and k != key for k in plan["prior_nodes"]), "unknown prior search node")
+                require(not prior or plan["new_evidence"] or nonempty(plan.get("changed_conditions")),
+                        "repeated mechanism needs new evidence or changed conditions")
+                tree["nodes"][key].update(plan=ref, mechanism_id=plan["mechanism_id"])
         elif action in ("select", "node-status"):
             require(op["id"] in tree["nodes"], "unknown node")
             fields(op, "reason")
             if action == "select":
                 require(tree["nodes"][op["id"]]["status"] == "open", "reopen node before selecting")
-                require(all(run.get("result") for run in tree["runs"].values()),
+                require(all(settled(run) for run in tree["runs"].values()),
                         "accept outstanding runs before switching strategy")
                 tree["current_node"] = op["id"]
             else:
                 require(op["status"] in ("open", "parked", "closed"), "invalid status")
                 require(op["status"] == "open" or all(
-                    run.get("result") or run["search_node_id"] != op["id"]
+                    settled(run) or run["search_node_id"] != op["id"]
                     for run in tree["runs"].values()), "node has outstanding runs")
                 tree["nodes"][op["id"]]["status"] = op["status"]
         elif action == "candidate":
@@ -315,11 +344,11 @@ class Store:
             tree["candidates"][key] = {"search_node_id": op["search_node_id"],
                                        "parent_candidate": parent, "manifest": ref}
         elif action == "run":
-            require(op["stage"] in ("port-baseline", "analysis", "develop"),
-                    "new runs use port-baseline, analysis or develop; device-test is legacy only")
-            require(not any(run.get("batch_id") and not run.get("result")
+            require(op["stage"] in ("prepare-environment", "establish-baseline", "port-baseline", "analysis", "develop"),
+                    "new runs use the five current stages; device-test is legacy only")
+            require(not any(run.get("batch_id") and not settled(run)
                             for run in tree["runs"].values()), "develop batch is outstanding")
-            require(not any(not run.get("result") and
+            require(not any(not settled(run) and
                             (op["stage"] != "analysis" or run["stage"] != "analysis")
                             for run in tree["runs"].values()),
                     "ordinary develop/port-baseline must run alone; use develop-batch for parallel optimization")
@@ -335,28 +364,68 @@ class Store:
                 self.port_scope(ref)
             tree["runs"][key] = {"search_node_id": op["search_node_id"], "stage": op["stage"],
                                   "candidate_id": op["candidate_id"], "task": ref, "result": None}
+            self.admit(tree["runs"][key], op.get("legacy", False), tree)
             if op["stage"] == "develop":
-                tree["runs"][key]["acceptance_policy"] = "develop-acceptance@1"
+                tree["runs"][key].setdefault("acceptance_policy", "develop-acceptance@1")
             elif op["stage"] == "port-baseline":
-                tree["runs"][key]["acceptance_policy"] = "port-acceptance@1"
+                tree["runs"][key].setdefault("acceptance_policy", "port-acceptance@1")
         elif action == "develop-batch":
             self.develop_batch(tree, op)
         elif action == "accept":
             run = tree["runs"][op["id"]]
-            require(run["result"] is None, "run already accepted")
+            control.reconciled(tree, op["id"])
+            require(not settled(run), "run already accepted or closed")
             ref = self.reference(op["result"])
             self.markdown(ref, run_id=op["id"], node=run["stage"], search_node_id=run["search_node_id"])
+            self.contract(ref, "node-result", required=not run.get("legacy", "evaluator" not in run))
+            if "evaluator" in run:
+                require(run["evaluator"] == evidence.evaluator_identity(),
+                        "evaluator changed; use the recorded tool bundle or supersede the task")
+            if "harness_bundle" in run:
+                require(run["harness_bundle"] == evidence.bundle_identity(),
+                        "harness bundle changed; use the recorded installation or supersede the task")
             self.terminal(ref)
             if run["stage"] == "develop":
                 if op.get("scope"):
                     require("acceptance_policy" not in run, "new develop cannot replace its frozen scope")
                     run["acceptance_scope"] = self.reference(op["scope"])
                     self.markdown(run["acceptance_scope"], run_id=op["id"])
-                run["acceptance"] = self.develop_acceptance(run, ref)
+                run["acceptance"] = self.run_acceptance(run, ref)
             elif run["stage"] == "port-baseline":
                 require(not op.get("scope"), "port-baseline cannot replace its frozen scope")
-                run["acceptance"] = self.port_acceptance(run, ref)
+                run["acceptance"] = self.run_acceptance(run, ref)
             run["result"] = ref
+        elif action == "close-run":
+            run = tree["runs"][op["id"]]
+            control.reconciled(tree, op["id"])
+            require(not settled(run), "run already accepted or closed")
+            require(op.get("disposition") in ("rejected", "abandoned", "superseded"), "invalid closure disposition")
+            fields(op, "reason", "checkpoint", "evidence")
+            successor = op.get("successor")
+            if op["disposition"] == "superseded":
+                identifier(successor)
+                require(successor != op["id"] and successor not in tree["runs"], "successor must be a new run")
+            else:
+                require(successor is None, "only superseded runs name a successor")
+            run["closure"] = {"disposition": op["disposition"], "reason": op["reason"],
+                              "checkpoint": self.reference(op["checkpoint"]),
+                              "evidence": self.reference(op["evidence"]), "successor": successor}
+            self.validate_closure(op["id"], run)
+        elif action == "promote-candidate":
+            run = tree["runs"][op["run_id"]]
+            verified = run.get("acceptance", {}).get("validation", {})
+            require(run.get("result") and verified.get("eligible") is True,
+                    "promotion requires structured passing evidence")
+            candidate_id = verified["candidate_id"]
+            require(candidate_id in tree["candidates"] and
+                    tree["candidates"][candidate_id]["manifest"] == verified["candidate"],
+                    "register the exact validated candidate before promotion")
+            fields(op, "reason")
+            if tree.get("best"):
+                require(tree["best"]["comparison"] == verified["comparison"],
+                        "best candidate comparison changed; explicitly start a new comparison")
+            tree["best"] = {"candidate_id": candidate_id, "run_id": op["run_id"],
+                            "comparison": verified["comparison"], "reason": op["reason"]}
         elif action == "hot":
             key = identifier(op["id"])
             revisions = tree["hot"].setdefault(key, [])
@@ -387,7 +456,7 @@ class Store:
         """Admit an isolated group atomically; the host coordinates execution."""
         key = identifier(op["id"])
         require(key not in tree.get("batches", {}), "batch already registered")
-        require(all(run.get("result") for run in tree["runs"].values()),
+        require(all(settled(run) for run in tree["runs"].values()),
                 "accept outstanding runs before starting a batch")
         members = op["members"]
         require(isinstance(members, list) and len(members) >= 2, "batch needs at least two members")
@@ -396,6 +465,7 @@ class Store:
         data = self.workspace.load(self.project_id)
         paths = []
         ids = []
+        comparison = None
         for member in members:
             run_id = identifier(member["id"])
             require(run_id not in tree["runs"], "run already registered")
@@ -423,9 +493,103 @@ class Store:
                                     "batch_id": key, "analysis_run": member["analysis_run"],
                                     "acceptance_policy": "develop-acceptance@1",
                                     "repo_ids": list(repo_ids)}
+            self.admit(tree["runs"][run_id], op.get("legacy", False), tree)
+            if not op.get("legacy", False):
+                run = tree["runs"][run_id]
+                require("evaluation_plan" in run, "batch members need full evaluation plans")
+                plan, dependencies = evidence.plan(self, run["evaluation_plan"])
+                for name in ("requirements", "cases", "protocol", "environment"):
+                    require(plan["inputs"][name] == inputs.get(name), "batch evaluation inputs mismatch")
+                require(inputs.get("baseline") in dependencies.values(), "batch baseline is absent from evaluation dependencies")
+                identity = evidence.comparison_identity(plan)
+                require(comparison is None or comparison == identity, "batch comparison plans differ")
+                comparison = identity
             ids.append(run_id)
         tree.setdefault("batches", {})[key] = {"members": ids, "inputs": inputs,
                                                "candidate_id": op["candidate_id"]}
+
+    def search_plan(self, ref):
+        self.verify_ref(ref)
+        plan = read(self.local(ref["path"]))
+        require(plan.get("schema") == "operator-harness/search-plan@1" and
+                plan.get("project_id") == self.project_id, "search plan schema/project mismatch")
+        identifier(plan.get("mechanism_id"))
+        fields(plan, "expected", "falsifier", "keep", "discard", "simplification")
+        require(isinstance(plan.get("prior_nodes"), list) and isinstance(plan.get("new_evidence"), list),
+                "search plan needs history and evidence lists")
+        for item in plan["new_evidence"]:
+            self.verify_ref(item)
+        return plan
+
+    def mechanisms(self):
+        tree = self.load()
+        return [{"node": key, "mechanism_id": node.get("mechanism_id"), "status": node["status"],
+                 "hypothesis": node["hypothesis"], "plan": node.get("plan")}
+                for key, node in tree["nodes"].items()]
+
+    def contract(self, ref, kind, required=False):
+        text = self.local(ref["path"]).read_text(encoding="utf-8")
+        values = re.findall(r"^- contract: ([^\n\r]*)$", text, re.M)
+        versions = {"node-task": (1, 2, 3, 4), "node-result": (1, 2, 3, 4), "candidate": (1, 2)}
+        if not values and not required:
+            return None
+        require(len(values) == 1 and values[0] in
+                [f"operator-harness/{kind}@{v}" for v in versions[kind]], "unsupported/duplicate " + kind + " contract")
+        if required:
+            latest = "@2" if kind == "candidate" else "@4"
+            require(values[0].endswith(latest), "new runs require current contract " + latest + "; legacy import must be explicit")
+        return values[0]
+
+    def admit(self, run, legacy, tree):
+        require(type(legacy) is bool, "legacy must be a boolean")
+        version = self.contract(run["task"], "node-task", required=not legacy)
+        require(not legacy or version != "operator-harness/node-task@4", "@4 cannot downgrade to legacy")
+        run["input_candidate"] = tree["candidates"].get(run["candidate_id"], {}).get("manifest")
+        run["legacy"] = legacy
+        run["evaluator"] = evidence.evaluator_identity()
+        run["harness_bundle"] = evidence.bundle_identity()
+        if legacy:
+            require(self.value(run["task"], "operation") != "initial-and-validate"
+                    if run["stage"] == "develop" else True, "initial mode requires @4")
+        if legacy or run["stage"] not in ("develop", "port-baseline"):
+            return
+        run["acceptance_policy"] = ("develop" if run["stage"] == "develop" else "port") + "-acceptance@2"
+        mode = self.value(run["task"], "operation")
+        self.value(run["task"], "diagnostics_required")
+        if mode not in ("code-only", "collect-only"):
+            ref = self.reference(self.value(run["task"], "evaluation_plan"))
+            data, dependencies = evidence.plan(self, ref)
+            require(data.get("run_id") == self.value(run["task"], "run_id"), "evaluation plan run mismatch")
+            if self.value(run["task"], "performance_required") == "true":
+                require(data["performance_kind"] != "none", "required performance plan absent")
+            if mode == "initial-and-validate":
+                require(run["candidate_id"] is None and data["performance_kind"] in ("none", "absolute", "model"),
+                        "initial mode requires no candidate and a non-measured performance goal")
+                design = self.reference(self.value(run["task"], "initial_design"))
+                require(bool(self.local(design["path"]).read_bytes().strip()), "empty initial design")
+                run["initial_design"] = design
+            run.update(evaluation_plan=ref, evaluation_inputs=dependencies)
+
+    def validate_closure(self, run_id, run):
+        closure = run["closure"]
+        self.contract(closure["checkpoint"], "node-result")
+        self.verify_ref(closure["checkpoint"])
+        self.markdown(closure["checkpoint"], run_id=run_id, node=run["stage"], search_node_id=run["search_node_id"])
+        require(self.value(closure["checkpoint"], "status") in
+                ("blocked", "interrupted", "needs_input", "failed", "completed"), "writer still running")
+        self.verify_ref(closure["evidence"])
+        record = read(self.local(closure["evidence"]["path"]))
+        require(record.get("schema") == "operator-harness/run-closure@1" and
+                record.get("project_id") == self.project_id and record.get("run_id") == run_id,
+                "closure identity mismatch")
+        fields(record, "summary")
+        require(record.get("writers_stopped") is True and record.get("jobs") == [] and
+                record.get("unsettled_resources") == [], "unconfirmed writers, jobs or resources")
+        refs = record.get("evidence")
+        require(isinstance(refs, list) and bool(refs), "closure needs reconciliation evidence")
+        for ref in refs:
+            self.verify_ref(ref)
+        require(closure["disposition"] in ("rejected", "abandoned", "superseded"), "invalid closure")
 
     def markdown(self, ref, **expected):
         text = self.local(ref["path"]).read_text(encoding="utf-8")
@@ -446,7 +610,7 @@ class Store:
 
     def develop_scope(self, task):
         mode = self.value(task, "operation")
-        require(mode in ("implement-and-validate", "verify-only", "collect-only", "code-only"),
+        require(mode in ("implement-and-validate", "initial-and-validate", "verify-only", "collect-only", "code-only"),
                 "invalid develop operation")
         performance = self.value(task, "performance_required")
         require(performance in ("true", "false"), "performance_required must be true or false")
@@ -477,7 +641,8 @@ class Store:
                 "required performance has not been measured")
         require(cause in ("none", "idea"),
                 "implementation/unknown regression must be resolved inside develop")
-        require(performance != "failed" or cause == "idea", "performance failure needs idea diagnosis")
+        require(performance != "failed" or cause == "idea" or mode == "initial-and-validate",
+                "performance failure needs idea diagnosis")
         evidence = {}
         if accuracy == "passed":
             evidence["accuracy"] = self.reference(self.value(result, "accuracy_evidence"))
@@ -534,10 +699,22 @@ class Store:
         return {"policy": "port-acceptance@1", "evidence": evidence}
 
     def run_acceptance(self, run, result):
-        if run["stage"] == "port-baseline":
-            return self.port_acceptance(run, result)
-        require(run["stage"] == "develop", "unexpected acceptance policy for stage")
-        return self.develop_acceptance(run, result)
+        expected = "port" if run["stage"] == "port-baseline" else "develop"
+        policy = run.get("acceptance_policy", expected + "-acceptance@1")
+        require(policy in (expected + "-acceptance@1", expected + "-acceptance@2"), "unsupported acceptance policy")
+        accepted = (self.port_acceptance(run, result) if expected == "port"
+                    else self.develop_acceptance(run, result))
+        if run.get("initial_design"):
+            self.verify_ref(run["initial_design"])
+            accepted["initial_design"] = run["initial_design"]
+        if policy.endswith("@2"):
+            self.contract(result, "node-result", required=True)
+            mode = self.value(run["task"], "operation")
+            accepted["validation"] = (evidence.limited_validation(self, run, result)
+                                      if mode in ("code-only", "collect-only")
+                                      else evidence.validation(self, run, result))
+            accepted["policy"] = policy
+        return accepted
 
     def terminal(self, ref):
         text = self.local(ref["path"]).read_text(encoding="utf-8")
@@ -558,6 +735,24 @@ class Store:
                                  "artifact": ref["path"], "reason": str(exc)})
             warnings.extend({"search_node_id": binding["search_node_id"], **notice} for notice in notices)
         return warnings
+
+    def reconcile(self):
+        tree = self.load()
+        stale = []
+        for key, run in tree["runs"].items():
+            if not settled(run):
+                for ref in run.get("evaluation_inputs", {}).values():
+                    try:
+                        self.verify_ref(ref)
+                    except (Invalid, OSError) as exc:
+                        stale.append({"run_id": key, "path": ref["path"], "error": str(exc)})
+        return {"project_id": self.project_id, "event_watermark": len(tree["events"]), "stale_inputs": stale,
+                "best": tree.get("best"), "control": control.snapshot(tree),
+                "outstanding_runs": [key for key, run in tree["runs"].items() if not settled(run)],
+                "closed_runs": [key for key, run in tree["runs"].items() if run.get("closure")],
+                "legacy_acceptances": [key for key, run in tree["runs"].items()
+                                       if run.get("result") and not run.get("acceptance", {}).get("validation")],
+                "limitations": ["job observations and authority records are supplied by the host; Markdown STATE is not parsed"]}
 
     def review(self):
         tree = self.load()
@@ -686,6 +881,9 @@ def main():
     commands.add_parser("show")
     commands.add_parser("check")
     commands.add_parser("review")
+    commands.add_parser("reconcile")
+    commands.add_parser("mechanisms")
+    commands.add_parser("reference").add_argument("path")
     apply = commands.add_parser("apply")
     apply.add_argument("record", type=Path)
     promote = commands.add_parser("promote")
@@ -698,7 +896,7 @@ def main():
     invalidate.add_argument("--reason", required=True)
     args = parser.parse_args()
     try:
-        require(not args.legacy or args.command in ("show", "check", "review"), "legacy mode is read-only")
+        require(not args.legacy or args.command in ("show", "check", "review", "reconcile", "mechanisms", "reference"), "legacy mode is read-only")
         store = Store(args.workspace, args.project, args.owner, args.legacy)
         if args.command == "init":
             result = store.init(args.operator, args.task_contract, args.hypothesis, args.scope)
@@ -706,6 +904,12 @@ def main():
             result = store.apply(read(args.record))
         elif args.command == "promote":
             result = {"artifact": store.promote(read(args.decision), args.output_dir or f"knowledge/cooled/{store.project_id}")}
+        elif args.command == "reference":
+            result = store.reference(args.path)
+        elif args.command == "mechanisms":
+            result = store.mechanisms()
+        elif args.command == "reconcile":
+            result = store.reconcile()
         elif args.command == "review":
             result = store.review()
         elif args.command == "invalidate-cooled":

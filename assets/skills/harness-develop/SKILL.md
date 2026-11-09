@@ -11,7 +11,7 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 
 当前会话或独立 agent 均可执行本节点。已收到 TASK 的子 agent 直接按 [节点契约](../harness-resume/references/node-contract.md) 读取输入，不递归执行主 agent 的派发流程；直接交互时先按 [harness-resume](../harness-resume/SKILL.md) 恢复或补齐 TASK。记录任务理解与结果，确保不继承聊天的新 agent 也能接手。委派子 agent 只写所分配产物，由主 agent 中继问询并汇总共享记录；直接交互时当前 agent 完成同样的收尾检查后可继续后续节点，不要求新会话。
 
-按 TASK 输入清单读取当前任务、已接收的 analysis 方案/诊断、父候选和相关实验，按本次操作使用 TASK 固定的 development/device 约定快照；实时 ENVIRONMENT 索引只检查漂移/撤权，不重新替换绑定。implement-and-validate 落实针对已有候选的修改假设；缺少适用分析时先进入 [harness-analysis](../harness-analysis/SKILL.md)，没有候选则先进入 [标杆移植](../harness-port-baseline/SKILL.md)。用户明确只要求编写时遵循该范围并记录所据方案与未验证项。缺少环境信息时只补当前动作所需能力，允许继续授权内的离线编写。
+按 TASK 输入清单读取当前任务、已接收的 analysis 方案/诊断、父候选和相关实验，按本次操作使用 TASK 固定的 development/device 约定快照；实时 ENVIRONMENT 索引只检查漂移/撤权，不重新替换绑定。implement-and-validate 落实针对已有候选的修改假设；缺少适用分析时先进入 [harness-analysis](../harness-analysis/SKILL.md)，没有候选且有适用参考源码则先进入 [标杆移植](../harness-port-baseline/SKILL.md)；没有适用性能源码时按本文 initial-and-validate 路径建立初版。用户明确只要求编写时遵循该范围并记录所据方案与未验证项。缺少环境信息时只补当前动作所需能力，允许继续授权内的离线编写。
 
 延续初版的能力约束：TileLang 候选不引入 AICPU，不将其支持开发列为优化前置；保持已验证替代方案的语义和计时边界，后续优化也不能借 host/AICPU 回退绕过约束。
 
@@ -65,7 +65,7 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 
 RESULT 同时交付实现与测试结果，分别标注编译、精度、性能目标、采集完整性，保留失败、慢 case、未运行项与在途作业。编译成功不能替代设备验证；节点 completed 也不代表性能达标。verify-only/collect-only 不重复生成代码候选，只引用原候选与新增证据。
 
-**精度是节点接收的硬条件。** implement-and-validate 与 verify-only 的全部必选精度必须通过；精度失败不能用 completed/failed 交付绕过，不能以“交给 analysis 定位”结束本节点。保留反例，在本节点修复并重新验证全部必选 case。verify-only/collect-only 若只获准只读操作，则保留未验收检查点，请协调者补齐修复范围；不能自行扩大修改权限，也不能接受失败结果。
+**精度是节点接收的硬条件。** implement-and-validate、initial-and-validate 与 verify-only 的全部必选精度必须通过；精度失败不能用 completed/failed 交付绕过，不能以“交给 analysis 定位”结束本节点。保留反例，在本节点修复并重新验证全部必选 case。verify-only/collect-only 若只获准只读操作，则保留未验收检查点，请协调者补齐修复范围；不能自行扩大修改权限，也不能接受失败结果。
 
 性能退化先核对计时有效性，再对照 analysis 方案、实际源码/生成物与流水证据判断原因（即使仍满足目标，也需解释相对父候选的退化）：
 
@@ -76,3 +76,11 @@ RESULT 同时交付实现与测试结果，分别标注编译、精度、性能�
 目标达成且没有未解决的接收条件时交协调者汇总/交付；有效但未达性能目标的结果也须先完成上述归因，再交给 analysis。明确 code-only 或 collect-only 沿用 TASK 的有限范围，不能将失败任务事后改成这些模式规避验收。
 
 启用搜索树时沿用 TASK 的 `search_node_id`。并行成员在 RESULT 保留 `batch_id`、`analysis_run`；执行者只交付本 run，协调者串行登记候选、接收结果和更新最佳候选。候选谱系引用真实输入候选，不能把兄弟的通过标记继承给合并结果。
+
+## 初版构建与程序验收
+
+没有候选且无适用高性能源码时，允许 `initial-and-validate`：先有独立正确性参考、有限来源调查结果和明确的绝对/模型目标，固定 initial_design，再构建最小初版；无需虚构已有候选分析或性能源码移植。遵守同样的 TileLang/AICPU、预检、完整精度、测量与诊断要求。初版实现符合方案且精度/测量有效时，目标未达可带差距进入 analysis；不能将实现或测量错误归入该例外。已有候选仍使用常规 implement-and-validate。
+
+新 TASK/RESULT 按 [结构化验收](../harness-resume/references/execution-control.md) 使用 @4，注册前固定 evaluation_plan；输出原始 case 报告和 validation 清单。正式接收前核对程序检查、科学内容、job/资源及未测边界。范围变化需要新任务时先安全 close-run，不能改冻结任务或把失败称为通过。
+
+已有本地前台命令可使用 [本地 runner](references/local-runner.md) 保留意图、日志和退出回执；真实设备执行仍使用已核实适配。进程回执不等于设备或性能验收。

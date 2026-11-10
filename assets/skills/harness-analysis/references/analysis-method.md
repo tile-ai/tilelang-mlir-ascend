@@ -8,6 +8,8 @@
 
 ## 仿真与流水证据
 
+Ascend950 采集、GET/RLS 覆盖审计和 Insight 导出按随包的 [仿真 Skill](../../ascend950-simulation/SKILL.md) 执行。原生流水、补入的零耗时事件与显示锚点分别统计，保留 `.validation.json` 的核范围、遗漏与未连接信息；不把增强 trace 的显示宽度计入性能。
+
 按需在任务所选的 [TileLang 仓库](https://github.com/tile-ai/tilelang) checkout 中查找 profiling 资料，例如 `.agents/skills/tilelang-ascend/references/profiling.md`；路径和方法以当前版本为准。其 npusim recipe 与项目 simulator 不是同一接口，不能直接互换命令；事件单位、配对以及 dispatch/completion 的含义须按本次实际模型和解析器核实。
 
 ## 先限定能回答什么

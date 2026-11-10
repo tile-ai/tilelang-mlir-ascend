@@ -27,6 +27,8 @@ description: 首次分析标杆的实现思路并形成 TileLang 开发方案；
 
 ## 按实际分析方式绑定环境
 
+Ascend950 的 msprof 仿真与 trace 处理读取 [ascend950-simulation](../ascend950-simulation/SKILL.md)，按问题继续读取其 Insight 或 npusim 参考资料。该 Skill 自带离线增强/导出脚本；工具、SoC、频率和采集参数仍以 TASK 的 simulation 绑定为准。
+
 执行新仿真时使用 TASK 固定的 **simulation 专属约定快照**（旧 trace 分析使用其历史身份）；实时 ENVIRONMENT 索引只核对变化与撤权，不替换本次绑定，按 [环境复用规则](../harness-prepare-environment/references/environment-contract.md) 核对必需能力。仿真有自己的机器/容器、工具链、运行限制、授权和预算；上板环境可用或允许测试，不代表允许仿真。只读源码或已有 trace 不要求新仿真环境 ready。新增实卡流水采集由 device-test 按 device 约定完成后返回 analysis；不得借 analysis 扩大设备权限。
 
 沿用该约定，不重复环境问询。仿真未启用、未验证或禁止运行时记录具体状态，必要时在 RESULT 建议主 agent 派发环境准备补齐该节点；不能把任务自动转到上板机器仿真。分析已有产物可继续，但必须核对来源，不能当成本轮新采集。

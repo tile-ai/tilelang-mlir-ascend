@@ -211,7 +211,8 @@ class ProjectTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((source / '.agents').exists())
         installed = nested / '.agents/skills'
-        self.assertEqual(len(list(installed.iterdir())), 13)
+        expected = {skill.parent.name for skill in (ROOT / 'assets/skills').glob('*/SKILL.md')}
+        self.assertEqual({skill.name for skill in installed.iterdir()}, expected)
         tool = installed / 'harness-new-project/scripts/projectctl.py'
         result = subprocess.run([sys.executable, str(tool), '--workspace', str(nested),
                                  '--project', 'example', '--owner', 'session', 'create', '--title', 'Example'],

@@ -58,6 +58,8 @@ flowchart LR
 
 analysis 是默认迭代节点；是否运行新仿真或流水采集由问题、已有证据和预算决定，纯源码分析不依赖仿真就绪。test 保持现有技能名 `harness-device-test`。目标达成就结束，性能收益最终通过约定的实卡测量验证。
 
+随包的 [Ascend950 仿真 Skill](assets/skills/ascend950-simulation/SKILL.md) 提供采集指导、msprof trace 增强、npusim SQLite 导出和 Insight 兼容说明。analysis 按任务绑定的仿真约定使用；已有 trace 可离线处理。
+
 ## 目标能力
 
 | 能力 | 目标体验 |
@@ -98,7 +100,7 @@ analysis 是默认迭代节点；是否运行新仿真或流水采集由问题�
 
 ### 当前可用：Codex 项目流程与节点 skills
 
-本仓库已通过 `.agents/skills/` 接入十三项技能，在 Codex 中选择或输入：
+本仓库已通过 `.agents/skills/` 提供工作流与配套技能，在 Codex 中选择或输入：
 
 ```text
 $harness-new-project 为我的 TileLang 算子项目明确需求并建立路线图。
@@ -112,6 +114,7 @@ $harness-automatic 在已有目标和预算内连续推进当前任务。
 $harness-prepare-environment 多轮确定 Python、TileLang 配套与 CANN，准备并验证本项目使用的上板环境。
 $harness-establish-baseline 根据已绑定环境调查参考实现，验证并固定正确性参考和性能标杆。
 $harness-analysis 首次分析标杆实现思路，后续通过仿真和流水分析定位当前 kernel 的问题。
+$ascend950-simulation 按已绑定的仿真环境校验输出并导出流水 trace，或离线处理已有采集。
 $harness-develop 按已接收的分析方案和开发约定编写或修复 TileLang 候选。
 $harness-device-test 使用已有上板约定验证当前候选的精度和性能，需继续改进时回到 analysis。
 ```
@@ -128,7 +131,7 @@ $harness-device-test 使用已有上板约定验证当前候选的精度和性�
 python3 scripts/install_codex_skills.py --workspace operator-workspace
 ```
 
-安装到用户显式选择的工作目录，不自动提升到 Git 根；旧 --project-dir 参数作为 --workspace 的别名。安装器复制十三项技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件或已有 Harness AGENTS 区块存在不同内容时在复制前报告冲突，保留用户文件；不静默沿用旧路径入口。升级与卸载另按路线图建设。
+安装到用户显式选择的工作目录，不自动提升到 Git 根；旧 --project-dir 参数作为 --workspace 的别名。安装器复制随包提供的技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件或已有 Harness AGENTS 区块存在不同内容时在复制前报告冲突，保留用户文件；不静默沿用旧路径入口。升级与卸载另按路线图建设。
 
 Agent 在选定项目的 `.workspace/<project>/` 中维护 `PROJECT.md`、`REQUIREMENTS.md`、`ROADMAP.md` 和 `STATE.md`，接入已有项目时补充 `codebase/MAP.md`。这些都是可以直接编辑的 Markdown，按项目进展逐步建立；未决问题和下一步留在状态记录中，草稿与研究材料按需保存。
 

@@ -98,7 +98,7 @@ analysis 是默认迭代节点；是否运行新仿真或流水采集由问题�
 
 ### 当前可用：Codex 项目流程与节点 skills
 
-本仓库已通过 `.agents/skills/` 接入十三项技能，在 Codex 中选择或输入：
+本仓库已通过 `.agents/skills/` 提供工作流与配套技能，在 Codex 中选择或输入：
 
 ```text
 $harness-new-project 为我的 TileLang 算子项目明确需求并建立路线图。
@@ -114,6 +114,8 @@ $harness-establish-baseline 根据已绑定环境调查参考实现，验证并�
 $harness-analysis 首次分析标杆实现思路，后续通过仿真和流水分析定位当前 kernel 的问题。
 $harness-develop 按已接收的分析方案和开发约定编写或修复 TileLang 候选。
 $harness-device-test 使用已有上板约定验证当前候选的精度和性能，需继续改进时回到 analysis。
+$tilelang-ascend-generation 使用个人增补的阶段/VF 选择、存储预算和自动流水方法编写或优化算子。
+$ascend-mfu 基于有效 Cube 运算和完整 kernel 耗时计算 MFU，或建立条件性 Roofline。
 ```
 
 `harness-new-project` 用于新项目的需求澄清和规划；`harness-onboard` 用于已有项目接入，这里的 onboard 不执行 NPU 上板。CLI/IDE 也可通过 `/skills` 选择技能；本项目没有注册 `/harness-*` 顶层 slash commands。若技能尚未出现在宿主中，重启会话后再检查。发现与调用方式见 [Codex 技能文档](https://learn.chatgpt.com/docs/build-skills)。
@@ -128,9 +130,7 @@ $harness-device-test 使用已有上板约定验证当前候选的精度和性�
 python3 scripts/install_codex_skills.py --workspace operator-workspace
 ```
 
-安装到用户显式选择的工作目录，不自动提升到 Git 根；旧 --project-dir 参数作为 --workspace 的别名。安装器复制十三项技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件或已有 Harness AGENTS 区块存在不同内容时在复制前报告冲突，保留用户文件；不静默沿用旧路径入口。升级与卸载另按路线图建设。
-
-官方 TileLang 的九项原生 Skill 保存在 [原生 Skill 快照](assets/native-skills/README.md)，供离线查阅。原文中的仓库路径相对于对应的 TileLang checkout。
+安装到用户显式选择的工作目录，不自动提升到 Git 根；旧 --project-dir 参数作为 --workspace 的别名。安装器复制随包提供的技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件或已有 Harness AGENTS 区块存在不同内容时在复制前报告冲突，保留用户文件；不静默沿用旧路径入口。升级与卸载另按路线图建设。
 
 Agent 在选定项目的 `.workspace/<project>/` 中维护 `PROJECT.md`、`REQUIREMENTS.md`、`ROADMAP.md` 和 `STATE.md`，接入已有项目时补充 `codebase/MAP.md`。这些都是可以直接编辑的 Markdown，按项目进展逐步建立；未决问题和下一步留在状态记录中，草稿与研究材料按需保存。
 
@@ -202,6 +202,10 @@ npx <package>@<version> doctor
 阶段验收条件与待决事项见 [完整路线图](docs/ROADMAP.md)。
 
 ## 开发文档
+
+官方 TileLang 的九项原生 Skill 保存在 [原生 Skill 快照](assets/native-skills/README.md)，供离线查阅。原文中的仓库路径相对于对应的 TileLang checkout。
+
+个人增补独立放在 `assets/skills/` 并随安装器分发：[tilelang-ascend-generation](assets/skills/tilelang-ascend-generation/SKILL.md) 从个人 TileLang 仓库提取阶段拆分、SIMD/SIMT 选择和自动流水指导，供 analysis/develop 使用；[ascend-mfu](assets/skills/ascend-mfu/SKILL.md) 迁入个人 MFU Skill 的计算口径、Cube 算力表及 MFU/Roofline 脚本，供性能分析使用。这些是独立维护的扩展，官方跟踪目录保持原文。
 
 | 文档 | 内容 |
 | --- | --- |

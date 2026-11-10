@@ -1,0 +1,18 @@
+{
+  "checked_on": "2026-11-05",
+  "landing_url": "https://www.hiascend.com/hardware/processor",
+  "source_url": "https://public-download.obs.cn-east-2.myhuaweicloud.com/ascend/%E6%98%87%E8%85%BE950%20NPU%E6%9E%B6%E6%9E%84%E7%99%BD%E7%9A%AE%E4%B9%A6.pdf",
+  "source_table": "Table 3-1, PDF pages 13-14 (printed pages 9-10), Cube only",
+  "unit": "1e12 operations/second; INT8 is TOPS, floating point is TFLOPS",
+  "devices": {
+    "950pr": {
+      "28": {"fp16": 378, "bf16": 378, "tf32": 189, "fp8": 756, "mxfp8": 756, "hif8": 756, "mxfp4": 1513, "int8": 756},
+      "32": {"fp16": 432, "bf16": 432, "tf32": 216, "fp8": 865, "mxfp8": 865, "hif8": 865, "mxfp4": 1730, "int8": 865}
+    },
+    "950dt": {
+      "28": {"fp16": 378, "bf16": 378, "tf32": 189, "fp8": 756, "mxfp8": 756, "hif8": 756, "mxfp4": 1513, "int8": 756},
+      "32": {"fp16": 432, "bf16": 432, "tf32": 216, "fp8": 865, "mxfp8": 865, "hif8": 865, "mxfp4": 1730, "int8": 865},
+      "36": {"fp16": 486, "bf16": 486, "tf32": 243, "fp8": 973, "mxfp8": 973, "hif8": 973, "mxfp4": 1946, "int8": 973}
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "label": "Illustrative padded GEMM; assumed cold-memory scenario",
+  "device": "950pr",
+  "device_cores": 32,
+  "cores": 32,
+  "dtype": "bf16",
+  "useful_ops": 1966080,
+  "executed_ops": 2097152,
+  "resources": [
+    {
+      "name": "memory",
+      "payload_bytes": {
+        "A_bf16_padded": 16384,
+        "B_bf16": 16384,
+        "C_fp32_padded": 65536
+      },
+      "bandwidth_gbps": 1000,
+      "basis": "assumed",
+      "source": "Illustrative shared read/write bandwidth; not a device specification or measurement"
+    }
+  ],
+  "assumptions": [
+    "Logical GEMM M=120, N=128, K=64; execution pads M to 128.",
+    "BF16 padded inputs read once, FP32 padded output written once; all payload reaches memory.",
+    "Ideal overlap; cache reuse, local transfer, Vector, launch and drain limits omitted."
+  ]
+}

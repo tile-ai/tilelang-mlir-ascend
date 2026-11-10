@@ -139,7 +139,7 @@ class SearchToolsTest(unittest.TestCase):
             self.hot(0)
         self.assertEqual(len(self.store.load()["hot"]["H1"]), 2)
         self.assertEqual(search.read(self.store.local(first["path"]))["nodes"], ["N0", "N1"])
-        self.assertEqual(self.store.review()["candidates"][0]["hot"]["revision"], 2)
+        self.assertEqual(self.store.review()["latest_hot"][0]["hot"]["revision"], 2)
 
     def test_hot_crash_before_index_commit_can_resume_without_duplicate(self):
         original = search.atomic
@@ -173,7 +173,7 @@ class SearchToolsTest(unittest.TestCase):
         self.assertIn("H1", self.store.load()["hot"])
         self.hot(1)
         self.assertEqual(self.store.promote(decision, "knowledge/cooled"), output)
-        with self.assertRaisesRegex(search.Invalid, "conflict"):
+        with self.assertRaisesRegex(search.Invalid, "decision ID"):
             self.store.promote({**decision, "evidence_summary": "different claim"}, "knowledge/cooled")
 
     def test_hot_update_invalidates_old_approval(self):
@@ -205,6 +205,91 @@ class SearchToolsTest(unittest.TestCase):
         (self.root / "escape").symlink_to(self.root.parent, target_is_directory=True)
         with self.assertRaises(search.Invalid):
             self.store.local("escape/file")
+
+    def test_symlinked_workspace_cannot_receive_cooled(self):
+        self.hot()
+        decision = self.decision()
+        (self.root / ".workspace").rename(self.root / "private")
+        (self.root / ".workspace").symlink_to("private", target_is_directory=True)
+        for output in (".workspace/cooled", "private/cooled"):
+            with self.subTest(output=output), self.assertRaisesRegex(search.Invalid, "outside .workspace"):
+                self.store.promote(decision, output)
+        self.assertFalse((self.root / "private/cooled").exists())
+
+    def test_decision_id_cannot_be_reused_for_another_hot_entry(self):
+        self.hot()
+        decision = self.decision()
+        self.store.promote(decision, "knowledge/cooled")
+        self.apply("hot", id="H2", base_revision=0, kind="observation", statement="other finding",
+                   applicability="all", limitations="test only", nodes=["N0"],
+                   evidence=[".workspace/example/evidence/0.md"])
+        ref = self.store.load()["hot"]["H2"][-1]
+        with self.assertRaisesRegex(search.Invalid, "decision ID"):
+            self.store.promote({**decision, "hot_id": "H2", "hot_sha256": ref["sha256"]}, "knowledge/cooled")
+        self.assertFalse((self.root / "knowledge/cooled/H2--review1.json").exists())
+
+    def test_invalid_collection_neighbors_warn_without_breaking_commands(self):
+        self.hot()
+        artifact = self.store.promote(self.decision(), "knowledge/cooled")
+        self.write("knowledge/cooled/array.json", "[]")
+        self.write("knowledge/cooled/broken.json", "{")
+        self.write("knowledge/cooled/unrelated.json", '{"other": true}')
+        with patch("sys.stderr") as stderr:
+            self.apply("use-cooled", search_node_id="N0", artifact=artifact, reason="matching scope")
+            self.assertTrue(stderr.write.called)
+        for command in ("show", "check"):
+            result = self.cli(command)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len(json.loads(result.stdout)["cooled_warnings"]), 2)
+        with patch("sys.stderr"):
+            self.store.invalidate_cooled(artifact, "needs_revalidation", "v2", "new toolchain")
+        result = self.cli("show")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(json.loads(result.stdout)["cooled_warnings"]), 3)
+        with patch("sys.stderr"), self.assertRaisesRegex(search.Invalid, "successor"):
+            self.apply("use-cooled", search_node_id="N0", artifact=artifact, reason="reuse")
+
+    def test_hot_evidence_snapshots_survive_live_result_changes(self):
+        live = self.write(".workspace/example/runs/live/RESULT.md", "checkpoint one")
+        values = dict(id="H1", kind="observation", statement="partial observation",
+                      applicability="test", limitations="incomplete", nodes=["N0"], evidence=[live])
+        self.apply("hot", base_revision=0, **values)
+        first = self.store.review()["latest_hot"][0]["hot"]["evidence"][0]
+        self.write(live, "checkpoint two")
+        self.apply("hot", base_revision=1, **values)
+        self.assertEqual(self.store.local(first["path"]).read_text(), "checkpoint one")
+        second = self.store.review()["latest_hot"][0]["hot"]["evidence"][0]
+        self.assertEqual(self.store.local(second["path"]).read_text(), "checkpoint two")
+        self.assertNotEqual(first["sha256"], second["sha256"])
+        self.store.promote(self.decision(), "knowledge/cooled")
+        self.write(first["path"], "tampered snapshot")
+        with self.assertRaisesRegex(search.Invalid, "artifact changed"):
+            self.store.load()
+
+    def test_hot_snapshots_are_isolated_by_project(self):
+        self.hot()
+        first = self.store.review()["latest_hot"][0]["hot"]["evidence"][0]
+        search.projectctl.Workspace(self.root).create("other", "Other", "session")
+        other = search.Store(self.root, "other", "session")
+        other.init("other", "requirements-v1", "initial", "all")
+        source = self.write(".workspace/other/evidence.md", "measured sample 0\n")
+        other.apply({"event_id": "e1", "op": "hot", "id": "H1", "base_revision": 0,
+                     "kind": "observation", "statement": "test", "applicability": "test",
+                     "limitations": "test", "nodes": ["N0"], "evidence": [source]})
+        second = other.review()["latest_hot"][0]["hot"]["evidence"][0]
+        self.assertEqual(first["sha256"], second["sha256"])
+        self.assertNotEqual(first["path"], second["path"])
+        self.assertTrue(first["path"].startswith(".workspace/example/knowledge/evidence/"))
+        self.assertTrue(second["path"].startswith(".workspace/other/knowledge/evidence/"))
+        with self.assertRaisesRegex(search.Invalid, "another project"):
+            other.snapshot(first["path"])
+
+    def test_root_candidate_accepts_reason_suffix(self):
+        for index, parent in enumerate(("not_applicable", "not_applicable：初版", "not_applicable: initial")):
+            key = f"C{index}"
+            path = self.write(f"{key}.md", f"- project_id: example\n- candidate_id: {key}\n- search_node_id: N0\n- parent_candidate: {parent}\n")
+            self.apply("candidate", id=key, search_node_id="N0", parent_candidate=None, manifest=path)
+        self.assertEqual(len(self.store.load()["candidates"]), 3)
 
     def cli(self, *args, script=SCRIPT):
         return subprocess.run([sys.executable, str(script), "--workspace", str(self.root), "--project", "example", "--owner", "session", *args],

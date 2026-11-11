@@ -93,4 +93,9 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_XorOp : TL_BinaryOp<"xor"> {
+  let summary = "Elementwise bitwise XOR of two tile buffers";
+  let description = [{ Destination-style vector xor: out = lhs ^ rhs. }];
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

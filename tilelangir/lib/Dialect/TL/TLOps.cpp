@@ -78,3 +78,7 @@ LogicalResult MaxOp::verify() {
 LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
+
+LogicalResult XorOp::verify() {
+  return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
+}

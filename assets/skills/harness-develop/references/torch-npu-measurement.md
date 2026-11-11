@@ -24,7 +24,7 @@
 4. 每个正式样本：flush → 同步 → 读频率 → 新建独立 profiler session → 完整 `call()` → 同步 → `prof.step()` → 关闭 session → 再读频率。采样配置为 NPU activity、schedule(wait=0,warmup=0,active=1,repeat=1)、Level1/PipeUtilization、data_simplification=False、analyse_flag=False，保存原始记录。
 5. 解析本 session 的原始 ffts 记录，核对每个必要阶段/初始化均在窗口内、flush 不在窗口内；验证原始记录属于同一设备/次调用。对设备时间区间排序并合并重叠，得到区间并集长度；host 间隙、分配墙钟和 profiler 总运行时间不是这个指标。
 6. 保存每个样本及两次频率观测，按冻结规则计算均值、median、范围、样本标准差。频率不符、记录缺失、覆盖不足时保留失败证据并停止该组正式比较，不事后挑快样本。
-7. 所有正式采样结束后回收 guard 私有 receipt，并检查 guard/worker/SSH 退出与冲突。只有采集覆盖、协议、频率、receipt 都合格时才比较冻结标杆和逐case加速比。脚本返回 `pending_guard_receipt` 不是验收成功。
+7. 所有正式采样结束后回收 guard 私有 receipt，并检查 guard/worker/SSH 退出与冲突。只有采集覆盖、协议、频率、receipt 都合格时才比较冻结标杆和逐case加速比。脚本返回 `pending_guard_receipt` 后保留原样本，外层入口取得真实最终回执，再按 [评测入口的设备确认流程](evaluation-runner.md#设备结果的最终确认) 沿原 request 提交 --device-receipt；确认不重跑采样。
 
 flush大小、预热次数、采样数量和频率规则由绑定协议提供；脚本不默认采用某次实验的参数。旧标杆只有在环境和协议可比时才能复用。
 

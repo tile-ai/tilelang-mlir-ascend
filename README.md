@@ -143,7 +143,7 @@ python3 scripts/install_codex_skills.py --workspace operator-workspace
 
 安装到用户显式选择的工作目录，不自动提升到 Git 根；旧 --project-dir 参数作为 --workspace 的别名。安装器复制随包提供的技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件或已有 Harness AGENTS 区块存在不同内容时在复制前报告冲突，保留用户文件；不静默沿用旧路径入口。安装清单、升级计划、中断恢复和回滚已提供，见 [升级说明](docs/installation-upgrades.md)；卸载与 npm 分发继续按路线图建设。
 
-Agent 在选定项目的 `.workspace/<project>/` 中维护 `PROJECT.md`、`REQUIREMENTS.md`、`ROADMAP.md` 和 `STATE.md`，接入已有项目时补充 `codebase/MAP.md`。这些都是可以直接编辑的 Markdown，按项目进展逐步建立；未决问题和下一步留在状态记录中，草稿与研究材料按需保存。
+Agent 在选定项目的 `.workspace/<project>/` 中维护 `PROJECT.md`、`REQUIREMENTS.md`、`ROADMAP.md` 和 `STATE.md`，接入已有项目时补充 `codebase/MAP.md`。这些 Markdown 按项目进展逐步建立；协调者维护计划和导航，已绑定到 TASK 的输入保留确切快照，修订不覆盖旧证据。未决问题和下一步留在状态记录中，草稿与研究材料按需保存。
 
 PROJECT 使用 [项目模板](assets/skills/harness-new-project/assets/templates/project.md) 固定目标仓库规范、早期检查和交付条件。develop 记录适用预检；收尾使用 [交付模板](assets/skills/harness-resume/assets/templates/delivery.md) 对照发布版与实测版，逐项说明证据可复用、需补测或未验证。详见 [项目契约](assets/skills/harness-new-project/references/project-contract.md)。
 
@@ -151,7 +151,7 @@ PROJECT 使用 [项目模板](assets/skills/harness-new-project/assets/templates
 
 后续工作通过 `harness-resume` 接续：`STATE.md` 保存当前候选、最佳已验证候选、性能概况与下一步；`EXPERIMENTS.md` 记录成功、失败和无收益的尝试；`runs/<编号>/` 保存对应代码、详细结果与日志。新的 agent 先读摘要，再按需要打开相关实验。
 
-允许同一会话连续执行多个节点，同时保证记录足以让全新 agent 独立接续。当前 agent 可以完成节点与共享汇总，也可按需委派；全新 agent 只接收工作目录根和 TASK 路径。上下文过长时只建议用户新开会话，不强制切换，也不因缺少委派工具阻塞。`automatic` 已通过当前宿主的主/子 agent 能力串行协调节点，无委派工具时明确采用 inline；不是脱离会话的后台服务。使用新机器或 worktree 时，需要带上被 Git 忽略的 `.workspace/` 记录和相关产物。具体交接方法见 [节点契约 与六份模板](assets/skills/harness-resume/references/node-contract.md)。TASK 包含做什么、输入身份、工具入口/执行步骤、权限预算与完成条件；用户问询答案保存到 DECISIONS，启用结构化控制后，实时占用以 search/tree.json 的 control 为准，RESOURCE_USAGE 保存索引；未启用的旧任务保留原账本。
+允许同一会话连续执行多个节点，同时保证记录足以让全新 agent 独立接续。当前 agent 可以完成节点与共享汇总，也可按需委派；全新 agent 只接收工作目录根和 TASK 路径。上下文过长时只建议用户新开会话，不强制切换，也不因缺少委派工具阻塞。`automatic` 通过当前宿主的主/子 agent 能力协调节点，search@2 在依赖、总槽位和资源允许时并行推进 analysis/develop，无委派工具时明确采用 inline；不是脱离会话的后台服务。使用新机器或 worktree 时，需要带上被 Git 忽略的 `.workspace/` 记录和相关产物。具体交接方法见 [节点契约 与六份模板](assets/skills/harness-resume/references/node-contract.md)。TASK 包含做什么、输入身份、工具入口/执行步骤、权限预算与完成条件；用户问询答案保存到 DECISIONS，启用结构化控制后，实时占用以 search/tree.json 的 control 为准，RESOURCE_USAGE 保存索引；未启用的旧任务保留原账本。
 
 ### 查看、单步与自动推进
 
@@ -169,7 +169,7 @@ PROJECT 使用 [项目模板](assets/skills/harness-new-project/assets/templates
 
 随 harness-resume 安装的 Python 标准库工具 `searchctl.py` 提供原子记录、幂等恢复、引用校验及知识晋升/失效管理。@4 任务增加逐 case 验收与候选晋升、安全关闭、机制查重入口，以及可选步数/资源/job 账本和只读 reconcile；见 [执行控制契约](assets/skills/harness-resume/references/execution-control.md)。工具不启动实验或自动发布；[评测入口](assets/skills/harness-develop/references/evaluation-runner.md) 执行冻结的参考/比较器并自动生成证据，[本地 runner](assets/skills/harness-develop/references/local-runner.md) 管理前台命令及控制账本。真实设备适配仍按执行矩阵验收。见 [架构示例](docs/search/design.md) 和 [CLI 与契约](assets/skills/harness-resume/references/search-knowledge.md)。
 
-### 规划中：npm 分发与执行闭环
+### 规划中：npm 分发与设备闭环
 
 计划通过 npm 分发 CLI，让用户在自己的算子项目中初始化 harness，再通过所选 coding agent 开始工作。以下为接口示意，包名尚未确定，不能直接执行：
 
@@ -197,20 +197,20 @@ npx <package>@<version> doctor
 - 超时、缺少设备数据和残缺采集保留诊断记录，不记为成功。
 - 保留全部必选 case 的结果，以及性能回退、未达标和未验证项。
 
-结构化检查已进入 @4 接收实现；原始比较器、设备适配和科学解释仍需独立核验。CPU 回归不代表真实 NPU 闭环通过。
+结构化检查已进入 @4 接收实现；原始比较器、设备适配和科学解释仍需独立核验。best 表示协调者选定的合格且可比较候选，工具不自动证明它是最快实现。CPU 回归不代表真实 NPU 闭环通过。
 
 ## 路线图
 
 | 阶段 | 交付目标 | 当前状态 |
 | --- | --- | --- |
-| M0–M1 | 项目定位、任务需求、环境与验收契约 | 文档与资产初查已建立，任务契约待冻结 |
+| M0–M1 | 项目定位、任务需求、环境与验收契约 | 文档、模板与 @4 结构化契约已提供；实际任务语义/目标/环境逐项目冻结 |
 | M2 | 首个 TileLang 实卡开发与验证闭环 | 接收/控制与本地进程工具已实现；通用设备适配和实卡验收待完成 |
 | M3 | CLI 初始化和一个 agent 宿主接入 | Codex 初始化 skills 与源码安装器已实现；npm CLI 待建设 |
-| M4 | 执行矩阵、仿真 MCP、流水分析能力与恢复 | 待开始 |
+| M4 | 执行矩阵、仿真与更广恢复 | 采集/解析辅助工具已提供；完整执行矩阵与 simulator 接入待完成 |
 | M5 | 升级、卸载和独立发布 | 源码安装的升级/回滚已实现；卸载与独立发布待完成 |
 | M6 | 更多算子、宿主与按需语言扩展 | 后续演进 |
 
-阶段验收条件与待决事项见 [完整路线图](docs/ROADMAP.md)。
+阶段验收条件与待决事项见 [完整路线图](docs/ROADMAP.md)，实现与验证范围见 [能力表](docs/capabilities.md)。
 
 `ascend-mfu` 已整合为 `ascend-roofline`。已有受管安装按 [升级说明](docs/installation-upgrades.md) 执行迁移；升级会移除旧名称下未修改的受管文件并安装新目录，保留用户额外文件，遇到本地修改时报告冲突。
 
@@ -222,7 +222,8 @@ npx <package>@<version> doctor
 
 | 文档 | 内容 |
 | --- | --- |
-| [整改状态与剩余缺口](docs/workflow-improvements.md) | Harness 工程审查、已实施修复和验证边界 |
+| [能力与控制边界](docs/capabilities.md) | 当前实现、验证范围、四类操作对象和事实源 |
+| [工程改进方向](docs/workflow-improvements.md) | 设备闭环、冷启动恢复与长期搜索的未完成工作 |
 | [安装升级](docs/installation-upgrades.md) | 安装清单、升级计划、恢复与回滚 |
 | [依赖队列](assets/skills/harness-resume/references/task-queue.md) | 自主选择 analysis/develop、冻结输入、独立工作空间与恢复 |
 | [开发能力](docs/develop-capabilities/design.md) | cannbot 方法接入、实现检视与测试可信度 |

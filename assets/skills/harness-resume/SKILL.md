@@ -33,12 +33,12 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 - 环境问询、能力缺口或环境变更：[harness-prepare-environment](../harness-prepare-environment/SKILL.md)。
 - 建立、选择或更新正确性参考与性能标杆：[harness-establish-baseline](../harness-establish-baseline/SKILL.md)。
-- 无适用候选时移植标杆并验证初版：[harness-port-baseline](../harness-port-baseline/SKILL.md)。
+- 无适用候选且有参考源码时移植验证：[harness-port-baseline](../harness-port-baseline/SKILL.md)；无适用性能源码时按独立参考/目标进入 develop initial-and-validate。
 - 已有 TileLang kernel 的问题定位、仿真和流水分析：[harness-analysis](../harness-analysis/SKILL.md)。
 - 根据已接收分析编写、修复或优化候选，并在同一任务内完成精度和性能验证：[harness-develop](../harness-develop/SKILL.md)。
 - 单独精度/性能、诊断采集或作业恢复：[harness-develop](../harness-develop/SKILL.md) 的 verify-only/collect-only 模式。
 
-标杆建立且无适用候选时先进入 `port-baseline`，再按 `analysis → develop → analysis …` 优化；已有适用候选跳过移植，达标直接交付。分析必须绑定实际候选及证据；旧提示或仅研究参考的历史分析不代替当前候选诊断，历史记录保留不改写。详见统一路由。
+标杆就绪后，无候选且有参考源码进入 port-baseline，无适用性能源码则固定独立参考/目标后进入 initial-and-validate；已有候选按 analysis → develop → analysis 优化，达标直接交付。分析必须绑定实际候选及证据；旧提示或仅研究参考的历史分析不代替当前候选诊断，历史记录保留不改写。详见统一路由。
 
 解析本节点环境为确定的 ID/修订/快照；上板与仿真授权和验证状态独立。首次准备可以携带未知项，不捏造已验证环境。按资源账本分配本次额度，不能以旧环境余额覆盖实际占用。
 

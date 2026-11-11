@@ -1,13 +1,13 @@
 # 昇腾算子生成：需求与工作流
 
-状态：需求初稿，已补充 [五节点设计](nodes/design.md)。用户已明确的目标与本文建议的执行方式分别标注；首个具体任务与环境尚未冻结。
+本文定义产品需求与工作流。当前实现和验证范围见 [能力表](capabilities.md)；具体算子语义、验收目标和环境在每个用户项目中冻结。
 
 ## 1. 已明确的产品方向
 
 本项目面向华为昇腾 NPU，帮助 agent 完成算子编写、实卡精度与性能验证，以及贯穿迭代的标杆与kernel分析；仿真和流水采集按分析问题选用。
 
 - 语言可扩展，首批仅接入 TileLang；AscendC 为后续可选扩展，不作为首批交付条件。
-- TileLang 指用户指定的 [tile-ai/tilelang](https://github.com/tile-ai/tilelang)。本仓库清空前的 NPUIR 实现不作为默认语言后端。
+- TileLang 使用用户指定的 [tile-ai/tilelang](https://github.com/tile-ai/tilelang) 版本与后端，按任务绑定实际工具链。
 - 仿真和实卡测试均需要支持本地/远程与 host/docker 的四种组合。
 - 算子编写方法可从现有 asc-devkit skills 选择性迁移；仿真与上板执行优先评估复用 simulator 和 Onboard。
 - simulator 是 MCP 封装的优先候选。Onboard 可在保留有效能力的基础上重构。
@@ -46,7 +46,9 @@ TileLang 的 Ascend 支持范围以用户所选仓库版本的文档和实际验
 flowchart TD
     R[明确需求] --> E[准备环境]
     E --> B[建立标杆]
-    B -->|无适用候选| P[port-baseline：移植并验证初版]
+    B -->|无候选，有适用性能源码| P[port-baseline：移植并验证初版]
+    B -->|无候选，无适用性能源码| I[develop initial-and-validate：固定方案并验证初版]
+    I --> C
     B -->|已有适用候选| C{检查证据与目标}
     P --> C
     C -->|需优化| A[analysis：诊断当前 TileLang kernel]
@@ -55,7 +57,7 @@ flowchart TD
     C -->|达标或停止| O[交付证据与差距]
 ```
 
-用户确定的默认循环为 analysis → develop → analysis，develop 包含实现、精度验证和任务要求的性能测量。无适用候选时先由 port-baseline 移植并验证初版，analysis 专注已有 TileLang kernel 的问题；仿真与流水采集按需执行，已有源码/trace也可用于分析。目标达成或用户停止时不再循环；分析不替代实卡精度和性能验收。
+用户确定的默认循环为 analysis → develop → analysis，develop 包含实现、精度验证和任务要求的性能测量。无适用候选且有参考源码时由 port-baseline 移植并验证初版；没有适用性能源码时固定独立参考和 absolute/model/none 目标，交 develop initial-and-validate。analysis 专注已有 TileLang kernel 的问题；仿真与流水采集按需执行，已有源码/trace也可用于分析。目标达成或用户停止时不再循环；分析不替代实卡精度和性能验收。
 
 analysis 应具备当前缺陷/瓶颈诊断、上板 trace/aicMetric/CSV 分析和算子优化方向推导能力；方案结合探索树的机制历史、反证及验证计划，详见 [analysis 架构](nodes/analysis.md)。已有证据优先复用，补采通过 develop collect-only 执行。
 
@@ -66,7 +68,7 @@ analysis/develop 使用持久依赖队列时，是否等待全部方案由编排
 | 需求确定 | 带版本的任务规格、case 集、验收规则 | 关键语义、约束和目标已明确 |
 | 环境准备 | 环境身份、能力检查、最小编译/运行探针结果 | 所选执行组合真实可用，所需依赖与设备可访问 |
 | 标杆构造 | 正确性参考、固定输入、性能基线及测量协议 | 参考经过检查，基线满足同一语义与比较条件 |
-| 标杆移植 | 初版 CANDIDATE、PORTING、PRECHECK、精度/性能/ANALYSIS_DATA | 精度通过、移植方案落实、有效测量、必需诊断完整；允许性能未达标，不引入 AICPU |
+| 标杆移植 | 初版 CANDIDATE、PORTING、PRECHECK、精度及 TASK 要求的性能/诊断 | 精度通过、移植方案落实、适用测量有效、必需诊断完整；允许性能未达标，不引入 AICPU |
 | develop：编写 | 候选源码、编译参数、launch 描述 | 固定候选后在同一节点立即验证 |
 | develop：实卡精度 | 每个必选 case 的比较结果与失败样本 | 全部必选精度检查通过，未运行项不计通过 |
 | develop：实卡性能 | 原始样本、统计量、逐 case 基线比较 | 样本有效，测量范围明确，满足预定采样要求 |
@@ -154,11 +156,11 @@ analysis/develop 使用持久依赖队列时，是否等待全部方案由编排
 
 强约束来自可执行的阶段检查。提示词、额外 reviewer 或更多文档本身不构成正确性保证。五节点使用落盘 TASK/RESULT、候选与独立环境约定，让全新 agent 也能恢复任务；用户决定同样落盘。允许同一会话连续执行多个节点，无隔离工具不阻塞，必要时只建议用户新开会话。automatic 已通过 skill 提供当前宿主内的有界主/子 agent 协调；status 和 next 分别只读汇报与单步执行，详见 [运行模式](modes/design.md)。宿主内多方案并行开发已按独立 worktree、依赖队列和逐成员接收组织，旧 search@1 保留批次规则；独立后台调度服务仍属后续选项。接续流程见 [harness-resume](../assets/skills/harness-resume/SKILL.md)。
 
-## 6. 下一步需要确定的内容
+## 6. 每个任务需要确定的内容
 
 1. 首个代表性算子及其最小/边界/业务 case，是否要求真正的运行时动态 shape。
 2. 首个支持的芯片、工具链版本和执行组合，以及可用环境的访问方式。
 3. Codex 的执行工具接口，以及后续执行阶段整体接入 GSD 或借鉴流程的选择依据。
 4. 首个精度参考、性能基线和验收指标。
 
-这些问题阻塞具体执行契约冻结，不阻塞当前背景整理。现有工具的证据与迁移建议见 [复用计划](REUSE_PLAN.md)，实施顺序见 [路线图](ROADMAP.md)。
+这些选择在依赖它们的具体动作前确定，已有决定直接复用。现有工具的证据与迁移建议见 [复用计划](REUSE_PLAN.md)，实施顺序见 [路线图](ROADMAP.md)。

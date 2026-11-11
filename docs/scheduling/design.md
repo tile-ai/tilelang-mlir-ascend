@@ -4,15 +4,15 @@
 
 ## 1. 摘要
 
-当前多方案开发已有独立 worktree 和批次登记，但一个未收尾的成员会阻止所有下一阶段任务。编排 agent 因而无法在 A 已完成、B 仍执行时先分析 A，也无法按资源情况逐项补入新的工作。
+旧 search@1 使用独立 worktree 和批次登记，一个未收尾的成员会阻止新阶段。search@2 已用显式依赖替代这个全局屏障：A 完成并接收后，可在 B 继续执行时先分析 A。
 
-引入项目内持久任务队列，将“任务能否安全执行”与“现在值得执行哪个任务”分开。程序检查依赖、冻结输入、工作空间独占及预算；编排 agent 决定优先级、并发组合、是否等待整批结果、是否继续某条策略。比较批次保留为关联分组，等待整批成为可显式选择的依赖条件。
+项目内持久任务队列将“任务能否安全执行”与“现在值得执行哪个任务”分开。程序检查依赖、冻结输入、工作空间独占及预算；编排 agent 决定优先级、并发组合、是否等待整批结果、是否继续某条策略。比较批次保留为关联分组，等待整批成为可显式选择的依赖条件。
 
 主要代价是多个阶段可能同时在途，恢复与证据归属比固定轮次更复杂。通过一个协调 owner、一个账本事实源和冻结候选限制复杂度。
 
 ## 2. 背景与范围
 
-当前 [并行开发契约](../../assets/skills/harness-resume/references/parallel-develop.md) 要求每个 develop 独占 worktree、构建及运行目录；`searchctl.Store.develop_batch` 校验已注册的非重叠源码目录、独立 TASK、已接收分析和共同比较输入。普通 run 登记受未结批次、阶段互斥和 current_node 限制。设备作业的启动与互斥由宿主协调者和已绑定环境负责。
+旧 search@1 的 [并行开发契约](../../assets/skills/harness-resume/references/parallel-develop.md) 要求每个 develop 独占 worktree、构建及运行目录；`searchctl.Store.develop_batch` 校验已注册的非重叠源码目录、独立 TASK、已接收分析和共同比较输入。普通 run 登记受未结批次、阶段互斥和 current_node 限制。设备作业的启动与互斥由宿主协调者和已绑定环境负责。
 
 本设计覆盖 develop 和 analysis 的队列编排、跨策略运行、候选读取与工作空间生命周期，继续使用现有 run/candidate、验收、预算、job 和知识机制。prepare-environment、establish-baseline、项目冻结等改变共享条件的动作保持维护屏障，不与受影响任务并发。
 

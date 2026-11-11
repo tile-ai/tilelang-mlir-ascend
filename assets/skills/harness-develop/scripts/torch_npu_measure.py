@@ -121,7 +121,8 @@ def measure(call, *, output, flush, synchronize, frequency, check_reservation,
         (root / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
         if evidence_context is not None:
             summary['evidence'] = emission.case_report(evidence_context, 'performance', root / 'performance.json',
-                emission.files(evidence_context['workspace_root'], root), samples_ms=values)
+                emission.files(evidence_context['workspace_root'], root),
+                metric='mean_device_busy_union_ms', samples_ms=values)
         return summary
     except BaseException as error:
         (root / 'failure.json').write_text(json.dumps({

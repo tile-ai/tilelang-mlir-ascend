@@ -83,7 +83,7 @@ RESULT 同时交付实现与测试结果，分别标注编译、精度、性能�
 
 ## 初版构建与程序验收
 
-没有候选且无适用高性能源码时，允许 `initial-and-validate`：先有独立正确性参考、有限来源调查结果和明确的绝对/模型目标，固定 initial_design，再构建最小初版；无需虚构已有候选分析或性能源码移植。遵守同样的 TileLang/AICPU、预检、完整精度、测量与诊断要求。初版实现符合方案且精度/测量有效时，目标未达可带差距进入 analysis；不能将实现或测量错误归入该例外。已有候选仍使用常规 implement-and-validate。
+没有候选且无适用高性能源码时，允许 `initial-and-validate`：先有独立正确性参考、有限来源调查结果和明确的绝对/模型目标；仅精度任务明确 performance_kind=none。固定 initial_design，再构建最小初版；无需虚构已有候选分析或性能源码移植。遵守同样的 TileLang/AICPU、预检、完整精度、测量与诊断要求。初版实现符合方案且精度/测量有效时，目标未达可带差距进入 analysis；不能将实现或测量错误归入该例外。已有候选仍使用常规 implement-and-validate。
 
 新 TASK/RESULT 按 [结构化验收](../harness-resume/references/execution-control.md) 使用 @4，注册前固定 evaluation_plan。使用 [评测入口](references/evaluation-runner.md) 执行冻结适配器，自动生成逐 case 证据和 RESULT 草稿。正式接收前核对程序检查、科学内容、job/资源及未测边界。范围变化需要新任务时先安全 close-run，不能改冻结任务或把失败称为通过。
 

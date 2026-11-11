@@ -9,7 +9,7 @@ description: 通过多轮交互确定 Python、TileLang、torch/torch_npu 与 CA
 
 ## 节点边界
 
-目标是交付可直接使用的 TileLang + CANN 上板环境，包括匹配的 Python 配套、激活/执行入口和实际验证证据。共享环境按 onboard/simulator 分类，本轮实现 onboard 的指示与模板；simulator 的完整接入后续设计。开发、lowering、编译和上板是执行阶段，可使用同一环境，不要求第三类独立开发环境。
+目标是交付可直接使用的 TileLang + CANN 上板环境，包括匹配的 Python 配套、激活/执行入口和实际验证证据。共享环境按 onboard/simulator 分类，当前提供 onboard 的指示与模板；simulator 的完整接入后续设计。开发、lowering、编译和上板是执行阶段，可使用同一环境，不要求第三类独立开发环境。
 
 当前会话或独立 agent 均可执行；按 [节点契约](../harness-resume/references/node-contract.md) 写 TASK/RESULT。子 agent 只写获准产物，由协调者中继问询和发布；直接交互由当前 agent 完成相同工作。允许只完成访谈，不以环境未装好判定访谈交付失败。
 

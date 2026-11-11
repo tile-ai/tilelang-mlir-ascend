@@ -21,7 +21,7 @@
 | [节点任务](../assets/templates/node-task.md) | `.workspace/<project>/runs/<run-id>/TASK.md` | 协调者执行/派发前填写，开始后冻结 |
 | [节点结果](../assets/templates/node-result.md) | 同目录 `RESULT.md`；等待/中断时也是检查点 | 节点 agent 写，主 agent 只读取 |
 | [标杆记录](../../harness-establish-baseline/assets/templates/baseline.md) | 本 run 的 `BASELINE.md`；共享 `.workspace/<project>/BASELINE.md` 仅索引确切记录 | establish-baseline 生成，主 agent 接收后发布索引 |
-| [候选清单](../assets/templates/candidate.md) | 产生候选的运行目录 `CANDIDATE.md`；多次尝试时各自 `attempts/<id>/CANDIDATE.md` | develop；其他节点产生的构建物另存清单，不改候选 |
+| [候选清单](../assets/templates/candidate.md) | 产生候选的运行目录 `CANDIDATE.md`；多次尝试时各自 `attempts/<id>/CANDIDATE.md` | port-baseline/develop；其他节点的构建物另存清单 |
 | [环境索引](../../harness-prepare-environment/assets/templates/environment-index.md) | `.workspace/<project>/ENVIRONMENT.md` | 主 agent 接收环境结果后更新 |
 | [共享上板环境描述](../../harness-prepare-environment/assets/templates/environment.md) | `.workspace/environments/onboard/<id>/revisions/<revision>.md` | prepare 生成提案，协调者接收后发布；项目绑定按 v2 模板引用 |
 
@@ -55,13 +55,13 @@ live 记录允许正常追加，不以整个文件摘要变化判定候选失效
 | --- | --- | --- |
 | prepare-environment | 本任务计划启用的能力、已知环境事实/选择、各侧已有权限来源、尚未解决的问题；允许只做访谈 | RESULT；Python、TileLang/torch/torch_npu 与 CANN 选择及来源；共享上板描述与项目绑定提案；实际探针证据或未测原因 |
 | establish-baseline | 语义与必选 case、正确性参考或允许创建范围、目标/实现限制、调查与选择规则、已有标杆与变更原因；实测绑定 development/device 约定和测量协议（允许在 run 内先生成并冻结） | RESULT；BASELINE；可重建参考/适配、case/协议快照、来源覆盖、候选资格/排除理由、复查条件、全部必需正确性与原始性能证据或逐项缺口；复测入口 |
-| port-baseline | 确切标杆源码与适配、case/全部输出/容限/计时协议、PROJECT、TileLang 后端能力、development/device 约定、修复与诊断预算 | RESULT；可重建初版 CANDIDATE、PORTING、PRECHECK、全部必选精度、有效逐 case 性能、ANALYSIS_DATA 及作业/资源记录 |
+| port-baseline | 确切标杆源码与适配、case/全部输出/容限/计时协议、PROJECT、TileLang 后端能力、development/device 约定、修复与诊断预算 | RESULT；可重建初版 CANDIDATE、PORTING、PRECHECK、全部必选精度、TASK 要求的逐 case 性能/诊断及作业/资源记录 |
 | analysis | 当前 TileLang 候选、测试结果、具体问题、标杆及移植差异（若有）、前序 ANALYSIS_DATA 和原始 trace/aicMetric/指标表、适用的搜索机制历史；新仿真绑定 simulation 约定/模型/配置，旧 trace 绑定历史身份 | RESULT；逐 case 缺陷/瓶颈诊断、源码/测试/trace 证据与限制、算子工作量与优化空间、有优先级及反证的方案、搜索归属与历史比较、交给 develop 的修改/补采及验证计划 |
 | develop | 已接收 analysis 方案、父候选、语义/case/参考/容限、PROJECT 与 PRECHECK 计划、development/device 绑定、性能标杆/协议及有界修复预算；verify-only/collect-only 只需确切候选及验证/采集计划；code-only 明确未测范围 | RESULT；实现任务交付逐次 CANDIDATE 与可重建源码；适用的 PRECHECK、全部必选精度、逐 case 原始性能样本/对比、失败反例、作业/回收状态、ANALYSIS_DATA（原始流水/指标、身份、覆盖与观察）及未运行原因 |
 
 develop 默认在同一 TASK 内实现并验证。只有明确 code-only 的源码任务可以在设备精度 not_run 时完成约定交付；默认任务缺少环境时保留检查点与缺口。精度 failed/invalid 或必选精度 not_run 不允许 develop 接收；性能退化只有已排除实现问题、归因为思路问题且精度通过时，才可带证据交回 analysis。已有 trace 分析不要求重新准备环境，但不能掩盖原产物的身份或正确性缺口。
 
-默认顺序为 `establish-baseline → port-baseline → analysis → develop → analysis …`，已有适用候选跳过移植，初版达标直接交付，按 [统一路由](next-action.md) 选择。analysis 必须绑定实际候选，不再在没有 kernel 时承担初版设计；历史参考研究可供移植复用但不改写成新候选诊断。标杆更新先核对候选与证据适用性，不自动重写初版。
+标杆就绪后按 [统一路由](next-action.md) 选择：有参考源码且无候选时 port-baseline；无适用性能源码时固定独立参考/目标后 initial-and-validate；已有候选进入分析或验证。后续 analysis → develop → analysis，达标直接交付。analysis 必须绑定实际候选，不再在没有 kernel 时承担初版设计；历史参考研究可供移植复用但不改写成新候选诊断。标杆更新先核对候选与证据适用性，不自动重写初版。
 
 历史兼容：旧TASK的 `node: simulate` 和 `harness-simulate` 入口按原任务范围映射到 analysis 的仿真/诊断职责；用户称 `harness-simulator` 时也定位到此入口。保留历史TASK/RESULT，不将旧仿真结果改写成已完成首次标杆分析。新任务统一写 `node: analysis` / `harness-analysis`，不新增重复安装的别名skill。
 
@@ -79,9 +79,9 @@ develop 默认在同一 TASK 内实现并验证。只有明确 code-only 的源�
 
 ### 资源余额单独记账
 
-项目环境使用约定只保存预算政策与上限，共享环境描述不授予项目额度；实时余额不属于环境身份。主 agent 在 `.workspace/<project>/RESOURCE_USAGE.md` 维护最小账本：`reservation_id、环境/共享资源ID、run_id、额度单位与预留量、已结算量、未决占用、状态、job/RESULT依据`。STATE 链接账本，TASK 固定本次 reservation 和分配额度。节点只能在已分配额度内执行，并在 RESULT 报告增量消耗，不能把旧环境快照中的“剩余”当作可用余额。
+项目环境使用约定保存预算政策与上限，实时余额独立于环境身份。control 启用后，预留、job 观察和结算以 `search/tree.json` 为事实源；RESOURCE_USAGE 和 STATE 保存对应摘要、链接与事件水位，TASK 固定本次分配范围。节点报告实际增量消耗，恢复从账本核对原 reservation/job。
 
-首次预留前创建账本，协调者执行/派发前串行预留，按实际结果结算；unknown 作业保留未决占用，新的恢复任务引用同一作业与预留，不重新释放后再分配。共享物理资源另受已有锁/队列约束，本账本不替代跨进程设备锁。仅余额变化不递增环境修订、不使探针失效；预算政策/授权范围变化才更新约定，并检查受影响的在途任务。
+未启用 control 的旧任务继续由协调者串行维护 RESOURCE_USAGE，包含 `reservation_id、物理资源ID、run_id、单位、预留量、已用量、未决占用、状态与依据`；安全收尾后显式接入程序账本。unknown 保留原占用，两种模式都受环境共享锁/队列约束。余额变化不递增环境修订；政策或授权变化才更新约定并检查影响。
 
 ## 6. 问询、检查点和中断
 
@@ -147,6 +147,6 @@ searchctl 登记时固定范围；accept 要求 completed、精度 passed，要�
 
 新任务使用 [执行控制契约](execution-control.md) 的 @4 输入/验证清单、policy@2、评测代码身份及独立候选晋升；历史 @1–@3 兼容读取或显式 legacy 补登记，保留原通过含义，不能冒充新版验收。失败仍不允许 accept，但可在执行者停止、作业和资源对账后 close-run 为 rejected/abandoned/superseded。关闭不授予任何验证资格；范围/预算变化可以安全关闭旧任务并关联新 TASK，不再要求失败任务先成功才能继续。终态 RESULT 不改写。
 
-control 启用后使用同一搜索账本的步数/预留/job/结算事件，RESOURCE_USAGE/STATE 只保存对应摘要或链接；reconcile 报告实际账本水位。外部观察、科学结论、权限真实性及共享环境发布仍由宿主核验。
+control 的 run 计数与 automatic 的宿主控制步骤分别记录，详情见 [执行控制](execution-control.md#控制账本)。外部观察、科学结论、权限真实性及共享环境发布由宿主核验。
 
-无适用高性能参考且没有候选时，可按已验收的独立正确性参考和用户明确的绝对/模型目标进入 develop initial-and-validate。TASK 固定 initial_design 与 evaluation_plan；模型目标不称为设备标杆。初版精度、实现与测量必须有效，性能差距可以交给 analysis；已有性能源码时仍优先 port-baseline。
+无适用高性能参考且没有候选时，可按已验收的独立正确性参考和用户明确的绝对/模型目标进入 develop initial-and-validate；仅精度任务明确 performance_kind=none。TASK 固定 initial_design 与 evaluation_plan；模型目标不称为设备标杆。初版精度、实现与测量必须有效，性能差距可以交给 analysis；已有性能源码时仍优先 port-baseline。

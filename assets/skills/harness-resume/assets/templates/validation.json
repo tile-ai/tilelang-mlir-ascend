@@ -3,14 +3,86 @@
   "project_id": "{{project_id}}",
   "run_id": "{{run_id}}",
   "candidate_id": "{{candidate_id}}",
-  "candidate": {"path": "{{CANDIDATE.md}}", "sha256": "{{sha256}}"},
-  "evaluation_plan": {"path": "{{evaluation-plan.json}}", "sha256": "{{sha256}}"},
-  "artifacts": {
-    "source": {"path": "{{source snapshot or manifest}}", "sha256": "{{sha256}}"},
-    "build": {"path": "{{build manifest}}", "sha256": "{{sha256}}"},
-    "launch": {"path": "{{launch manifest}}", "sha256": "{{sha256}}"}
+  "candidate": {
+    "path": "{{CANDIDATE.md}}",
+    "sha256": "{{sha256}}"
   },
-  "cases": [{"id": "{{case_id}}", "accuracy": {"path": "{{accuracy.json}}", "sha256": "{{sha256}}"}, "performance": {"path": "{{performance.json}}", "sha256": "{{sha256}}"}}],
-  "receipts": [{"path": "{{adapter execution receipt}}", "sha256": "{{sha256}}"}],
+  "evaluation_plan": {
+    "path": "{{evaluation-plan.json}}",
+    "sha256": "{{sha256}}"
+  },
+  "artifacts": {
+    "source": {
+      "path": "{{source snapshot or manifest}}",
+      "sha256": "{{sha256}}"
+    },
+    "build": {
+      "path": "{{build manifest}}",
+      "sha256": "{{sha256}}"
+    },
+    "launch": {
+      "path": "{{launch manifest}}",
+      "sha256": "{{sha256}}"
+    }
+  },
+  "cases": [
+    {
+      "id": "{{case_id}}",
+      "accuracy": {
+        "path": "{{accuracy.json}}",
+        "sha256": "{{sha256}}"
+      },
+      "performance": {
+        "path": "{{performance.json}}",
+        "sha256": "{{sha256}}"
+      }
+    }
+  ],
+  "receipts": [
+    {
+      "schema": "operator-harness/execution-receipt@1",
+      "producer": "evaluate@1",
+      "project_id": "{{project_id}}",
+      "run_id": "{{run_id}}",
+      "candidate_id": "{{candidate_id}}",
+      "request_id": "{{project-wide unique request_id}}",
+      "artifacts": {
+        "source": {
+          "path": "{{source snapshot or manifest}}",
+          "sha256": "{{sha256}}"
+        },
+        "build": {
+          "path": "{{build manifest}}",
+          "sha256": "{{sha256}}"
+        },
+        "launch": {
+          "path": "{{launch manifest}}",
+          "sha256": "{{sha256}}"
+        }
+      },
+      "evaluation_plan": {
+        "path": "{{evaluation-plan.json}}",
+        "sha256": "{{sha256}}"
+      },
+      "backend": "{{cpu / torch_npu}}",
+      "status": "exited",
+      "exit_codes": {
+        "process": null
+      },
+      "valid": null,
+      "process": {
+        "path": "{{actual process-receipt.json}}",
+        "sha256": "{{sha256}}"
+      },
+      "device_receipt": {
+        "path": "{{torch_npu only: final device-receipt.json; omit for cpu}}",
+        "sha256": "{{sha256}}"
+      },
+      "worker_result": {
+        "path": "{{torch_npu only: worker-result.json; omit for cpu}}",
+        "sha256": "{{sha256}}"
+      }
+    }
+  ],
   "diagnostics": []
 }

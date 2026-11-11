@@ -304,9 +304,11 @@ class SchedulerTest(unittest.TestCase):
         for key in ('v1', 'v2'):
             specs.append(self.enqueue(key, stage='develop', operation='verify-only'))
         self.apply('comparison-group', id='G1', members=['v1', 'v2'], inputs=group)
+        adapter = self.freeze(self.file('adapter.py', '# Frozen queue-only adapter fixture\n'))
         for key in ('v1', 'v2'):
             plan = dict(schema='operator-harness/evaluation-plan@1', project_id='example', run_id=key,
                         inputs=inputs, performance_kind='none', statistic='mean',
+                        execution={'backend': 'cpu', 'adapter': adapter, 'timeout_seconds': 1},
                         cases=[{'id': 'one', 'outputs': ['out']}])
             if key == 'v2':
                 plan['cases'][0]['outputs'] = ['out', 'count']
@@ -368,6 +370,8 @@ class SchedulerTest(unittest.TestCase):
             schema='operator-harness/evaluation-plan@1', project_id='example', run_id='v',
             inputs={key: self.freeze(self.file('in-' + key + '.txt', key)) for key in
                     ('requirements', 'reference', 'comparator', 'cases', 'protocol', 'environment')},
+            execution={'backend': 'cpu', 'timeout_seconds': 1,
+                       'adapter': self.freeze(self.file('adapter.py', '# Frozen queue-only adapter fixture\n'))},
             performance_kind='none', statistic='mean', cases=[{'id': 'one', 'outputs': ['out']}])))
         mutable_design = self.file('repos/v/design.md', 'mutable design')
         with self.assertRaisesRegex(search.Invalid, 'mutable worktree/build'):

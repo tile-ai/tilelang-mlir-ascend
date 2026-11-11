@@ -6,7 +6,7 @@ from evidence import number, require
 
 TERMINAL = {"exited", "cancelled", "not_submitted"}
 TRANSITIONS = {
-    "intent": {"submitted", "running", "unknown", "exited", "not_submitted"},
+    "intent": {"submitted", "running", "unknown", "exited", "cancelled", "not_submitted"},
     "submitted": {"running", "unknown", "exited", "cancelled"},
     "running": {"unknown", "exited", "cancelled"},
     "unknown": {"submitted", "running", "exited", "cancelled", "not_submitted"},
@@ -126,6 +126,7 @@ def apply(store, tree, op):
                     if j["reservation_id"] == op["id"]), "unknown/outstanding job keeps reservation")
         # Record real overruns instead of hiding them; future reservations see the deficit.
         reservation.update(settled=True, used=op["used"], evidence=store.reference(op["evidence"]))
+        reservation.pop('settlement_required', None)
     else:
         raise ValueError("unknown control operation: " + action)
 

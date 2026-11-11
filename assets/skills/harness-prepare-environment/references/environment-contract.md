@@ -23,7 +23,7 @@
 
 [共享环境模板](../assets/templates/environment.md) 保存连接、Python 管理方式、TileLang/torch/torch_npu/CANN 的选定配置和实际身份、执行入口、共享限制与能力证据。它描述工作区可引用的环境，不代表所有项目都获准安装或运行。环境目录主要保存使用文档与证据；真实安装可在远端、容器或约定前缀，不强制搬入本地目录。
 
-[项目绑定模板](../assets/templates/environment-index.md) 保存阶段到环境修订的映射、项目专属源码/包/构建路径、授权和资源约定的引用。development 与 device 可绑定同一描述，也可按实际链路分别绑定。允许同一用户决定覆盖多个阶段，但不能将某项目或上板的许可自动扩展到其他项目或仿真。实时余额仅在 RESOURCE_USAGE 中维护。
+[项目绑定模板](../assets/templates/environment-index.md) 保存阶段到环境修订的映射、项目专属源码/包/构建路径、授权和资源约定的引用。development 与 device 可绑定同一描述，也可按实际链路分别绑定。允许同一用户决定覆盖多个阶段，但不能将某项目或上板的许可自动扩展到其他项目或仿真。control 启用后实时余额在 search/tree.json 中维护，RESOURCE_USAGE 仅保存投影和水位；未启用的旧任务继续使用原手工账本。
 
 ## 选择与问询
 

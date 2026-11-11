@@ -7,10 +7,12 @@
 - controller: {{实际协调 agent/会话身份及最近更新时间；无可查询ID就说明}}
 - execution_strategy: {{subagents / inline，实际可用模式}}
 - status: {{running / needs_input / blocked / paused / budget_exhausted / completed}}
-- max_steps: {{正整数，用户/已有约定优先，否则8}}
-- steps_used: {{启动前递增；失败/中断不退回}}
-- resource_ledger: {{各环境资源账本入口；控制步数不提供设备许可}}
-- max_parallel_develop: {{默认2，受宿主、用户与资源上限约束；inline为1}}
+- max_steps: {{宿主控制动作上限；正整数，用户/已有约定优先，否则8}}
+- steps_used: {{宿主已用步骤；启动前递增，失败/中断不退回，原步骤收尾不重复计数}}
+- control_ledger: {{search/tree.json 的 control；旧任务未启用时说明}}
+- run_step_snapshot: {{程序已准入 run 数/step_limit 及事件水位，仅投影；与宿主步骤分别标明}}
+- resource_ledger: {{control 资源账本及水位；旧任务原手工账本入口；控制步数不提供设备许可}}
+- max_parallel: {{search@2 的 analysis/develop 总槽位，默认2；受宿主、用户与资源约束，inline为1}}
 - in_flight_steps: {{全部 prepared/dispatched/等待接收步骤列表，含 step/run/batch/request/agent/job 与状态；无则 []}}
 - updated_at: {{日期时间与时区}}
 
@@ -34,4 +36,4 @@
 
 {{目标是否达成、已用/剩余步骤、当前/最佳候选与证据、未运行/未达标/在途项、推荐下一步}}
 
-旧 automatic@1 的 current_step 恢复为单元素 in_flight_steps（none 为 []），保留旧记录与原步数，不能清零或重投。每个并行成员独立计步；批次字段不替代成员状态。
+旧 max_parallel_develop 只描述 develop 的并发上限，接入 search@2 时显式确定包含 analysis 的总槽位。旧 automatic@1 的 current_step 恢复为单元素 in_flight_steps（none 为 []），保留旧记录与原步数，不能清零或重投。每个并行成员独立计步；批次字段不替代成员状态。

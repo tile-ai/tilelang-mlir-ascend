@@ -42,7 +42,7 @@ port-baseline 与 develop 复用本方法及采集脚本，编写后在同一节
 
 保存任务状态、输出比较、原始样本、环境快照、命令和日志；分别判定精度、性能目标、采集完整性。保留慢的 case、精度失败与未运行项。超时或断线先查原作业，确认结束/取消和清理后才考虑预算内重试；不能盲目再提交。
 
-独立保存 controller、SSH/worker、guard 的退出码及本作业私有 receipt；入口必须传播非零退出或显式返回失败，不能用 controller=0 覆盖 guard 冲突。guard 非零、receipt 缺失、冲突或观察丢失时性能 invalid，保留原始采样；按任务约定决定是否有额度再测，不改规则忽略冲突。退出码的采集与最终 receipt 验收由外层执行入口完成，不能在 guard 尚未结束时宣称性能有效。
+独立保存 controller、SSH/worker、guard 的退出码及本作业私有 receipt；入口必须传播非零退出或显式返回失败，不能用 controller=0 覆盖 guard 冲突。guard 非零、receipt 缺失、冲突或观察丢失时性能 invalid，保留原始采样；按任务约定决定是否有额度再测，不改规则忽略冲突。退出码与最终 device-receipt 由外层执行入口回收，沿原 evaluate request 完成确认；guard 尚未结束时保留 pending。具体结构和命令见 [设备结果确认](evaluation-runner.md#设备结果的最终确认)。
 
 按 RESULT 模板写本次结果，由主 agent 接收并更新实验记录。所有必选 case 达标才宣称目标达成；预算耗尽交付当前最好证据与差距。候选修改后旧通过标记不适用于新候选。
 

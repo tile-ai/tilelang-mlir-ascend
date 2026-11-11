@@ -458,7 +458,7 @@ class Store:
                     "register the exact validated candidate before promotion")
             fields(op, "reason")
             if tree.get("best"):
-                require(tree["best"]["comparison"] == verified["comparison"],
+                require(evidence.matches_best_comparison(self, tree, verified["comparison"]),
                         "best candidate comparison changed; explicitly start a new comparison")
             tree["best"] = {"candidate_id": candidate_id, "run_id": op["run_id"],
                             "comparison": verified["comparison"], "reason": op["reason"]}
@@ -604,8 +604,7 @@ class Store:
         run["acceptance_policy"] = ("develop" if run["stage"] == "develop" else "port") + "-acceptance@2"
         mode = self.value(run["task"], "operation")
         self.value(run["task"], "diagnostics_required")
-        if mode != "code-only" and (mode != "collect-only" or
-                "evaluation_plan" in metadata(self.local(run["task"]["path"]).read_text())):
+        if mode != "code-only":
             ref = self.reference(self.value(run["task"], "evaluation_plan"))
             data, dependencies = evidence.plan(self, ref)
             require(data.get("run_id") == self.value(run["task"], "run_id"), "evaluation plan run mismatch")
@@ -780,8 +779,9 @@ class Store:
             notices = []
             try:
                 self.latest_cooled(ref, notices)
+                self.verify_ref(ref)
                 require(read(self.local(ref["path"]))["status"] == "active", "cooled version is not active")
-            except Invalid as exc:
+            except (OSError, ValueError, KeyError, TypeError) as exc:
                 warnings.append({"search_node_id": binding["search_node_id"],
                                  "artifact": ref["path"], "reason": str(exc)})
             warnings.extend({"search_node_id": binding["search_node_id"], **notice} for notice in notices)
@@ -805,6 +805,7 @@ class Store:
                     stale.append({"batch_id": key, "path": ref["path"], "error": str(exc)})
         return {"project_id": self.project_id, "event_watermark": len(tree["events"]), "stale_inputs": stale,
                 "corrupted_artifacts": self.audit(tree),
+                "cooled_warnings": self.warnings(tree),
                 "best": tree.get("best"), "control": control.snapshot(tree),
                 "scheduling": scheduler.view(self, tree),
                 "outstanding_runs": [key for key, run in tree["runs"].items() if not settled(run)],

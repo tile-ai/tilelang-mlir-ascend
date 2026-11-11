@@ -30,7 +30,15 @@ def install(project, check_only=False):
     root = Path(project).expanduser().resolve(strict=True)
     if not root.is_dir():
         raise ValueError("project-dir must be an existing directory")
-    target = root / ".agents" / "skills"
+    target = skill_bundle.workspace_path(root, '.agents/skills')
+    files = skill_bundle.inventory(SOURCE, NAMES)
+    # Preflight every managed destination before copying or editing user files.
+    for relative in files:
+        skill_bundle.target(root, relative)
+    instructions = skill_bundle.workspace_path(root, 'AGENTS.md')
+    ignore = skill_bundle.workspace_path(root, '.gitignore')
+    manifest_path = skill_bundle.workspace_path(root, '.agents/.harness/manifest.json')
+    skill_bundle.workspace_path(root, '.agents/.harness/lock')
     pending = []
     for name in NAMES:
         destination = target / name
@@ -44,8 +52,8 @@ def install(project, check_only=False):
                 raise ValueError(f"existing skill differs; files preserved: {destination}")
         else:
             pending.append(name)
-    instructions = root / "AGENTS.md"
     existing = instructions.read_text(encoding="utf-8") if instructions.exists() else ""
+    existing_ignore = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
     entry = (SOURCE.parent / "codex" / "AGENTS.md").read_text(encoding="utf-8")
     start, end = "<!-- operator-harness -->", "<!-- /operator-harness -->"
     if start in existing or end in existing:
@@ -54,8 +62,7 @@ def install(project, check_only=False):
         block = existing[existing.index(start):existing.index(end) + len(end)]
         if block != entry.strip():
             raise ValueError("existing Harness AGENTS block differs; review its upgrade before installing; files preserved")
-    manifest_path = skill_bundle.metadata(root) / "manifest.json"
-    expected_manifest = skill_bundle.manifest(skill_bundle.inventory(SOURCE, NAMES), entry.strip().encode())
+    expected_manifest = skill_bundle.manifest(files, entry.strip().encode())
     if manifest_path.exists() and json.loads(manifest_path.read_text()) != expected_manifest:
         raise ValueError("installed manifest differs; review an upgrade plan before installing")
     if check_only:
@@ -63,8 +70,6 @@ def install(project, check_only=False):
     for name in pending:
         shutil.copytree(SOURCE / name, target / name,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    ignore = root / ".gitignore"
-    existing_ignore = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
     if ".workspace/" not in existing_ignore.splitlines():
         with ignore.open("a", encoding="utf-8") as output:
             output.write(("\n" if existing_ignore else "") + ".workspace/\n")

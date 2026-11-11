@@ -52,6 +52,6 @@ status 查询只读，不改变循环。用户请求 next 时先持久化切换�
 
 ## 结构化控制入口
 
-新批次在安全边界按 [执行控制](../harness-resume/references/execution-control.md) 初始化 control，复用既有明确额度；不因采用工具重问已有许可。五节点登记前占步，设备/仿真动作前 control-reserve/control-job 保存意图，观测与结算使用稳定事件 ID。AUTOMATIC/RESOURCE_USAGE/STATE 引用同一事实源，旧在途任务先按旧契约收尾再接入，不批量迁移。启动/接收前运行只读 reconcile；暂停先落 control-pause 再通知执行者。工具不能自动测量 agent 消耗或替宿主查询远端。
+新批次在安全边界按 [执行控制](../harness-resume/references/execution-control.md) 初始化 control，复用既有明确额度；不因采用工具重问已有许可。程序在五节点准入时计 run 步数；AUTOMATIC 另记宿主控制动作总计数和程序水位，启动前同时核对两类上限。设备/仿真动作前 control-reserve/control-job 保存意图，观测与结算使用稳定事件 ID。AUTOMATIC/RESOURCE_USAGE/STATE 引用同一事实源，旧在途任务先按旧契约收尾再接入，不批量迁移。启动/接收前运行只读 reconcile；暂停先落 control-pause 再通知执行者。工具不能自动观测所有宿主控制动作、测量 agent 消耗或替宿主查询远端；run 步数不替代宿主的问询/恢复等总控制步骤。
 
 成员无法继续但已安全收尾时允许 close-run，失败结论保留；随后核实并 release-workspace。依赖 accepted 的后继仍阻塞，显式失败诊断或等待 settled 的汇总可继续。新项目在首次 analysis/develop 前启用 search@2，已有项目只在安全边界升级。使用工具不扩大目标、额度或发布权限。

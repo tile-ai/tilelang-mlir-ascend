@@ -35,3 +35,7 @@ flush大小、预热次数、采样数量和频率规则由绑定协议提供；
 先选一个已通过精度的 case，在同一有界性能作业中验证采集范围及与协议匹配的频率/原始文件，再顺序执行全部必测 case。小 case 失败保留证据，不扩成无界重试。频率/flush回调与调用适配是当前节点需补的具体代码，不因缺少现成方法名直接返回环境准备。
 
 使用完整 profiler 设备数据就是执行性能测试；只有另采流水诊断指标时才是附加诊断任务。工具适配、排队超时、连接中断、候选失败和测量冲突分别报告。
+
+## 面向下一轮 analysis 的详细采集
+
+本文件及 measure() 负责固定协议性能样本；详细诊断使用 [上板流水与指标](onboard-diagnostics.md) 的原生 torch_npu 分指标采集或 msprof op + MSTX 路径，配套 torch_npu_diagnostics.py。生成 ANALYSIS_DATA，记录实际 kernel、原始数据与范围；不要将 PipeUtilization 单项称为 PipeTimeline，也不要用诊断重放时间替换本协议样本。

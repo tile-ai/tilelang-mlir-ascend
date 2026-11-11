@@ -18,8 +18,7 @@ import subprocess
 import tempfile
 
 
-class Invalid(ValueError):
-    pass
+from records import Invalid, metadata
 
 
 def require(condition, message):
@@ -255,16 +254,25 @@ class Workspace:
             tree = self.local(project_id, "search/tree.json")
             paused = {}
             if tree.exists():
-                for run_id, run in read(tree)["runs"].items():
-                    if run.get("result"):
+                search = read(tree)
+                control = search.get("control", {})
+                require(all(job["status"] in ("exited", "cancelled", "not_submitted")
+                            for job in control.get("jobs", {}).values()) and
+                        all(item["settled"] for item in control.get("reservations", {}).values()),
+                        "search control has outstanding jobs or resources")
+                held = {run_id: lease['generation'] for run_id, lease in
+                        search.get('scheduling', {}).get('leases', {}).items() if not lease['released']}
+                require(not held or check.get('stopped_workspace_leases') == held,
+                        'checkpoint must confirm every held workspace generation has stopped')
+                for run_id, run in search["runs"].items():
+                    if run.get("result") or run.get("closure"):
                         continue
                     relative = check.get("paused_runs", {}).get(run_id)
                     require(relative, "search contains outstanding runs without paused checkpoints")
                     path = self.local(project_id, relative)
-                    text = path.read_text(encoding="utf-8")
-                    require(re.findall(r"^- run_id: (.+)$", text, re.M) == [run_id] and
-                            re.findall(r"^- status: (.+)$", text, re.M) in
-                            (["interrupted"], ["blocked"], ["needs_input"]), "invalid paused run checkpoint")
+                    fields = metadata(path.read_text(encoding="utf-8"))
+                    require(fields.get("run_id") == run_id and fields.get("status") in
+                            ("interrupted", "blocked", "needs_input"), "invalid paused run checkpoint")
                     paused[run_id] = {"path": relative, "sha256": sha(path)}
             snapshot = {"checkpoint": ref, "paused_runs": paused,
                         "repositories": self.inventory(project_id, data)}

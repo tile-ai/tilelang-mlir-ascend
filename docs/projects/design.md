@@ -54,7 +54,7 @@ restore 核对关闭检查点、已登记仓库和实际会话归属；skill 继
 
 ## 兼容与边界
 
-TASK/RESULT/candidate 使用包含 project_id 的 v2 模板；TASK 明确 workspace_root、project_dir、owner。旧 v1 project_root 的含义不变。旧 `.workspace/STATE.md` 与搜索树显式按 legacy 读取，不自动迁移或改写历史摘要。
+TASK/RESULT 使用包含 project_id 的 @4 模板，candidate 使用 @2 模板；TASK 明确 workspace_root、project_dir、owner。旧 v1 project_root 的含义不变。旧 `.workspace/STATE.md` 与搜索树显式按 legacy 读取，不自动迁移或改写历史摘要。
 
 共享上板描述在 `.workspace/environments/onboard/<id>/`，项目 ENVIRONMENT.md 绑定确切修订并保留本项目使用约定。配置问询、发布与能力复用遵循 [环境契约](../../assets/skills/harness-prepare-environment/references/environment-contract.md)，目前由 skill 执行；自动环境管理、跨项目额度调度和 simulator 接入仍待建设。
 

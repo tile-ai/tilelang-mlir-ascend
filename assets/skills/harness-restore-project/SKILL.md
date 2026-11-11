@@ -13,4 +13,6 @@ description: 恢复被冻结或归档的 Harness 项目，核对 worktree、依�
 
 完成核实后保存真实恢复检查点，并调用 projectctl `restore --checkpoint <项目内相对路径>`。只恢复 active 状态，原 automatic 保持暂停，不自动开启实验。用户同时明确要求继续开发时，再交给 harness-resume 按当前身份与授权推进。
 
+search@2 的 queue_item/run/request 与未释放 generation 随项目保留。恢复先运行 reconcile 并查询原派发身份，续原任务或核实后释放；不能因重新打开项目就清空占用、重计步数或重派不明执行者。
+
 最后报告恢复结果、变化与证据缺口、下一步。需要迁移目录或清理依赖时另行处理，本入口不承担自动历史迁移。

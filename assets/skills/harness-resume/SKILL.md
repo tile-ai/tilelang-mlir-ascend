@@ -5,7 +5,7 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 # Harness Resume
 
-先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+按 [项目管理契约](../harness-new-project/references/project-management.md) 选择项目并核对写入归属；从 STATE 和当前 TASK 接续。
 
 目标是让当前 agent 与全新 agent 都能从记录理解任务、执行方式和约束。允许用户在同一会话连续完成多个节点；不强制新 agent 或新会话。先读 [节点交接契约](references/node-contract.md)，按需使用六份模板。[automatic](../harness-automatic/SKILL.md) 已提供当前宿主内的连续协调模式，不把其编排策略施加到普通交互工作。
 
@@ -17,7 +17,7 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 ## 搜索树与知识
 
-算子探索使用 [搜索树与 hot/cooled 知识](references/search-knowledge.md)：策略节点包含多轮 analysis/develop/device-test，阶段 node 与 search_node_id 分开。协调者用随包 searchctl.py 维护树和证据引用；新任务初始化，已有任务在无在途工作时接入，不伪造历史。交付时整理 hot，只有真实人工批准的准确修订可以晋升 cooled；发布独立授权。
+算子探索使用 [搜索树与 hot/cooled 知识](references/search-knowledge.md)：策略节点包含多轮 analysis/develop，阶段 node 与 search_node_id 分开。协调者用随包 searchctl.py 维护树和证据引用；新任务初始化，已有任务在无在途工作时接入，不伪造历史。交付时整理 hot，只有真实人工批准的准确修订可以晋升 cooled；发布独立授权。
 
 ## 恢复与选题
 
@@ -33,11 +33,12 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 - 环境问询、能力缺口或环境变更：[harness-prepare-environment](../harness-prepare-environment/SKILL.md)。
 - 建立、选择或更新正确性参考与性能标杆：[harness-establish-baseline](../harness-establish-baseline/SKILL.md)。
-- 首次标杆实现思路分析，或后续 kernel 问题定位、仿真和流水分析：[harness-analysis](../harness-analysis/SKILL.md)。
-- 根据已接收分析编写、修复或优化候选：[harness-develop](../harness-develop/SKILL.md)。
-- 实卡精度、性能或作业恢复：[harness-device-test](../harness-device-test/SKILL.md)。
+- 无适用候选时移植标杆并验证初版：[harness-port-baseline](../harness-port-baseline/SKILL.md)。
+- 已有 TileLang kernel 的问题定位、仿真和流水分析：[harness-analysis](../harness-analysis/SKILL.md)。
+- 根据已接收分析编写、修复或优化候选，并在同一任务内完成精度和性能验证：[harness-develop](../harness-develop/SKILL.md)。
+- 单独精度/性能、诊断采集或作业恢复：[harness-develop](../harness-develop/SKILL.md) 的 verify-only/collect-only 模式。
 
-标杆建立后默认进入 `analysis → develop → device-test → analysis …`，达成目标即结束。分析是否完成以其绑定的输入和已接收结果判断，旧的“下一步 develop”提示不能跳过新规则要求的首次分析；详见统一路由。
+标杆建立且无适用候选时先进入 `port-baseline`，再按 `analysis → develop → analysis …` 优化；已有适用候选跳过移植，达标直接交付。分析必须绑定实际候选及证据；旧提示或仅研究参考的历史分析不代替当前候选诊断，历史记录保留不改写。详见统一路由。
 
 解析本节点环境为确定的 ID/修订/快照；上板与仿真授权和验证状态独立。首次准备可以携带未知项，不捏造已验证环境。按资源账本分配本次额度，不能以旧环境余额覆盖实际占用。
 
@@ -55,8 +56,12 @@ description: 从项目记录接续 Operator Harness 算子任务，支持同一�
 
 项目交付时按 [DELIVERY 模板](assets/templates/delivery.md) 保存 `.workspace/<project>/deliveries/<delivery-id>/DELIVERY.md`，逐仓库对照实测输入与最终发布输入，列出可复用、待补测、未验证的范围及理由。静态一致不冒充发布版实卡重测；目标 base 更新要检查集成影响。提前约定的 required/diagnostic 分类继续有效，不能无依据追加附件门槛。先完成授权内可审阅的源码、检查和 PR/MR 正文，发布动作分别核对已有授权；缺许可只阻塞对应动作，不重复问已有许可。
 
-按 TASK 完成条件检查 RESULT、产物与身份。委派时由主 agent 接收，直接交互由当前 agent 完成同样检查；completed 不等于精度或性能通过。缺失或矛盾时保留原结果，建立具体补充任务，不用换 agent 来代替修复信息缺口。
+按 TASK 完成条件检查 RESULT、产物与身份。委派时由主 agent 接收，直接交互由当前 agent 完成同样检查；completed 不等于精度或性能通过；develop 只有全部必选精度通过且性能退化排除实现问题后才可接收。精度失败/实现问题在原节点修复，预算阻塞留检查点；其他缺失或矛盾时保留原结果，建立具体补充任务，不用换 agent 来代替修复信息缺口。
 
 协调角色统一更新 STATE、EXPERIMENTS、DECISIONS、环境索引、发布约定和资源账本；委派子 agent 不直接改共享文件。接收环境提案保留旧修订，接收候选检查可重建清单，更新最佳候选须有任务要求的实际证据。
 
-完成记录后可在同一会话继续用户已授权的下一节点，或交给其他 agent。最终回复与 RESULT 都说明结果、差距和一个主推荐：具体节点/skill、原因与证据、依赖/缺口、完成或停止条件。即使用户要求本节点后停止，也要给出建议而不执行；没有适用节点时明确指出流程缺口。记录检查不替代尚未实现的程序 gate。
+完成记录后可在同一会话继续用户已授权的下一节点，或交给其他 agent。最终回复与 RESULT 都说明结果、差距和一个主推荐：具体节点/skill、原因与证据、依赖/缺口、完成或停止条件。即使用户要求本节点后停止，也要给出建议而不执行；没有适用节点时明确指出流程缺口。记录检查与 @4 程序 gate 配合使用；程序不能代替科学内容和真实执行状态核验。
+
+新项目按 [依赖队列](references/task-queue.md) 在安全边界启用 search@2，analysis/develop 逐项入队、冻结输入和准入；编排 agent 自主决定等全部结果还是先分析已接收候选。多个方向使用独立 worktree、build/JIT/cache 和 run 输出，共享设备排队。结果接收后确认 writer/job 停止，再释放空间供新任务复用。共享记录仍由单一协调者更新；search@1 在途项目保持 [旧批次契约](references/parallel-develop.md)，不自动迁移。
+
+新任务同时读取 [执行控制契约](references/execution-control.md)：@4 结构化验收、工具身份、失败关闭和控制对账。需要改变冻结范围时先安全结束原 run，再建立关联任务；不把 close-run 当作 accept。当前候选/最佳候选选择保持证据条件，旧规则结果单独标注。

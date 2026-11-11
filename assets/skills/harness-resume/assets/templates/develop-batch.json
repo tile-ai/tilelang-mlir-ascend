@@ -1,0 +1,29 @@
+{
+  "event_id": "{{stable-event-id}}",
+  "op": "develop-batch",
+  "id": "{{batch-id}}",
+  "candidate_id": null,
+  "inputs": {
+    "requirements": ".workspace/{{project}}/runs/{{preparation-run}}/inputs/requirements.md",
+    "baseline": ".workspace/{{project}}/runs/{{preparation-run}}/inputs/baseline.md",
+    "cases": ".workspace/{{project}}/runs/{{preparation-run}}/inputs/cases.json",
+    "protocol": ".workspace/{{project}}/runs/{{preparation-run}}/inputs/protocol.md",
+    "environment": ".workspace/{{project}}/runs/{{preparation-run}}/inputs/environment.md"
+  },
+  "members": [
+    {
+      "id": "{{develop-run-a}}",
+      "search_node_id": "{{node-a}}",
+      "analysis_run": "{{accepted-analysis-a}}",
+      "repo_ids": ["{{worktree-a}}"],
+      "task": ".workspace/{{project}}/runs/{{develop-run-a}}/TASK.md"
+    },
+    {
+      "id": "{{develop-run-b}}",
+      "search_node_id": "{{node-b}}",
+      "analysis_run": "{{accepted-analysis-b}}",
+      "repo_ids": ["{{worktree-b}}"],
+      "task": ".workspace/{{project}}/runs/{{develop-run-b}}/TASK.md"
+    }
+  ]
+}

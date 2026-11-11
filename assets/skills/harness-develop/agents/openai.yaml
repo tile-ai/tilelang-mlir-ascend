@@ -1,4 +1,4 @@
 interface:
   display_name: "Harness Develop"
-  short_description: "依据版本化需求编写或修复昇腾 TileLang 算子，并交接可重建候选与验证输入"
-  default_prompt: "使用 $harness-develop 读取需求和开发环境约定，实现当前算子并保存候选与验证输入。"
+  short_description: "落实分析方案编写昇腾 TileLang 算子，并在同一任务内完成精度与性能验证"
+  default_prompt: "使用 $harness-develop 在分配的独立工作空间落实已接收方案，按需检视索引/缓冲/同步与测试可信度，冻结候选后按绑定协议验证精度、性能并交付分析数据。"

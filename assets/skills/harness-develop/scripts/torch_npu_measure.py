@@ -10,6 +10,7 @@ import statistics
 from pathlib import Path
 
 from profile_parser import _parse_ffts_profile
+import emission
 
 
 @contextlib.contextmanager
@@ -38,7 +39,7 @@ def capture_profile(directory):
 
 def measure(call, *, output, flush, synchronize, frequency, check_reservation,
             verify_profile, protocol, expected_frequency, flush_bytes,
-            warmup, repeats, flush_marker='_tilelang_profiler_cache_flush'):
+            warmup, repeats, flush_marker='_tilelang_profiler_cache_flush', evidence_context=None):
     """Collect one case under an already-held device reservation.
 
     call(): one complete operator invocation, returning live output buffers.
@@ -118,6 +119,9 @@ def measure(call, *, output, flush, synchronize, frequency, check_reservation,
             'stdev_ms': statistics.stdev(values), 'records': records,
         }
         (root / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+        if evidence_context is not None:
+            summary['evidence'] = emission.case_report(evidence_context, 'performance', root / 'performance.json',
+                emission.files(evidence_context['workspace_root'], root), samples_ms=values)
         return summary
     except BaseException as error:
         (root / 'failure.json').write_text(json.dumps({

@@ -37,6 +37,12 @@ hivm::AddressSpace convertAddressSpace(tl::AddressSpace space) {
     return hivm::AddressSpace::L1;
   case tl::AddressSpace::L0:
     return hivm::AddressSpace::L0C;
+  case tl::AddressSpace::L0A:
+    return hivm::AddressSpace::L0A;
+  case tl::AddressSpace::L0B:
+    return hivm::AddressSpace::L0B;
+  case tl::AddressSpace::L0C:
+    return hivm::AddressSpace::L0C;
   }
   return hivm::AddressSpace::UB;
 }

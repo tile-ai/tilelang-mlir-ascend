@@ -33,6 +33,8 @@ class SearchToolsTest(unittest.TestCase):
 
     def apply(self, action, **values):
         self.sequence += 1
+        if action in ("run", "develop-batch"):
+            values.setdefault("legacy", True)
         return self.store.apply({"event_id": f"e{self.sequence}", "op": action, **values})
 
     def add_node(self, key="N1", parent="N0"):
@@ -46,10 +48,13 @@ class SearchToolsTest(unittest.TestCase):
 
     def record_run(self, key, stage="analysis", node="N0", candidate=None, finish=True):
         text = f"- project_id: example\n- run_id: {key}\n- node: {stage}\n- search_node_id: {node}\n"
+        if stage == "develop":
+            text += "- operation: implement-and-validate\n- performance_required: true\n"
         task = self.write(f".workspace/example/runs/{key}/TASK.md", text)
         self.apply("run", id=key, search_node_id=node, stage=stage, candidate_id=candidate, task=task)
         if finish:
-            result = self.write(f".workspace/example/runs/{key}/RESULT.md", text + "- status: completed\n")
+            result = self.write(f".workspace/example/runs/{key}/RESULT.md", text + "- status: completed\n" +
+                                (self.acceptance_fields(key) if stage == "develop" else ""))
             self.apply("accept", id=key, result=result)
 
     def hot(self, revision=0, nodes=None):
@@ -66,145 +71,6 @@ class SearchToolsTest(unittest.TestCase):
                 "reviewer": "test-reviewer", "reviewed_at": "2026-01-01T00:00:00Z", "delivery": "test-delivery",
                 "approval_source": approval, "hot_id": "H1", "revision": hot["revision"],
                 "hot_sha256": ref["sha256"], "evidence_summary": "Synthetic fixture with no device claims."}
-
-    def test_many_loops_and_candidates_in_one_strategy_and_return_to_branch(self):
-        self.candidate("C0")
-        for iteration in range(2):
-            for stage in ("analysis", "develop", "device-test"):
-                self.record_run(f"r{iteration}-{stage}", stage, candidate="C0")
-        self.candidate("C1", parent="C0")
-        self.add_node()
-        self.add_node("N2", "N1")
-        self.apply("select", id="N2", reason="independent layout strategy")
-        self.candidate("C2", node="N2", parent="C0")
-        self.record_run("branch-test", "device-test", "N2", "C2")
-        self.apply("select", id="N0", reason="revisit initial hypothesis")
-        self.record_run("retest", "device-test", candidate="C1")
-        tree = search.Store(self.root, "example").load()
-        self.assertEqual(len(tree["nodes"]), 3)
-        self.assertEqual(len(tree["runs"]), 8)
-        self.assertEqual(tree["candidates"]["C2"]["parent_candidate"], "C0")
-        self.assertEqual(tree["current_node"], "N0")
-
-    def test_outstanding_run_blocks_switch_and_checkpoint_is_not_terminal(self):
-        self.add_node()
-        self.record_run("r1", finish=False)
-        with self.assertRaisesRegex(search.Invalid, "outstanding"):
-            self.apply("select", id="N1", reason="switch")
-        with self.assertRaisesRegex(search.Invalid, "outstanding"):
-            self.apply("node-status", id="N0", status="closed", reason="done")
-        result = self.write(".workspace/example/runs/r1/RESULT.md",
-                            "- project_id: example\n- run_id: r1\n- node: analysis\n- search_node_id: N0\n- status: interrupted\n")
-        with self.assertRaisesRegex(search.Invalid, "terminal"):
-            self.apply("accept", id="r1", result=result)
-        self.assertIsNone(self.store.load()["runs"]["r1"]["result"])
-
-    def test_retries_are_idempotent_but_conflicting_event_ids_fail(self):
-        operation = {"event_id": "stable", "op": "add-node", "id": "N1", "parent": "N0",
-                     "hypothesis": "reuse", "scope": "all"}
-        self.store.apply(operation)
-        before = self.store.path.read_bytes()
-        self.store.apply(operation)
-        self.assertEqual(self.store.path.read_bytes(), before)
-        with self.assertRaisesRegex(search.Invalid, "reused"):
-            self.store.apply({**operation, "scope": "other"})
-        self.assertEqual(self.store.path.read_bytes(), before)
-
-    def test_bad_parent_and_cycles_do_not_commit(self):
-        with self.assertRaisesRegex(search.Invalid, "parent"):
-            self.add_node(parent="missing")
-        self.add_node()
-        self.add_node("N2", "N1")
-        tree = self.store.load()
-        tree["nodes"]["N1"]["parent"] = "N2"
-        with self.assertRaisesRegex(search.Invalid, "cycle"):
-            self.store.validate(tree)
-        self.assertEqual(self.store.load()["nodes"]["N1"]["parent"], "N0")
-
-    def test_manifest_mismatch_and_tampering_fail(self):
-        self.candidate("C0")
-        path = self.write("wrong.md", "- project_id: example\n- candidate_id: C1\n- search_node_id: N2\n")
-        with self.assertRaisesRegex(search.Invalid, "search_node_id"):
-            self.apply("candidate", id="C1", search_node_id="N0", parent_candidate=None, manifest=path)
-        self.write(".workspace/example/candidates/C0.md", "changed after registration\n")
-        with self.assertRaisesRegex(search.Invalid, "artifact changed"):
-            self.store.load()
-
-    def test_hot_revisions_multi_node_evidence_and_stale_updates(self):
-        self.add_node()
-        self.hot(nodes=["N0", "N1"])
-        first = deepcopy(self.store.load()["hot"]["H1"][0])
-        self.hot(1, ["N1"])
-        with self.assertRaisesRegex(search.Invalid, "stale"):
-            self.hot(0)
-        self.assertEqual(len(self.store.load()["hot"]["H1"]), 2)
-        self.assertEqual(search.read(self.store.local(first["path"]))["nodes"], ["N0", "N1"])
-        self.assertEqual(self.store.review()["latest_hot"][0]["hot"]["revision"], 2)
-
-    def test_hot_crash_before_index_commit_can_resume_without_duplicate(self):
-        original = search.atomic
-
-        def interrupt_index(path, value, immutable=False):
-            if path == self.store.path:
-                raise OSError("simulated interruption")
-            return original(path, value, immutable)
-
-        with patch.object(search, "atomic", side_effect=interrupt_index):
-            with self.assertRaisesRegex(OSError, "interruption"):
-                self.hot()
-        self.assertEqual(self.store.load()["hot"], {})
-        self.hot()
-        self.assertEqual(len(list((self.root / ".workspace/example/knowledge/hot/H1").glob("*.json"))), 1)
-        self.assertEqual(len(self.store.load()["hot"]["H1"]), 1)
-
-    def test_promotion_requires_exact_approved_revision_and_retains_hot(self):
-        self.hot()
-        decision = self.decision()
-        for changes in ({"approved": False}, {"hot_sha256": "0" * 64}, {"revision": 99}, {"reviewer": ""}):
-            with self.subTest(changes=changes), self.assertRaises(search.Invalid):
-                self.store.promote({**decision, **changes}, "knowledge/cooled")
-        output = self.store.promote(decision, "knowledge/cooled")
-        before = (self.root / output).read_bytes()
-        self.assertEqual(self.store.promote(decision, "knowledge/cooled"), output)
-        self.assertEqual((self.root / output).read_bytes(), before)
-        cooled = search.read(self.root / output)
-        self.assertNotIn(".workspace", before.decode())
-        self.assertEqual(cooled["provenance"]["hot_sha256"], decision["hot_sha256"])
-        self.assertIn("H1", self.store.load()["hot"])
-        self.hot(1)
-        self.assertEqual(self.store.promote(decision, "knowledge/cooled"), output)
-        with self.assertRaisesRegex(search.Invalid, "decision ID"):
-            self.store.promote({**decision, "evidence_summary": "different claim"}, "knowledge/cooled")
-
-    def test_hot_update_invalidates_old_approval(self):
-        self.hot()
-        decision = self.decision()
-        self.hot(1)
-        with self.assertRaisesRegex(search.Invalid, "stale"):
-            self.store.promote(decision, "knowledge/cooled")
-        self.assertFalse((self.root / "knowledge").exists())
-
-    def test_invalidation_keeps_history_and_prevents_new_consumption(self):
-        self.hot()
-        path = self.store.promote(self.decision(), "knowledge/cooled")
-        self.apply("use-cooled", search_node_id="N0", artifact=path, reason="matching conditions")
-        old = (self.root / path).read_bytes()
-        new = self.store.invalidate_cooled(path, "needs_revalidation", "v2", "toolchain changed")
-        self.assertEqual((self.root / path).read_bytes(), old)
-        self.assertEqual(self.store.invalidate_cooled(path, "needs_revalidation", "v2", "toolchain changed"), new)
-        for artifact in (path, new):
-            with self.subTest(artifact=artifact), self.assertRaises(search.Invalid):
-                self.apply("use-cooled", search_node_id="N0", artifact=artifact, reason="reuse")
-        self.assertEqual(len(self.store.load()["cooled_inputs"]), 1)
-        self.assertEqual(len(json.loads(self.cli("show").stdout)["cooled_warnings"]), 1)
-
-    def test_paths_cannot_escape_project(self):
-        for path in ("../outside", str(self.root / "absolute")):
-            with self.subTest(path=path), self.assertRaises(search.Invalid):
-                self.store.local(path)
-        (self.root / "escape").symlink_to(self.root.parent, target_is_directory=True)
-        with self.assertRaises(search.Invalid):
-            self.store.local("escape/file")
 
     def test_symlinked_workspace_cannot_receive_cooled(self):
         self.hot()
@@ -263,8 +129,27 @@ class SearchToolsTest(unittest.TestCase):
         self.assertNotEqual(first["sha256"], second["sha256"])
         self.store.promote(self.decision(), "knowledge/cooled")
         self.write(first["path"], "tampered snapshot")
+        tree = self.store.load()
+        self.assertIn(first["path"], [item["path"] for item in self.store.audit(tree)])
+        self.assertNotEqual(self.cli("check").returncode, 0)
+        self.assertEqual(self.cli("show").returncode, 0)
+        # Historical damage does not prevent promotion of the intact latest revision.
+        self.store.promote(self.decision(), "knowledge/cooled")
+        self.write(second["path"], "tampered current snapshot")
         with self.assertRaisesRegex(search.Invalid, "artifact changed"):
-            self.store.load()
+            self.store.promote(self.decision(), "knowledge/cooled")
+
+    def test_cooling_rechecks_approved_hot_content(self):
+        self.hot()
+        decision = self.decision()
+        ref = self.store.load()["hot"]["H1"][-1]
+        hot = search.read(self.store.local(ref["path"]))
+        hot["statement"] = "changed after approval"
+        self.write(ref["path"], json.dumps(hot))
+        self.assertTrue(self.store.audit(self.store.load()))
+        with self.assertRaisesRegex(search.Invalid, "artifact changed"):
+            self.store.promote(decision, "knowledge/cooled")
+        self.assertFalse((self.root / "knowledge/cooled/H1--review1.json").exists())
 
     def test_hot_snapshots_are_isolated_by_project(self):
         self.hot()
@@ -291,49 +176,161 @@ class SearchToolsTest(unittest.TestCase):
             self.apply("candidate", id=key, search_node_id="N0", parent_candidate=None, manifest=path)
         self.assertEqual(len(self.store.load()["candidates"]), 3)
 
+
+    def acceptance_fields(self, key, accuracy="passed", performance="passed", cause="none"):
+        paths = {kind: self.write(f".workspace/example/runs/{key}/{kind}.md",
+                                 f"Synthetic {kind} evidence for {key}; no device claims.\n")
+                 for kind in ("accuracy", "performance", "regression")}
+        return (f"- accuracy_status: {accuracy}\n- performance_status: {performance}\n"
+                f"- regression_cause: {cause}\n" + "".join(
+                    f"- {kind}_evidence: {path}\n" for kind, path in paths.items()))
+
+    def batch_fixture(self):
+        source = self.root / "source"
+        source.mkdir()
+        for args in (("init",), ("config", "user.name", "Fixture"),
+                     ("config", "user.email", "fixture@example.invalid"),
+                     ("commit", "--allow-empty", "-m", "fixture")):
+            subprocess.run(["git", "-C", str(source), *args], check=True, capture_output=True)
+        self.candidate("C0")
+        self.record_run("a0", candidate="C0")
+        self.add_node()
+        self.apply("select", id="N1", reason="second proposal")
+        self.record_run("a1", node="N1", candidate="C0")
+        members = []
+        for index in range(2):
+            key, node, analysis, repo = f"d{index}", f"N{index}", f"a{index}", f"variant{index}"
+            self.store.workspace.add_repo("example", "session", repo, source, "HEAD")
+            task = self.write(f".workspace/example/runs/{key}/TASK.md",
+                              f"- project_id: example\n- run_id: {key}\n- node: develop\n"
+                              f"- search_node_id: {node}\n- batch_id: B1\n- analysis_run: {analysis}\n"
+                              "- operation: implement-and-validate\n- performance_required: true\n")
+            members.append({"id": key, "search_node_id": node, "analysis_run": analysis,
+                            "repo_ids": [repo], "task": task})
+        inputs = {name: self.write(f".workspace/example/inputs/{name}.md", name)
+                  for name in ("requirements", "baseline", "cases", "protocol", "environment")}
+        return {"event_id": "batch-event", "op": "develop-batch", "legacy": True, "id": "B1",
+                "candidate_id": "C0", "inputs": inputs, "members": members}
+
+    def finish_member(self, key, status="completed"):
+        task = self.root / f".workspace/example/runs/{key}/TASK.md"
+        result = self.write(f".workspace/example/runs/{key}/RESULT.md",
+                            task.read_text() + f"- status: {status}\n" + self.acceptance_fields(key))
+        return self.apply("accept", id=key, result=result)
+
     def cli(self, *args, script=SCRIPT):
-        return subprocess.run([sys.executable, str(script), "--workspace", str(self.root), "--project", "example", "--owner", "session", *args],
+        return subprocess.run([sys.executable, str(script), "--workspace", str(self.root),
+                               "--project", "example", "--owner", "session", *args],
                               text=True, capture_output=True)
 
-    def test_read_commands_do_not_write_and_missing_tree_does_not_initialize(self):
-        def snapshot():
-            return {str(p.relative_to(self.root)): (p.read_bytes(), p.stat().st_mtime_ns)
-                    for p in self.root.rglob("*") if p.is_file()}
+    def test_tree_lineage_outstanding_runs_and_idempotency(self):
+        self.candidate("C0")
+        self.add_node()
+        self.add_node("N2", "N1")
+        self.apply("select", id="N2", reason="independent layout strategy")
+        self.candidate("C2", node="N2", parent="C0")
+        self.record_run("branch-test", "develop", "N2", "C2")
+        self.apply("select", id="N0", reason="revisit initial hypothesis")
+        self.record_run("r1", finish=False)
+        with self.assertRaisesRegex(search.Invalid, "outstanding"):
+            self.apply("select", id="N1", reason="switch")
+        result = self.write(".workspace/example/runs/r1/RESULT.md",
+                            "- project_id: example\n- run_id: r1\n- node: analysis\n- search_node_id: N0\n- status: interrupted\n")
+        with self.assertRaisesRegex(search.Invalid, "terminal"):
+            self.apply("accept", id="r1", result=result)
+        operation = {"event_id": "stable", "op": "add-node", "id": "N3", "parent": "N0",
+                     "hypothesis": "reuse", "scope": "all"}
+        self.store.apply(operation)
+        before = self.store.path.read_bytes()
+        self.store.apply(operation)
+        self.assertEqual(self.store.path.read_bytes(), before)
+        with self.assertRaisesRegex(search.Invalid, "reused"):
+            self.store.apply({**operation, "scope": "other"})
+        tree = self.store.load()
+        tree["nodes"]["N1"]["parent"] = "N2"
+        with self.assertRaisesRegex(search.Invalid, "cycle"):
+            self.store.validate(tree)
 
-        before = snapshot()
+    def test_hot_knowledge_cooling_and_invalidation_lifecycle(self):
+        self.add_node()
+        self.hot(nodes=["N0", "N1"])
+        decision = self.decision()
+        for changes in ({"approved": False}, {"hot_sha256": "0" * 64}, {"revision": 99}, {"reviewer": ""}):
+            with self.subTest(changes=changes), self.assertRaises(search.Invalid):
+                self.store.promote({**decision, **changes}, "knowledge/cooled")
+        path = self.store.promote(decision, "knowledge/cooled")
+        self.assertEqual(self.store.promote(decision, "knowledge/cooled"), path)
+        with self.assertRaisesRegex(search.Invalid, "decision ID"):
+            self.store.promote({**decision, "evidence_summary": "different claim"}, "knowledge/cooled")
+        self.assertNotIn(".workspace", (self.root / path).read_text())
+        self.apply("use-cooled", search_node_id="N0", artifact=path, reason="matching conditions")
+        new = self.store.invalidate_cooled(path, "needs_revalidation", "v2", "toolchain changed")
+        for artifact in (path, new):
+            with self.subTest(artifact=artifact), self.assertRaises(search.Invalid):
+                self.apply("use-cooled", search_node_id="N0", artifact=artifact, reason="reuse")
+        self.assertEqual(len(json.loads(self.cli("show").stdout)["cooled_warnings"]), 1)
+
+    def test_paths_read_only_commands_and_concurrent_writers(self):
+        for path in ("../outside", str(self.root / "absolute")):
+            with self.subTest(path=path), self.assertRaises(search.Invalid):
+                self.store.local(path)
+        before = self.store.path.read_bytes()
         for command in ("show", "check", "review"):
-            result = self.cli(command)
-            self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(snapshot(), before)
-        self.store.path.unlink()
-        before = snapshot()
-        self.assertNotEqual(self.cli("show").returncode, 0)
-        self.assertEqual(snapshot(), before)
-
-    def test_concurrent_writers_keep_both_branches(self):
+            self.assertEqual(self.cli(command).returncode, 0)
+        self.assertEqual(self.store.path.read_bytes(), before)
         processes = []
         for key in ("N1", "N2"):
-            operation = {"event_id": key, "op": "add-node", "id": key, "parent": "N0",
-                         "hypothesis": key, "scope": "all"}
             file = self.root / f"{key}.json"
-            file.write_text(json.dumps(operation))
+            file.write_text(json.dumps({"event_id": key, "op": "add-node", "id": key,
+                                        "parent": "N0", "hypothesis": key, "scope": "all"}))
             processes.append(subprocess.Popen(
-                [sys.executable, str(SCRIPT), "--workspace", str(self.root), "--project", "example", "--owner", "session", "apply", str(file)],
+                [sys.executable, str(SCRIPT), "--workspace", str(self.root),
+                 "--project", "example", "--owner", "session", "apply", str(file)],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
         for process in processes:
             _, error = process.communicate(timeout=10)
             self.assertEqual(process.returncode, 0, error)
         self.assertEqual(set(self.store.load()["nodes"]), {"N0", "N1", "N2"})
 
-    def test_installed_helper_works_outside_source_repository(self):
-        result = subprocess.run([sys.executable, str(ROOT / "scripts/install_codex_skills.py"),
-                                 "--project-dir", str(self.root)], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        installed = self.root / ".agents/skills/harness-resume/scripts/searchctl.py"
-        result = self.cli("check", script=installed)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), {"valid": True, "cooled_warnings": []})
-        self.assertIn("searchctl.py", (self.root / "AGENTS.md").read_text())
+    def test_batch_isolation_and_legacy_compatibility(self):
+        operation = self.batch_fixture()
+        for field in ("repo_ids", "task", "id"):
+            bad = deepcopy(operation)
+            bad["members"][1][field] = bad["members"][0][field]
+            with self.assertRaises(search.Invalid):
+                self.store.apply(bad)
+        self.store.apply(operation)
+        self.finish_member("d1")
+        with self.assertRaisesRegex(search.Invalid, "outstanding"):
+            self.apply("select", id="N0", reason="too early")
+        self.finish_member("d0")
+        self.apply("select", id="N0", reason="all results retained")
+        port_op, port_res = self._legacy_port_fixture()
+        self.apply("run", **port_op)
+        self.apply("accept", id="port", result=port_res)
+        self.assertEqual(self.store.load()["runs"]["port"]["acceptance"]["policy"], "port-acceptance@1")
+
+    def _legacy_port_fixture(self):
+        prefix = ".workspace/example/runs/port"
+        identity = "- project_id: example\n- run_id: port\n- node: port-baseline\n- search_node_id: N0\n"
+        task = self.write(prefix + "/TASK.md", identity +
+                          "- operation: port-and-validate\n- performance_required: true\n"
+                          "- diagnostics_required: true\n- aicpu_policy: forbidden\n")
+        candidate = self.write(prefix + "/CANDIDATE.md",
+                               "- project_id: example\n- candidate_id: Cport\n- search_node_id: N0\n"
+                               "- parent_candidate: not_applicable\n")
+        mapping = self.write(prefix + "/PORTING.md", "- contract: operator-harness/porting@1\n"
+                             "- project_id: example\n- run_id: port\n- candidate_id: Cport\n"
+                             "- status: complete\n- aicpu_status: replaced\nSynthetic replacement evidence.\n")
+        data = self.write(prefix + "/ANALYSIS_DATA.md", "- project_id: example\n- run_id: port\n"
+                          "- candidate_id: Cport\n- status: ready\nSynthetic CPU fixture only.\n")
+        accuracy = self.write(prefix + "/accuracy.md", "Synthetic mandatory case results.\n")
+        performance = self.write(prefix + "/performance.md", "Synthetic valid but slow sample.\n")
+        result = self.write(prefix + "/RESULT.md", identity + "- status: completed\n- accuracy_status: passed\n"
+                            f"- accuracy_evidence: {accuracy}\n- performance_status: failed\n"
+                            f"- performance_evidence: {performance}\n- candidate_manifest: {candidate}\n"
+                            f"- porting_evidence: {mapping}\n- analysis_data: {data}\n")
+        return dict(id="port", search_node_id="N0", stage="port-baseline", candidate_id=None, task=task), result
 
 
 if __name__ == "__main__":

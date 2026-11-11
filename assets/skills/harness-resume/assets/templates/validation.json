@@ -1,0 +1,16 @@
+{
+  "schema": "operator-harness/validation@1",
+  "project_id": "{{project_id}}",
+  "run_id": "{{run_id}}",
+  "candidate_id": "{{candidate_id}}",
+  "candidate": {"path": "{{CANDIDATE.md}}", "sha256": "{{sha256}}"},
+  "evaluation_plan": {"path": "{{evaluation-plan.json}}", "sha256": "{{sha256}}"},
+  "artifacts": {
+    "source": {"path": "{{source snapshot or manifest}}", "sha256": "{{sha256}}"},
+    "build": {"path": "{{build manifest}}", "sha256": "{{sha256}}"},
+    "launch": {"path": "{{launch manifest}}", "sha256": "{{sha256}}"}
+  },
+  "cases": [{"id": "{{case_id}}", "accuracy": {"path": "{{accuracy.json}}", "sha256": "{{sha256}}"}, "performance": {"path": "{{performance.json}}", "sha256": "{{sha256}}"}}],
+  "receipts": [{"path": "{{adapter execution receipt}}", "sha256": "{{sha256}}"}],
+  "diagnostics": []
+}

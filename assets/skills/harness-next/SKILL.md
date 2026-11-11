@@ -5,7 +5,7 @@ description: 根据 Operator Harness 项目记录直接执行当前任务的一�
 
 # Harness Next
 
-先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。写入前核对项目 active 与会话 owner，其他会话须先交接；freezing 只允许安全收尾，frozen/archived 交给 harness-restore-project。所有源码修改限项目独立 worktree，环境/源码位置从绑定读取。
+按 [项目管理契约](../harness-new-project/references/project-management.md) 选择项目并核对写入归属；从 STATE 和当前 TASK 接续。
 
 这是执行入口。按 [统一下一步规则](../harness-resume/references/next-action.md) 读取记录、核对当前目标和身份，选择一个可完成的动作并直接推进，不以复述计划结束。
 
@@ -16,5 +16,7 @@ description: 根据 Operator Harness 项目记录直接执行当前任务的一�
 已有 automatic 或用户中途切换模式时，按 [模式切换与接管](../harness-resume/references/next-action.md#6-模式切换与接管) 先保存单步意图及其绑定的动作。另一协调者仍活跃时交给它处理，不能另开执行者；单步请求不增加设备额度，暂停后的问题回答也不恢复连续模式。
 
 一次推进到所选动作的完成或明确等待/阻塞边界，完成本步共享记录更新后返回。若需要用户回答，实际提出对应问题并保存 needs_input；目标已完成就汇总，不自动选择新任务。
+
+search@2 使用 [依赖队列](../harness-resume/references/task-queue.md) 的 ready/reconcile 选择一个明确动作；一个已接收 develop 的分析可先于无关 develop 完成。是否等待更多结果由协调者判断并记录，不把整组队列作为一步。接收/安全关闭后核实 writer/job 并释放原占用；响应丢失先查原派发身份。
 
 最终说明本步动作、产物、实际结果/未测项、阻塞（若有）和新的推荐下一步。给建议不等于继续第二步；只有用户另有连续执行要求时才切换到 [automatic](../harness-automatic/SKILL.md)。

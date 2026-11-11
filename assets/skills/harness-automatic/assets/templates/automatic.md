@@ -1,6 +1,6 @@
 # Automatic 控制记录
 
-- contract: operator-harness/automatic@1
+- contract: operator-harness/automatic@2
 - batch_id: {{项目内唯一批次}}
 - predecessor: {{上一批次归档路径；首次为 not_applicable}}
 - task_scope: {{当前任务/需求路径与版本、用户请求来源；不默认为整个路线图}}
@@ -10,7 +10,8 @@
 - max_steps: {{正整数，用户/已有约定优先，否则8}}
 - steps_used: {{启动前递增；失败/中断不退回}}
 - resource_ledger: {{各环境资源账本入口；控制步数不提供设备许可}}
-- current_step: {{步骤号、run/agent/job、在途状态或 none}}
+- max_parallel_develop: {{默认2，受宿主、用户与资源上限约束；inline为1}}
+- in_flight_steps: {{全部 prepared/dispatched/等待接收步骤列表，含 step/run/batch/request/agent/job 与状态；无则 []}}
 - updated_at: {{日期时间与时区}}
 
 模式切换时在下节记录待生效请求及其绑定步骤/决定 ID；旧记录没有该字段时查 DECISIONS，不猜已恢复自动运行。
@@ -32,3 +33,5 @@
 ## 本批次结论
 
 {{目标是否达成、已用/剩余步骤、当前/最佳候选与证据、未运行/未达标/在途项、推荐下一步}}
+
+旧 automatic@1 的 current_step 恢复为单元素 in_flight_steps（none 为 []），保留旧记录与原步数，不能清零或重投。每个并行成员独立计步；批次字段不替代成员状态。

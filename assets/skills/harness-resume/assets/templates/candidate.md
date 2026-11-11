@@ -1,12 +1,23 @@
 # 候选清单
 
+<!-- harness-metadata -->
 - contract: operator-harness/candidate@2
 - project_id: {{与 TASK/project.json 一致}}
 - search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - candidate_id: {{项目内唯一候选编号}}
 - producer_run: {{产生此候选的 run/TASK}}
-- parent_candidate: {{父候选清单；初版写 not_applicable}}
+- parent_candidate: {{父候选 ID；初版写 not_applicable}}
 - task_contract: {{需求路径、修订、摘要}}
+- source_sha256: {{实际源码快照或源码文件清单的 SHA256}}
+- build_sha256: {{构建产物/编译配置清单的 SHA256}}
+- launch_sha256: {{实际入口/ABI/launch 清单的 SHA256}}
+- source: {{source 文件或清单路径，相对 workspace_root}}
+- build: {{build 文件或清单路径，相对 workspace_root}}
+- launch: {{launch 文件或清单路径，相对 workspace_root}}
+<!-- /harness-metadata -->
+
+机器字段集中在上述区块；删除本任务不适用的可选字段。区块外为说明，可自由写列表和代码示例。
+
 
 ## 可重建来源
 
@@ -30,4 +41,9 @@
 
 {{PROJECT 契约修订/摘要、适用仓库规则；PRECHECK 路径/摘要及输入范围，不适用或未完成说明原因}}
 {{编译/精度/性能各自对应 RESULT；没有就明确 not_run。下游产生的新二进制清单归该 run，不改此候选身份}}
-{{本次修改和假设、已知限制、下一节点的确切测试入口；不能从仿真或编译推导实卡通过}}
+{{本次修改和假设、已知限制、本 develop 内验证及后续复测的确切入口；不能从仿真或编译推导实卡通过}}
+
+## 结构化验证身份
+
+
+新 @4 的 validation.artifacts 引用上述三个确切文件。清单中所有运行依赖还应列入 validation 的原始依赖引用；摘要证明文件身份，不证明编译器实际消费了这些字段。

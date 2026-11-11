@@ -146,12 +146,12 @@ class ProjectTest(unittest.TestCase):
         root = self.ws.project('first')
         task = root / 'TASK.md'
         task.write_text('- project_id: first\n- run_id: r1\n- node: analysis\n- search_node_id: N0\n')
-        store.apply(dict(event_id='r1', op='run', id='r1', search_node_id='N0', stage='analysis',
+        store.apply(dict(event_id='r1', op='run', legacy=True, id='r1', search_node_id='N0', stage='analysis',
                          candidate_id=None, task=str(task.relative_to(self.root))))
         self.ws.begin_close('first', 'session1', 'frozen')
         with self.assertRaises(project.Invalid):
             self.ws.finish_close('first', 'session1', self.checkpoint())
-        (root / 'paused.md').write_text('- run_id: r1\n- status: interrupted\n')
+        (root / 'paused.md').write_text('- run_id: r1\n- status: interrupted\n## Example\n```\n- status: completed\n```\n')
         self.ws.finish_close('first', 'session1', self.checkpoint(paused_runs={'r1': 'paused.md'}))
         self.assertIsNone(store.load()['runs']['r1']['result'])
         self.ws.restore('first', 'session1', self.checkpoint(filename='lifecycle/restore.json'))
@@ -213,6 +213,19 @@ class ProjectTest(unittest.TestCase):
         installed = nested / '.agents/skills'
         expected = {skill.parent.name for skill in (ROOT / 'assets/skills').glob('*/SKILL.md')}
         self.assertEqual({skill.name for skill in installed.iterdir()}, expected)
+        self.assertTrue((installed / 'harness-port-baseline/assets/templates/porting.md').is_file())
+        self.assertTrue((installed / 'harness-analysis/scripts/profile_summary.py').is_file())
+        self.assertTrue((installed / 'harness-analysis/assets/templates/diagnosis.md').is_file())
+        self.assertFalse((installed / 'harness-device-test').exists())
+        measure = installed / 'harness-develop/scripts'
+        smoke = subprocess.run([sys.executable, '-c',
+                                'import sys; sys.path.insert(0, sys.argv[1]); '
+                                'import torch_npu_measure; import profile_parser; '
+                                'import torch_npu_diagnostics; '
+                                'assert callable(torch_npu_measure.measure); '
+                                'assert callable(torch_npu_diagnostics.capture_diagnostics)', str(measure)],
+                               capture_output=True, text=True)
+        self.assertEqual(smoke.returncode, 0, smoke.stderr)
         tool = installed / 'harness-new-project/scripts/projectctl.py'
         result = subprocess.run([sys.executable, str(tool), '--workspace', str(nested),
                                  '--project', 'example', '--owner', 'session', 'create', '--title', 'Example'],

@@ -1,6 +1,7 @@
 # 节点结果 / 检查点
 
-- contract: operator-harness/node-result@2
+<!-- harness-metadata -->
+- contract: operator-harness/node-result@4
 - project_id: {{与 TASK/project.json 一致}}
 - search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - run_id: {{与 TASK 一致}}
@@ -9,6 +10,21 @@
 - record_revision: {{递增编号}}
 - status: {{running / needs_input / blocked / completed / failed / interrupted}}
 - updated_at: {{日期时间与时区}}
+- batch_id: {{与 TASK 一致}}
+- queue_item_id: {{与 TASK 一致；search@1 删除}}
+- analysis_run: {{与 TASK 一致}}
+- analysis_data: {{本 run 的 ANALYSIS_DATA.md 路径，相对 workspace_root；不采也交付范围/原因}}
+- accuracy_status: {{passed / failed / not_run / invalid / not_applicable}}
+- performance_status: {{passed / failed / not_run / invalid / not_applicable；指目标判定}}
+- regression_cause: {{none / idea / implementation / unknown / measurement；未达性能目标或有任何退化时必须归因}}
+- regression_evidence: {{idea 时必填独立归因文件路径；其余可注明不适用}}
+- candidate_manifest: {{实际候选 CANDIDATE @2 路径；只读任务必须沿用输入候选}}
+- validation_evidence: {{implement-and-validate / initial-and-validate / verify-only / port-baseline 的 validation@1 JSON 路径；其他模式删除}}
+- diagnostic_evidence: {{仅 collect-only 的 diagnostic-evidence@1 JSON 路径；其他模式删除}}
+- porting_evidence: {{PORTING 文件路径，相对 workspace_root}}
+<!-- /harness-metadata -->
+
+机器字段集中在上述区块；删除本任务不适用的可选字段。区块外为说明，可自由写列表和代码示例。
 
 ## 任务理解
 
@@ -53,3 +69,31 @@
 ## 结论与下一节点建议
 
 {{已完成/未完成、观察与假设的区别、应保留/放弃的候选、一个主推荐的节点/skill、原因与证据、依赖/缺口及完成/停止条件、精确恢复点；委派子 agent 只建议；直接交互在收尾记录后可继续授权内下一节点；最终回复同样呈现该建议，不能仅给记录链接}}
+
+## 分析交付（仅 analysis 填写）
+
+{{链接或内联 harness-analysis 的诊断报告：当前缺陷/瓶颈、原始证据与源码对应、算子工作量、可执行优化方向及限制。列 plan_id/mechanism_id、优先级、expected/falsifier/keep/discard/simplification、prior_nodes/新依据、同节点或子节点建议、补采范围；保留 TASK 的 search_node_id。统计摘要不等于瓶颈结论。}}
+
+## 并行成员交付（非成员删除）
+
+{{逐次候选与真实父候选、最终选定候选、对共同基线逐 case 比较、环境/协议差异、仍在运行的作业、源码是否仍有写入者。主 agent 核对后接收；成员不得自行更新全局最佳或合并兄弟实现。}}
+
+## 实现与验证接收判定（port-baseline / develop 填写）
+
+ANALYSIS_DATA 使用 [分析数据模板](../../../harness-develop/assets/templates/analysis-data.md)，描述原始文件、摘要、实际 kernel/case/构建/环境、指标覆盖、诊断命令与观察。TASK diagnostics_required=true 时须核对到 ready 才能接收；false 时也保留未采/不适用依据，不将 pending_review 的采集脚本输出直接认作完整交付。
+
+## Develop 退化判定（仅 develop 填写）
+
+上述字段与结果表一致。归因文件包含相对父候选和标杆的逐 case 变化、有效测量依据、预期优化与实际实现的核对、已排除的实现问题、退化现象及交给下一 analysis 的结论。不修改验收阈值或隐去慢 case。
+
+精度失败、实现问题、未知归因不能接收；在本节点修复后重验。预算/环境/权限阻塞保存 blocked/needs_input/interrupted，不以 failed 终态绕过。实现符合方案且精度通过的思路退化，可在保留性能 failed 的同时 completed 并交回 analysis；接收不等于最佳候选晋升。
+
+## 结构化验证（新 @4 实现/验证任务）
+
+逐 case/输出、样本、源码/构建/launch 及回执按 [执行控制契约](../../references/execution-control.md) 关联。代码或纯采集模式不获得最佳候选晋升资格。initial-and-validate 是初版构建，正确且有效测量的目标差距可以交给 analysis，不强制写 idea；实现/精度/测量问题仍在节点内解决。
+
+## 标杆移植接收（仅 port-baseline 填写）
+
+使用 [PORTING 模板](../../../harness-port-baseline/assets/templates/porting.md)。本节点要求 status=completed、accuracy_status=passed、要求性能时 performance_status=passed/failed，未要求时为 not_applicable；PORTING status=complete、aicpu_status=not_used/replaced。PORTING 和 ANALYSIS_DATA 必须绑定本 run 及 CANDIDATE 的同一 candidate_id。实际调用链仍由协调者核验，字段不能代替设备证据。
+
+未达性能目标可以接收并交给 analysis，不填写 develop 的 regression_cause 来伪造优化失败。精度/实现/测量失败、AICPU 未替代或必需分析数据未就绪则继续节点内修复或保留未验收检查点。不能把接收初版当作最终性能达标。

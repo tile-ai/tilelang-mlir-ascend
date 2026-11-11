@@ -1,10 +1,11 @@
 # 节点任务
 
-- contract: operator-harness/node-task@2
+<!-- harness-metadata -->
+- contract: operator-harness/node-task@4
 - search_node_id: {{启用搜索树时填写策略节点 ID；旧任务可省略本行}}
 - run_id: {{项目内唯一编号}}
-- node: {{prepare-environment / establish-baseline / analysis / develop / device-test，仅一个；test指device-test}}
-- operation: {{本次具体操作，例如仅精度、实现初版、分析已有 trace}}
+- node: {{prepare-environment / establish-baseline / port-baseline / analysis / develop，仅一个}}
+- operation: {{port-baseline 为 port-and-validate；develop 为 implement-and-validate / initial-and-validate / verify-only / collect-only / code-only；其他节点写具体操作}}
 - workspace_root: {{相对 TASK 所在目录的工作目录根路径；标准 .workspace/<project>/runs/<id>/ 下为 ../../../..}}
 - project_id: {{与 project.json 一致}}
 - project_dir: .workspace/{{project_id}}
@@ -12,6 +13,19 @@
 - skill: {{工作目录根下的 skill 路径}}
 - parent_run: {{前序 RESULT 路径；首次写 not_applicable 和原因}}
 - created_at: {{日期时间与时区}}
+- performance_required: {{按任务固定 true / false；code-only/collect-only 为 false}}
+- diagnostics_required: {{true / false；性能优化默认 true；仅代码/精度等有限范围明确 false 并说明依据}}
+- aicpu_policy: forbidden
+- batch_id: {{develop-batch 的 id}}
+- queue_item_id: {{search@2 队列项 ID；search@1 删除}}
+- plan_id: {{本次选定方案 ID；队列声明时必填}}
+- mechanism_id: {{本次优化机制 ID；队列声明时必填}}
+- analysis_run: {{已接收 analysis run ID}}
+- evaluation_plan: {{实现/精度验证任务的 evaluation-plan@1 JSON 路径；code-only/collect-only 可省略}}
+- initial_design: {{仅 initial-and-validate 填写已固定的初版方案路径，其他模式删除}}
+<!-- /harness-metadata -->
+
+机器字段集中在上述区块；删除本任务不适用的可选字段。区块外为说明，可自由写列表和代码示例。
 
 ## 目标与完成条件
 
@@ -22,7 +36,7 @@
 
 以下路径字段相对 workspace_root；每项写确切文件，不只写目录。按节点契约补齐适用的候选、需求、用户决定、环境、case/参考/协议和前序证据。
 
-PROJECT.md 的确切修订与摘要或不可变副本作为 snapshot，绑定本次适用的仓库规则、检查计划和交付要求；未知项注明其阻塞范围。develop/test 同时携带已有 PRECHECK 身份或本次补齐计划，不把计划当实际通过。
+PROJECT.md 的确切修订与摘要或不可变副本作为 snapshot，绑定本次适用的仓库规则、检查计划和交付要求；未知项注明其阻塞范围。port-baseline/develop 同时携带已有 PRECHECK 身份或本次补齐计划，不把计划当实际通过。
 
 | 顺序 | 用途 | 路径 | snapshot/live | 快照身份或 live 起始水位 | 必需性与未知项影响 |
 | --- | --- | --- | --- | --- | --- |
@@ -43,15 +57,46 @@ PROJECT.md 的确切修订与摘要或不可变副本作为 snapshot，绑定本
 - 资源与预算：{{计数单位、单次/总上限、本次 reservation_id/分配额度、账本入口、探针/JIT/失败/失联扣减}}
 - 排他资源与获取/释放：{{设备、锁/队列入口、等待上限；不适用说明原因}}
 - 可修改文件：{{确切文件或有边界的目录}}
+- 工作空间占用：{{queue run 的 lease generation、repo_ids、独立 build/JIT/cache、远端规范资源身份；分析只读快照}}
 - 只读/不得修改：{{需求、参考、容限、其他候选和共享摘要等}}
 - 输出目录：{{本 run 专属目录}}
 - 在途作业与恢复入口：{{job/request ID、状态、查询/回收/取消命令与占用；确无作业写 none}}
 
 ## 必交付与接收检查
 
-{{RESULT.md 及本节点所需产物；每项路径/内容/身份要求。analysis 包含首次标杆方案或当前kernel诊断、证据/假设和验证计划；develop 包含 CANDIDATE，prepare 包含独立环境提案，establish-baseline 包含 BASELINE、参考/case/协议及调查/测量证据}}
+{{RESULT.md 及本节点所需产物；每项路径/内容/身份要求。analysis 包含当前 TileLang kernel 诊断、证据/假设和验证计划；port-baseline 额外交付 PORTING；port-baseline/develop 包含适用的 CANDIDATE、PRECHECK、精度/性能/采集判定、ANALYSIS_DATA 与原始证据，prepare 包含独立环境提案，establish-baseline 包含 BASELINE、参考/case/协议及调查/测量证据}}
 
 ## 未决问题与交接
 
 {{已知缺口、会阻塞哪些动作、可独立推进的部分；没有则写 none}}
 {{给下一节点的建议及其所需输入；仅建议，由主 agent 决定并新建任务}}
+
+## 分析约定（仅 analysis 填写）
+
+- 问题与输入：{{实际候选、待解释 case/阶段、前序 ANALYSIS_DATA/原始 trace/aicMetric/CSV 的身份和覆盖；精度/实现故障诊断或性能优化的具体范围}}
+- 搜索上下文：{{search_node_id、相关机制/历史节点、已绑定 hot/cooled、重复探索需要核对的条件；未启用搜索树写不适用}}
+- 交付：{{按 harness-analysis 的诊断模板给出当前瓶颈/缺陷、源码映射、优化方向、优先级/反证/验证和同节点/子节点提案；需要较大实验时保存 search-plan@1}}
+
+## 实现与验证约定（port-baseline / develop 填写）
+
+- 分析数据计划：{{代表性/退化 case、真实 kernel 来源；主采集 msprof op/msopprof 的指标组合、重放模式与状态恢复适用性；按需补充的 torch_npu 调用映射/基础指标；必需/可选项、含重放/插桩的预算、复用证据或不采理由；ANALYSIS_DATA 交付位置}}
+- 修复预算与停止条件：{{最多几次修复/实验、总额度；精度/实现/测量问题留在原节点内修复；额度耗尽则未验收，不自行加额}}
+- 工作树与构建隔离：{{注册 repo_id、branch、起始源码/补丁身份；本地/远端 build、JIT/cache、源码和输出独立目录}}
+- 验证范围：{{必选 case、全部输出、精度后性能、诊断例外、用户明确 code-only 的依据}}
+
+## 标杆移植约定（仅 port-baseline 填写）
+
+- 移植范围：{{确切参考源码/分派/包装、TileLang 后端能力、融合等项目要求；PORTING 交付位置}}
+- 替代要求：{{已识别 AICPU 等缺口、可自主评估的替代范围及语义/计时验证；禁止输入相关计算的隐藏 host/AICPU 回退}}
+
+初版性能可以未达目标，但必须精度通过、移植方案落实、适用的测量有效及必需诊断齐全；不套用 develop 的 idea 归因门槛，不能事后改成 code-only 绕过验收。
+
+## 并行成员（仅 develop 批次成员填写）
+
+并行成员另在文件顶层填写以下精确字段；非成员删除：
+
+并绑定批次 inputs 的同一快照与摘要；源码白名单列出批次 repo_ids，所有可变目录独占。详见 [并行开发契约](../../references/parallel-develop.md)。
+
+## 结构化验收（@4）
+
+按 [执行控制契约](../../references/execution-control.md) 注册 run 前冻结 plan 和全部评测依赖；工具锁定评测代码，skill 包摘要仅记录来源。范围内源码尝试不改变冻结输入。需要变更时先安全关闭/替代原 run，不改写 TASK。

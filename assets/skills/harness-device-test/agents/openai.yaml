@@ -1,4 +1,0 @@
-interface:
-  display_name: "Harness Device Test"
-  short_description: "复用上板专属环境约定，完成全部必选精度检查与可复查的逐 case 性能测量"
-  default_prompt: "使用 $harness-device-test 在已约定的上板环境验证当前候选的精度与性能。"

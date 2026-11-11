@@ -5,7 +5,7 @@ description: 只读汇报 Operator Harness 当前任务的进展、候选与证�
 
 # Harness Status
 
-先按 [项目管理契约](../harness-new-project/references/project-management.md) 解析 workspace_root、project_id 和 project_dir。用户/TASK 的显式选择优先；多项目不猜测，不使用全局当前项目指针。本入口只读，可列出多个项目摘要；冻结/归档项目仅在显式选择或查看历史时展开，不取得 owner。
+按 [项目管理契约](../harness-new-project/references/project-management.md) 选择项目并核对写入归属；从 STATE 和当前 TASK 接续。
 
 使用 [统一下一步规则](../harness-resume/references/next-action.md) 读取当前项目记录，判断当前目标、实际证据与最值得推进的动作。用户明确选择的任务优先于 STATE 的旧指针。
 
@@ -17,7 +17,7 @@ description: 只读汇报 Operator Harness 当前任务的进展、候选与证�
 
 1. 当前任务与目标，已完成什么、目前在哪一步。
 2. 当前候选与最佳已验证候选，精度/性能/仿真各自证据或未测项。
-3. 在途任务、阻塞与预算；automatic 的状态和已用步数（若存在）。
+3. 在途任务、阻塞与预算；automatic 的状态和已用步数（若存在）。并行时逐成员列出方案、worktree、候选、run/agent/job、测试状态与设备等待，不只显示最后一个 run。search@2 读取 ready/reconcile，展示就绪项、依赖/资源阻塞、延后理由及已接收但未释放的空间；是否等待全组取决于显式依赖，不只报告“批次未完”。
 4. 推荐下一步做什么、为什么、有哪些前置缺口；提示可用 `harness-next` 执行该步或 `harness-automatic` 连续推进。
 
 附能核查的记录链接，说明状态来自记录还是实时查询。缺少 STATE/任务选择时报告缺口并给出最小建议；不自动初始化，不假定记录缺失等于没有在途任务。不要给无依据的完成百分比。

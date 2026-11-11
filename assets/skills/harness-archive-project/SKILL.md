@@ -11,6 +11,8 @@ description: 冻结或归档已选定的 Harness 项目，保存源码、依赖�
 
 保存真实生命周期检查点、源码/依赖身份、未提交改动、未决问题与恢复入口。未终态但安全暂停的 run 保留原 TASK/检查点并列入 paused_runs，不伪造 failed/completed。存在未知作业、未结算资源或仍写入的执行者时保持 freezing，报告具体阻塞。
 
+search@2 还需逐项核实 [队列占用](../harness-resume/references/task-queue.md)，检查点用 stopped_workspace_leases 记录全部未释放 run 的确切 generation。冻结保留这些占用用于恢复，不因 writer 暂停就自动复用空间；已接收/安全关闭的任务可先核实并 release-workspace。
+
 条件满足后调用 `finish-close --checkpoint <项目内相对路径>`。工具保留仓库快照并更新状态；不会删除源码、构建或依赖，不移动目录、不自动提交、推送或合并。它只核对记录及本地 Git 状态，外部作业检查仍由实际执行工具提供证据。
 
 最后报告 frozen/archived 是否已完成、未决项、原位保存位置和 harness-restore-project 恢复入口。归档不改变精度/性能结论。

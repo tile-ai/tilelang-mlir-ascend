@@ -1,20 +1,20 @@
 # Search nodes and hot/cooled knowledge
 
-Search nodes preserve optimization alternatives that a flat execution log cannot express. Each node owns a direction and scope, and may contain many analysis → develop → device-test iterations. Candidate lineage and workflow stages remain independent of the strategy tree.
+Search nodes preserve optimization alternatives that a flat execution log cannot express. Each node owns a direction and scope, and may contain many analysis → develop（实现与验证） iterations. Candidate lineage and workflow stages remain independent of the strategy tree.
 
 ```text
 External cooled knowledge
         |  retrieve applicable, versioned evidence for any node
         v
 Project: operator or operator group
-N0 Initial implementation                   [Analyze -> Develop -> Test] x n
-├── N1 Memory optimization                  [Analyze -> Develop -> Test] x n
-│   ├── N3 Layout                           [Analyze -> Develop -> Test] x n
-│   │   └── N5 Convert during load          [Analyze -> Develop -> Test] x n
-│   └── N4 Increase reuse                   [Analyze -> Develop -> Test] x n
-└── N2 Compute organization                 [Analyze -> Develop -> Test] x n
-    └── N6 Fuse internal stages             [Analyze -> Develop -> Test] x n
-        └── N7 Pipeline changes             [Analyze -> Develop -> Test] x n
+N0 Initial implementation                   [Analyze -> Develop+Validate] x n
+├── N1 Memory optimization                  [Analyze -> Develop+Validate] x n
+│   ├── N3 Layout                           [Analyze -> Develop+Validate] x n
+│   │   └── N5 Convert during load          [Analyze -> Develop+Validate] x n
+│   └── N4 Increase reuse                   [Analyze -> Develop+Validate] x n
+└── N2 Compute organization                 [Analyze -> Develop+Validate] x n
+    └── N6 Fuse internal stages             [Analyze -> Develop+Validate] x n
+        └── N7 Pipeline changes             [Analyze -> Develop+Validate] x n
 
 Hot H1 <-- N3                 one node
 Hot H2 <-- N1, N3, N5         multiple related nodes
@@ -30,3 +30,5 @@ The stdlib `searchctl.py` helper persists a project-scoped tree, stable run/cand
 Cooled knowledge is an external input with explicit applicability, limitations, evidence summaries and review provenance. Promotion is a delivery-time human decision, separate from publication. Invalidation creates an immutable successor; past evidence remains inspectable. This is auditable local bookkeeping, not an authentication service or a correctness/performance gate.
 
 See the distributable [workflow, schemas and CLI reference](../../assets/skills/harness-resume/references/search-knowledge.md). No MCTS, vector database, automatic execution or remote publishing is introduced.
+
+Independent accepted analyses can feed one atomic `develop-batch`, with a separate registered worktree and run directory for each member. Members may belong to different open strategy nodes; `current_node` remains navigation. Common input hashes and candidate lineage are fixed before dispatch. Results may be accepted out of order; all outstanding members must be resolved before selecting another strategy. The host coordinates execution and serial device access, not the ledger. See [parallel development](../../assets/skills/harness-resume/references/parallel-develop.md).

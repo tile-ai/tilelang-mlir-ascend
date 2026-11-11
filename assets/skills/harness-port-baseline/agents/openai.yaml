@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Port Baseline"
+  short_description: "将参考标杆移植为已验证的 TileLang 初版，自行替代 AICPU 等能力缺口"
+  default_prompt: "使用 $harness-port-baseline 移植已选定标杆，生成 TileLang 初版并完成精度、性能测量和分析数据交付。"

@@ -269,6 +269,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_or"))) {
+    EmitBinary<::mlir::tl::OrOp, tvm::tl::NpuirOr>(op);
+    return {};
+  }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;
   return {};
 }

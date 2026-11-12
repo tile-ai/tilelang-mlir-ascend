@@ -93,4 +93,9 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_PowOp : TL_BinaryOp<"pow"> {
+  let summary = "Elementwise power of two tile buffers";
+  let description = [{ Destination-style vector pow: out = pow(lhs, rhs). Lowers to hivm.hir.vpow, which requires i32 operands. }];
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

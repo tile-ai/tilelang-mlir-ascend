@@ -148,6 +148,27 @@ void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
                          GetBufferValue(bin.Dst().GetBuffer()));
 }
 
+mlir::Value CodeGenTileLangTLIR::ToIndex(mlir::Value v) {
+  if (v.getType().isIndex())
+    return v;
+  return builder_.create<::mlir::arith::IndexCastOp>(
+      builder_.getUnknownLoc(), builder_.getIndexType(), v);
+}
+
+void CodeGenTileLangTLIR::EmitArange(const CallNode *op) {
+  tvm::tl::NpuirArange arange(op->args, vmap_);
+  mlir::Value dst = GetBufferValue(arange.dst);
+  mlir::Value offset = ToIndex(VisitExpr(arange.offset));
+
+  llvm::SmallVector<::mlir::Value> strides;
+  strides.reserve(arange.strides.size());
+  for (const PrimExpr &stride : arange.strides)
+    strides.push_back(ToIndex(VisitExpr(stride)));
+
+  builder_.create<::mlir::tl::ArangeOp>(builder_.getUnknownLoc(), dst, offset,
+                                        strides);
+}
+
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
                                       const PrimFunc &f) {
   InitFuncState();
@@ -267,6 +288,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_min"))) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_arange"))) {
+    EmitArange(op);
     return {};
   }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;

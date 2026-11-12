@@ -58,3 +58,13 @@ tilelangir-opt --tilelangir-convert-tl-to-hivm \
 ```
 
 This pass does not inject HACC / FFTS / workspace ABI.
+
+## tl.arange
+A destination-passing op that fills a buffer with a strided index sequence:
+`tl.arange outs(%dst) offset(%offset) strides(%s0, %s1, ...) : T`.
+`%dst` is written in place; `%offset` is a scalar `index` added to every
+generated element, and `%s0, %s1, ...` are per-dimension `index` strides
+(one per result dimension) used to compute each element's value from its
+multi-dimensional position. Lowers to `hivm.hir.varange` with the same
+`offset`/`strides` operands and `outs`, which is backed by a real hardware
+vector-arange instruction on `ub`-resident buffers.

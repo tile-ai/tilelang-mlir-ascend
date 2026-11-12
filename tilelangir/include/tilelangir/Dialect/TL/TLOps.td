@@ -94,3 +94,22 @@ def TL_MinOp : TL_BinaryOp<"min"> {
 }
 
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD
+
+def TL_ReshapeOp : TL_Op<"reshape", [Pure]> {
+  let summary = "Reinterpret a tile buffer under a new static shape";
+  let description = [{
+    Pure view op: result = reshape(src). src and result must share the
+    same element type and the same total element count, but may differ
+    in shape and rank. Unlike tl.add/tl.cast this is not destination-
+    passing: there is no pre-allocated dst operand, because reshape never
+    moves data -- it is lowered to a contiguous memref.reinterpret_cast
+    of src, matching what ReshapeCodegen already does on the NPUIR path.
+    Example:
+      %view = tl.reshape %a : memref<8x16xf16> to memref<16x8xf16>
+  }];
+  let arguments = (ins AnyMemRef:$src);
+  let results = (outs AnyMemRef:$result);
+  let assemblyFormat =
+      "$src attr-dict `:` type($src) `to` type($result)";
+  let hasVerifier = 1;
+}

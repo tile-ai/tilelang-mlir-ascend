@@ -93,4 +93,19 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_ArangeOp : TL_Op<"arange", [MemoryEffects<[MemWrite]>]> {
+  let summary = "Fill a tile buffer with a strided index sequence";
+  let description = [{
+    Destination-style vector arange: fills `dst` with
+    offset, offset + stride0, offset + stride0 + stride1, ... with one
+    stride per dimension of `dst`. Mirrors `hivm.hir.varange`.
+    Example:
+      tl.arange outs(%dst) offset(%off) strides(%s0, %s1) : memref<8x8xf32>
+  }];
+  let arguments = (ins AnyMemRef:$dst, Index:$offset, Variadic<Index>:$strides);
+  let assemblyFormat =
+      "`outs` `(` $dst `)` `offset` `(` $offset `)` `strides` `(` $strides `)` attr-dict `:` type($dst)";
+  let hasVerifier = 1;
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

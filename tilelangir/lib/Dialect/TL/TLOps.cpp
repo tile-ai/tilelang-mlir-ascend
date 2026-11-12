@@ -78,3 +78,12 @@ LogicalResult MaxOp::verify() {
 LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
+
+LogicalResult ArangeOp::verify() {
+  auto dst = llvm::cast<MemRefType>(getDst().getType());
+  if (static_cast<int64_t>(getStrides().size()) != dst.getRank())
+    return emitOpError("number of strides (")
+           << getStrides().size() << ") must match destination rank ("
+           << dst.getRank() << ")";
+  return success();
+}

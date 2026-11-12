@@ -75,6 +75,7 @@ private:
   mlir::Attribute AddressSpaceAttr(mlir::tl::AddressSpace space);
   void EmitCopy(const CallNode *op);
   void EmitAdd(const CallNode *op);
+  void EmitSort(const CallNode *op);
   void EmitSub(const CallNode *op);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);

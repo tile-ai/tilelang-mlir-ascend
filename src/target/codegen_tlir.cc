@@ -126,6 +126,12 @@ void CodeGenTileLangTLIR::EmitAdd(const CallNode *op) {
                                      GetBufferValue(add.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitSort(const CallNode *op) {
+  tvm::tl::NpuirSort sort(op->args, vmap_);
+  builder_.create<::mlir::tl::SortOp>(
+      builder_.getUnknownLoc(), GetBufferValue(sort.src),
+      GetBufferValue(sort.dst_value), GetBufferValue(sort.dst_index),
+      sort.descending, sort.sort_axis);
 void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
   tvm::tl::NpuirSub sub(op->args, vmap_);
   ICHECK(sub.Src0().IsTensor() && sub.Src1().IsTensor() && sub.Dst().IsTensor())
@@ -249,6 +255,8 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitAdd(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_sort"))) {
+    EmitSort(op);
   if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
     EmitSub(op);
     return {};

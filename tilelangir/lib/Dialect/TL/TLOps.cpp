@@ -41,6 +41,44 @@ LogicalResult AddOp::verify() {
   return success();
 }
 
+LogicalResult SortOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto dstValue = llvm::cast<MemRefType>(getDstValue().getType());
+  auto dstIndex = llvm::cast<MemRefType>(getDstIndex().getType());
+
+  if (src.getElementType() != dstValue.getElementType())
+    return emitOpError("src and dst_value element types must match");
+  if (src.getShape() != dstValue.getShape())
+    return emitOpError("src and dst_value shapes must match");
+  if (src.getShape() != dstIndex.getShape())
+    return emitOpError("src and dst_index shapes must match");
+  if (!dstIndex.getElementType().isSignlessInteger() &&
+      !dstIndex.getElementType().isSignedInteger() &&
+      !dstIndex.getElementType().isUnsignedInteger())
+    return emitOpError("dst_index must have an integer element type");
+
+  // HIVM's vsort restricts src/dst_value to f16 or f32 (see
+  // OperElemTypeConstraints on hivm::VSortOp). Enforce the same restriction
+  // here so invalid element types are rejected at the tl.sort level with a
+  // clear message, rather than surfacing later as a confusing error on the
+  // lowered hivm.hir.vsort op.
+  if (!src.getElementType().isF16() && !src.getElementType().isF32())
+    return emitOpError("src and dst_value element type must be f16 or f32");
+
+  // HIVM's vsort currently only supports tail-axis sorting: sort_axis must
+  // be exactly rank - 1, or -1 (which also means tail axis). See
+  // VSortOp::verify() in HIVMVectorOps.cpp. Any other axis value verifies
+  // fine here but would be rejected downstream by HIVM with a less legible
+  // error, so reject it at this level instead.
+  int64_t rank = src.getRank();
+  int64_t axis = getSortAxis();
+  if (axis != -1 && axis != rank - 1)
+    return emitOpError("sort_axis must be the tail axis (rank - 1) or -1; "
+                       "only tail-axis sorting is currently supported")
+           << ", got " << axis << " for rank " << rank;
+
+  return success();
+}
 LogicalResult SubOp::verify() {
   auto lhs = llvm::cast<MemRefType>(getLhs().getType());
   auto rhs = llvm::cast<MemRefType>(getRhs().getType());

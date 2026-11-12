@@ -22,6 +22,15 @@ add_test(
 )
 
 add_test(
+  NAME tilelangir-tl-sort
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/sort.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/sort.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-sort
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/sort.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/sort.mlir\""
   NAME tilelangir-tl-alloc-copy-sub
   COMMAND /bin/bash -c
     "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-sub.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-sub.mlir\""

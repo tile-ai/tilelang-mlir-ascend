@@ -150,6 +150,20 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
   }
 };
 
+struct ConvertSort : public OpConversionPattern<tl::SortOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::SortOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VSortOp>(
+        op, TypeRange{}, adaptor.getSrc(),
+        ValueRange{adaptor.getDstValue(), adaptor.getDstIndex()},
+        op.getDescending(), op.getSortAxis());
+    return success();
+  }
+};
+
 void rewriteCoreTypeAttrs(ModuleOp module) {
   tl::CoreType moduleCore = tl::CoreType::AIV;
   bool sawCore = false;
@@ -192,6 +206,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSort>(converter,
+                                                                     ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,

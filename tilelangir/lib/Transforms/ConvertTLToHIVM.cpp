@@ -150,6 +150,43 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
   }
 };
 
+struct ConvertReshape : public OpConversionPattern<tl::ReshapeOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ReshapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto newTy = dyn_cast_if_present<MemRefType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    if (!newTy)
+      return rewriter.notifyMatchFailure(
+          op, "failed to convert reshape result type");
+
+    ArrayRef<int64_t> shape = newTy.getShape();
+    SmallVector<int64_t> strides(shape.size(), 1);
+    for (int64_t i = static_cast<int64_t>(shape.size()) - 2; i >= 0; --i)
+      strides[i] = strides[i + 1] * shape[i + 1];
+
+    // newTy already has no explicit layout (the type converter only rewrites
+    // the memory space), which MLIR treats as the canonical contiguous,
+    // offset-0 layout -- exactly what we compute below. Reusing it directly
+    // (instead of attaching an explicit StridedLayoutAttr) keeps this op's
+    // result type identical to what downstream ops like tl.copy's lowering
+    // expect, avoiding an unresolved materialization between an explicitly-
+    // strided type and the plain one.
+    SmallVector<OpFoldResult> offsets(shape.size(), rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> sizes, stridesFold;
+    for (int64_t s : shape)
+      sizes.push_back(rewriter.getIndexAttr(s));
+    for (int64_t s : strides)
+      stridesFold.push_back(rewriter.getIndexAttr(s));
+
+    rewriter.replaceOpWithNewOp<memref::ReinterpretCastOp>(
+        op, newTy, adaptor.getSrc(), offsets, sizes, stridesFold);
+    return success();
+  }
+};
+
 void rewriteCoreTypeAttrs(ModuleOp module) {
   tl::CoreType moduleCore = tl::CoreType::AIV;
   bool sawCore = false;
@@ -196,7 +233,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
-                 ConvertBinary<tl::MinOp, hivm::VMinOp>>(converter, ctx);
+                 ConvertBinary<tl::MinOp, hivm::VMinOp>, ConvertReshape>(
+        converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

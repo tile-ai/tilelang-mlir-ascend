@@ -148,6 +148,14 @@ void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
                          GetBufferValue(bin.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitReshape(const CallNode *op) {
+  tvm::tl::NpuirReshape reshape(op->args, vmap_);
+  mlir::Value result = builder_.create<::mlir::tl::ReshapeOp>(
+      builder_.getUnknownLoc(), BufferToMemRefType(reshape.dst),
+      GetBufferValue(reshape.src));
+  var_map_[reshape.dst->data.get()] = result;
+}
+
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
                                       const PrimFunc &f) {
   InitFuncState();
@@ -267,6 +275,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_min"))) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_reshape"))) {
+    EmitReshape(op);
     return {};
   }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;

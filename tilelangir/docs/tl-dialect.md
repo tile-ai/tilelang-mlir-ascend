@@ -58,3 +58,10 @@ tilelangir-opt --tilelangir-convert-tl-to-hivm \
 ```
 
 This pass does not inject HACC / FFTS / workspace ABI.
+
+## tl.reshape
+
+A pure view op (not destination-passing like tl.add/tl.cast): `%view = tl.reshape %src : T1 to T2`.
+src and result share element type and total element count but may differ in
+shape/rank. Lowers directly to `memref.reinterpret_cast` with contiguous
+strides computed from the result shape -- no HIVM hardware op is involved.

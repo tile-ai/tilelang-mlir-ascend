@@ -78,3 +78,15 @@ LogicalResult MaxOp::verify() {
 LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
+
+LogicalResult ReshapeOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto result = llvm::cast<MemRefType>(getResult().getType());
+  if (src.getElementType() != result.getElementType())
+    return emitOpError("src/result element types must match");
+  if (!src.hasStaticShape() || !result.hasStaticShape())
+    return emitOpError("reshape requires statically shaped src/result");
+  if (src.getNumElements() != result.getNumElements())
+    return emitOpError("src/result must have the same number of elements");
+  return success();
+}

@@ -45,4 +45,21 @@ def TL_AddOp : TL_Op<"add", [
   let hasVerifier = 1;
 }
 
+def TL_PrintOp : TL_Op<"print", [MemoryEffects<[MemRead]>]> {
+  let summary = "Debug-print a scalar or tile buffer (device-side)";
+  let description = [{
+    ...
+  }];
+  let arguments = (ins
+    AnyType:$src,
+    StrAttr:$prefix,
+    BoolAttr:$hex
+  );
+  let results = (outs);
+  let assemblyFormat =
+      "$src `prefix` $prefix `hex` $hex attr-dict `:` type($src)";
+  let hasVerifier = 1;
+
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

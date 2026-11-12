@@ -40,3 +40,16 @@ LogicalResult AddOp::verify() {
     return emitOpError("operand shapes must match");
   return success();
 }
+
+LogicalResult PrintOp::verify() {
+  Type ty = getSrc().getType();
+  if (auto memrefTy = llvm::dyn_cast<MemRefType>(ty)) {
+    if (!memrefTy.getElementType().isIntOrFloat())
+      return emitOpError(
+          "buffer operand element type must be integer or float");
+    return success();
+  }
+  if (!ty.isIntOrFloat())
+    return emitOpError("scalar operand must be integer or float");
+  return success();
+}

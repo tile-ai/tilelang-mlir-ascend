@@ -22,6 +22,7 @@ expert-mode elementwise add: parse/print, TIR → TLIR import, and
 | `tl.alloc` | Allocate a tile buffer |
 | `tl.copy` | Same-shape DMA-style copy (spaces may differ) |
 | `tl.add` | Destination-style elementwise add |
+| `tl.print` | Debug-print a scalar or buffer (lowers to `hivm.hir.debug`) |
 
 ```mlir
 func.func @elemwise_add(%gm_a: memref<64xf32, #tl.address_space<gm>>,

@@ -134,7 +134,7 @@ Current v0.1 subset (expert-mode elementwise add):
 
 | Stage | What it does |
 |-------|----------------|
-| Dialect | `tl.alloc`, `tl.copy`, `tl.add` plus `#tl.address_space`, `#tl.layout`, `#tl.core_type` |
+| Dialect | `tl.alloc`, `tl.copy`, `tl.add`, `tl.print` plus `#tl.address_space`, `#tl.layout`, `#tl.core_type` |
 | TIR → TLIR | `src/target/codegen_tlir.cc`, registered as `target.build.tilelang_tlir` |
 | TLIR → HIVM | `tilelangir-convert-tl-to-hivm`: `tl.alloc`→`memref.alloc`, `tl.copy`→`memref.copy`, `tl.add`→`hivm.hir.vadd` |
 

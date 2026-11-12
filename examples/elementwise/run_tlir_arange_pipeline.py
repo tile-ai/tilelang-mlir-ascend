@@ -28,7 +28,7 @@ def arange_expert(M, N, dtype="float32"):
     ):
         with T.Kernel(1, is_npu=True) as (cid, _):
             a = T.alloc_ub((M, N), dtype)
-            T.npuir_arange(a, offset=0, strides=(0, 0))
+            T.npuir_arange(a, [0, 0], 0)
             T.copy(a, A)
 
     return main
@@ -40,8 +40,13 @@ def find_tilelangir_opt():
         shutil.which("tilelangir-opt"),
         os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
-            "..", "..", "build", "tilelangir", "tools",
-            "tilelangir-opt", "tilelangir-opt",
+            "..",
+            "..",
+            "build",
+            "tilelangir",
+            "tools",
+            "tilelangir-opt",
+            "tilelangir-opt",
         ),
     ]
     for c in candidates:

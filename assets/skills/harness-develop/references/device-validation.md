@@ -18,6 +18,8 @@ port-baseline 与 develop 复用本方法及采集脚本，编写后在同一节
 
 ## 性能工具与节点职责
 
+任务要求 MFU 时，使用 [ascend-mfu](../../ascend-mfu/SKILL.md) 从本次协议的完整 kernel 设备耗时和有效 Cube 运算量计算，随结果保存输入及计算输出；这项离线计算不增加设备运行次数。主要性能比较仍使用绑定协议的耗时指标。
+
 采用 `torch_npu.profiler` 测量时，直接执行 [采集方法](torch-npu-measurement.md)：在实际执行 NPU kernel 的进程中包围一次完整调用，保存原始 trace，并按绑定协议统计。配套 [采样脚本](../scripts/torch_npu_measure.py) 和 [设备区间解析器](../scripts/profile_parser.py) 提供确定性的采集与汇总；先核对脚本支持的协议与本次 TASK 一致。脚本不启动远端、不分配设备许可，也不替代完整调用的覆盖核查。
 
 本节点负责在私有运行目录编写算子调用适配、连接已有 profiler、配置协议参数和汇总数据。缺 benchmark 脚本、多阶段入口或结果解析接线属于本节点工具工作；在既有权限和预算内先完成适配及小 case 采集检查，不能仅因“尚未实现/验证”返回 prepare-environment。只有实际 SDK、依赖、设备权限或采集接口故障且超出本节点修复范围时，才携证据建议环境准备。不能把某次外部进程冲突推断为环境没有采集能力。

@@ -125,6 +125,8 @@ $harness-analysis 对照标杆、测试与流水证据，定位当前 TileLang k
 $ascend950-simulation 按已绑定的仿真环境校验输出并导出流水 trace，或离线处理已有采集。
 $harness-develop 按已接收的分析方案和开发约定编写或修复 TileLang 候选。
 $harness-develop 只验证当前候选：使用已有上板约定完成精度和性能测试。
+$tilelang-ascend-generation 使用个人增补的阶段/VF 选择、存储预算和自动流水方法编写或优化算子。
+$ascend-mfu 基于有效 Cube 运算和完整 kernel 耗时计算 MFU，或建立条件性 Roofline。
 ```
 
 `harness-new-project` 用于新项目的需求澄清和规划；`harness-onboard` 用于已有项目接入，这里的 onboard 不执行 NPU 上板。CLI/IDE 也可通过 `/skills` 选择技能；本项目没有注册 `/harness-*` 顶层 slash commands。若技能尚未出现在宿主中，重启会话后再检查。发现与调用方式见 [Codex 技能文档](https://learn.chatgpt.com/docs/build-skills)。
@@ -211,6 +213,10 @@ npx <package>@<version> doctor
 阶段验收条件与待决事项见 [完整路线图](docs/ROADMAP.md)。
 
 ## 开发文档
+
+官方 TileLang 的九项原生 Skill 保存在 [原生 Skill 快照](assets/native-skills/README.md)，供离线查阅。原文中的仓库路径相对于对应的 TileLang checkout。
+
+个人增补独立放在 `assets/skills/` 并随安装器分发：[tilelang-ascend-generation](assets/skills/tilelang-ascend-generation/SKILL.md) 从个人 TileLang 仓库提取阶段拆分、SIMD/SIMT 选择和自动流水指导，供 analysis/develop 使用；[ascend-mfu](assets/skills/ascend-mfu/SKILL.md) 迁入个人 MFU Skill 的计算口径、Cube 算力表及 MFU/Roofline 脚本，供性能分析使用。这些是独立维护的扩展，官方跟踪目录保持原文。
 
 | 文档 | 内容 |
 | --- | --- |

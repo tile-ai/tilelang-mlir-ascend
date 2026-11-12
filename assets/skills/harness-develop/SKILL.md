@@ -39,6 +39,8 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 
 使用 [TileLang 开发与定位](references/tilelang-workflow.md)，以环境中绑定的 TileLang 仓库/revision、Ascend dialect、目标架构及后端为依据查 API 和示例。首批语言来源是 tile-ai/tilelang；不要默用旧 NPUIR 分支、OpenTile 方言或其他后端同名 API。
 
+同时读取 [算子生成补充](../tilelang-ascend-generation/SKILL.md)，将适用的阶段拆分、VF 选择、存储预算和流水方法用于候选；在现有 RESULT 中对应到源码/生成代码，说明相关方法未采用的具体原因。
+
 先实现覆盖契约的最小版本。资源布局、尾部 mask、同步、Cube/Vector 分工和 launch 参数都必须与所选目标一致。一次优化围绕一个可验证假设，记录父候选、改变和预期影响。重试受任务预算限制；只有新证据或条件变化时才重复失败路线。
 
 编译/lowering 必须按本次开发约定执行。目标产物若需要在上板环境编译，在本任务验证阶段按 device 绑定执行；分析请求的新仿真仍交给 analysis；开发环境的成功不能替代另一工具链编译。无需每次重新询问已确定的环境。

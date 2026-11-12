@@ -211,7 +211,8 @@ class ProjectTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((source / '.agents').exists())
         installed = nested / '.agents/skills'
-        self.assertEqual(len(list(installed.iterdir())), 13)
+        expected = {skill.parent.name for skill in (ROOT / 'assets/skills').glob('*/SKILL.md')}
+        self.assertEqual({skill.name for skill in installed.iterdir()}, expected)
         self.assertTrue((installed / 'harness-port-baseline/assets/templates/porting.md').is_file())
         self.assertTrue((installed / 'harness-analysis/scripts/profile_summary.py').is_file())
         self.assertTrue((installed / 'harness-analysis/assets/templates/diagnosis.md').is_file())

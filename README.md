@@ -60,6 +60,8 @@ flowchart TD
 
 analysis 是默认迭代节点；是否运行新仿真或流水采集由问题、已有证据和预算决定，纯源码分析不依赖仿真就绪。单独测试使用 `harness-develop` 的 verify-only 模式。目标达成就结束，性能收益最终通过约定的实卡测量验证。
 
+随包的 [Ascend950 仿真 Skill](assets/skills/ascend950-simulation/SKILL.md) 提供采集指导、msprof trace 增强、npusim SQLite 导出和 Insight 兼容说明。analysis 按任务绑定的仿真约定使用；已有 trace 可离线处理。
+
 port-baseline 与 develop 的精度失败都在原节点修复，不能接收。初版精度通过、实现符合移植方案且测量有效时，可以带性能差距交给 analysis。性能退化先归因：实现问题在节点内修复，思路问题附精度通过、性能结果及归因证据交给下一 analysis；预算或环境阻塞保留未验收状态。
 
 多个独立分析方案可通过 [并行开发](assets/skills/harness-resume/references/parallel-develop.md) 分别实现和测试：每个任务独立 worktree、缓存和产物，同一设备上的测量排队。协调者比较结果后选择候选，组合修改后重新验证。
@@ -105,7 +107,7 @@ port-baseline 与 develop 的精度失败都在原节点修复，不能接收。
 
 ### 当前可用：Codex 项目流程与节点 skills
 
-本仓库已通过 `.agents/skills/` 接入十三项技能，在 Codex 中选择或输入：
+本仓库已通过 `.agents/skills/` 提供工作流与配套技能，在 Codex 中选择或输入：
 
 ```text
 $harness-new-project 为我的 TileLang 算子项目明确需求并建立路线图。
@@ -120,6 +122,7 @@ $harness-prepare-environment 多轮确定 Python、TileLang 配套与 CANN，准
 $harness-establish-baseline 根据已绑定环境调查参考实现，验证并固定正确性参考和性能标杆。
 $harness-port-baseline 将参考标杆移植为 TileLang 初版，自行替代 AICPU 等缺口并验证。
 $harness-analysis 对照标杆、测试与流水证据，定位当前 TileLang kernel 的问题。
+$ascend950-simulation 按已绑定的仿真环境校验输出并导出流水 trace，或离线处理已有采集。
 $harness-develop 按已接收的分析方案和开发约定编写或修复 TileLang 候选。
 $harness-develop 只验证当前候选：使用已有上板约定完成精度和性能测试。
 ```
@@ -136,7 +139,7 @@ $harness-develop 只验证当前候选：使用已有上板约定完成精度和
 python3 scripts/install_codex_skills.py --workspace operator-workspace
 ```
 
-安装到用户显式选择的工作目录，不自动提升到 Git 根；旧 --project-dir 参数作为 --workspace 的别名。安装器复制十三项技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件或已有 Harness AGENTS 区块存在不同内容时在复制前报告冲突，保留用户文件；不静默沿用旧路径入口。安装清单、升级计划、中断恢复和回滚已提供，见 [升级说明](docs/installation-upgrades.md)；卸载与 npm 分发继续按路线图建设。
+安装到用户显式选择的工作目录，不自动提升到 Git 根；旧 --project-dir 参数作为 --workspace 的别名。安装器复制随包提供的技能到 `.agents/skills/`，向 `AGENTS.md` 追加接续指引，并在 `.gitignore` 中加入 `.workspace/`，保留已有内容。重复安装不会重复追加；只比较随包提供的技能文件，用户额外添加的文件保留不动。随包文件或已有 Harness AGENTS 区块存在不同内容时在复制前报告冲突，保留用户文件；不静默沿用旧路径入口。安装清单、升级计划、中断恢复和回滚已提供，见 [升级说明](docs/installation-upgrades.md)；卸载与 npm 分发继续按路线图建设。
 
 Agent 在选定项目的 `.workspace/<project>/` 中维护 `PROJECT.md`、`REQUIREMENTS.md`、`ROADMAP.md` 和 `STATE.md`，接入已有项目时补充 `codebase/MAP.md`。这些都是可以直接编辑的 Markdown，按项目进展逐步建立；未决问题和下一步留在状态记录中，草稿与研究材料按需保存。
 

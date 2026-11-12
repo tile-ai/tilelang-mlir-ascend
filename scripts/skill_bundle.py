@@ -55,8 +55,16 @@ def lock(root):
         yield
 
 
+def managed_skill(name):
+    return name.startswith('harness-') or name in {
+        'ascend950-simulation', 'tilelang-ascend-generation', 'ascend-mfu',
+    }
+
+
 def target(root, relative):
-    if relative != 'AGENTS.md' and not relative.startswith('.agents/skills/harness-'):
+    parts = Path(relative).parts
+    if relative != 'AGENTS.md' and (len(parts) < 4 or parts[:2] != ('.agents', 'skills')
+                                     or not managed_skill(parts[2])):
         raise ValueError('unmanaged upgrade target')
     path = root / relative
     if not path.resolve().is_relative_to(root) or '..' in Path(relative).parts:
@@ -189,10 +197,10 @@ def upgrade(root, source, names, entry, plan_id):
 def adopt(root, bundle_root):
     """Record only an exactly matching legacy bundle; never infer ownership by name alone."""
     source = Path(bundle_root).resolve(strict=True) / 'assets/skills'
-    names = [p.name for p in source.glob('harness-*') if (p / 'SKILL.md').is_file()]
+    names = [p.name for p in source.iterdir() if managed_skill(p.name) and (p / 'SKILL.md').is_file()]
     if not names:
         raise ValueError('no skills in the supplied legacy bundle')
-    entry = (source.parent / 'codex/AGENTS.md').read_text().strip().encode()
+    entry = (source.parent / 'codex/AGENTS.md').read_text(encoding='utf-8').strip().encode()
     files = inventory(source, names)
     for relative, content in files.items():
         file = target(root, relative)

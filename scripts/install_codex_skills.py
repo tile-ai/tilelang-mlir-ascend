@@ -11,6 +11,7 @@ import sys
 
 SOURCE = Path(__file__).resolve().parents[1] / "assets" / "skills"
 NAMES = (
+    "ascend950-simulation",
     "harness-new-project", "harness-onboard", "harness-resume",
     "harness-prepare-environment", "harness-establish-baseline", "harness-port-baseline", "harness-analysis",
     "harness-develop",
@@ -43,8 +44,8 @@ def install(project, check_only=False):
         else:
             pending.append(name)
     instructions = root / "AGENTS.md"
-    existing = instructions.read_text() if instructions.exists() else ""
-    entry = (SOURCE.parent / "codex" / "AGENTS.md").read_text()
+    existing = instructions.read_text(encoding="utf-8") if instructions.exists() else ""
+    entry = (SOURCE.parent / "codex" / "AGENTS.md").read_text(encoding="utf-8")
     start, end = "<!-- operator-harness -->", "<!-- /operator-harness -->"
     if start in existing or end in existing:
         if existing.count(start) != 1 or existing.count(end) != 1:
@@ -62,12 +63,12 @@ def install(project, check_only=False):
         shutil.copytree(SOURCE / name, target / name,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     ignore = root / ".gitignore"
-    existing_ignore = ignore.read_text() if ignore.exists() else ""
+    existing_ignore = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
     if ".workspace/" not in existing_ignore.splitlines():
-        with ignore.open("a") as output:
+        with ignore.open("a", encoding="utf-8") as output:
             output.write(("\n" if existing_ignore else "") + ".workspace/\n")
     if "<!-- operator-harness -->" not in existing:
-        with instructions.open("a") as output:
+        with instructions.open("a", encoding="utf-8") as output:
             output.write(("\n\n" if existing else "") + entry)
     skill_bundle.record_install(root, SOURCE, NAMES, entry.strip().encode())
     return target, pending
@@ -86,7 +87,7 @@ def main():
     args = parser.parse_args()
     try:
         root = Path(args.project_dir).expanduser().resolve(strict=True)
-        entry = (SOURCE.parent / "codex/AGENTS.md").read_text().strip().encode()
+        entry = (SOURCE.parent / "codex/AGENTS.md").read_text(encoding="utf-8").strip().encode()
         if args.upgrade_plan:
             print(json.dumps(skill_bundle.prepare(root, SOURCE, NAMES, entry)[0], indent=2))
             return 0

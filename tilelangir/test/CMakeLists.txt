@@ -22,6 +22,21 @@ add_test(
 )
 
 add_test(
+  NAME tilelangir-tl-print
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/print.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/print.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-print
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/print.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/print.mlir\""
+)
+
+add_test(
+  NAME tilelangir-tl-print-invalid
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --split-input-file --verify-diagnostics \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/print-invalid.mlir\""
   NAME tilelangir-tl-alloc-copy-sub
   COMMAND /bin/bash -c
     "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-sub.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-sub.mlir\""

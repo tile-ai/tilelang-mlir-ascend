@@ -22,6 +22,7 @@ expert-mode elementwise add/sub/mul/div/max/min: parse/print, TIR → TLIR impor
 | `tl.alloc` | Allocate a tile buffer |
 | `tl.copy` | Same-shape DMA-style copy (spaces may differ) |
 | `tl.add` | Destination-style elementwise add |
+| `tl.print` | Debug-print a scalar or buffer (lowers to `hivm.hir.debug`) |
 | `tl.sub` | Destination-style elementwise subtract (`out = lhs - rhs`) |
 | `tl.mul` | Destination-style elementwise multiply |
 | `tl.div` | Destination-style elementwise divide (`out = lhs / rhs`) |

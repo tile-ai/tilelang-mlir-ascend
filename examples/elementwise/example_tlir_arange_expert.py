@@ -31,7 +31,7 @@ def arange_2d(M, N, block_M, block_N, dtype="float32"):
             bx = (cid // n_num) * block_M
             by = (cid % n_num) * block_N
             T.npuir_arange(A_VEC, [bx, by], bx)
-            T.copy(A_VEC, A[bx:bx + block_M, by:by + block_N])
+            T.copy(A_VEC, A[bx : bx + block_M, by : by + block_N])
 
     return main
 

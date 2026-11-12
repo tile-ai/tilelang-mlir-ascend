@@ -122,6 +122,34 @@ struct ConvertAdd : public OpConversionPattern<tl::AddOp> {
   }
 };
 
+struct ConvertSub : public OpConversionPattern<tl::SubOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::SubOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VSubOp>(
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
+template <typename TLOpT, typename HIVMOpT>
+struct ConvertBinary : public OpConversionPattern<TLOpT> {
+  using OpConversionPattern<TLOpT>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TLOpT op,
+                  typename OpConversionPattern<TLOpT>::OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.template replaceOpWithNewOp<HIVMOpT>(
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
 struct ConvertSort : public OpConversionPattern<tl::SortOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -180,6 +208,11 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     RewritePatternSet patterns(ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSort>(converter,
                                                                      ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
+                 ConvertBinary<tl::MulOp, hivm::VMulOp>,
+                 ConvertBinary<tl::DivOp, hivm::VDivOp>,
+                 ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
+                 ConvertBinary<tl::MinOp, hivm::VMinOp>>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

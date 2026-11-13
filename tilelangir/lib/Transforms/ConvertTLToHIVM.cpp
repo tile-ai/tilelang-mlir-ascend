@@ -150,6 +150,21 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
   }
 };
 
+struct ConvertConcat : public OpConversionPattern<tl::ConcatOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ConcatOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // NOTE: confirm the exact HIVM op name/signature for concat
+    // (likely hivm.hir.vconcat or similar) and adjust accordingly.
+    rewriter.replaceOpWithNewOp<hivm::VConcatOp>(
+        op, TypeRange{}, rewriter.getI64IntegerAttr(adaptor.getAxis()),
+        adaptor.getSrcs(), adaptor.getDst());
+    return success();
+  }
+};
+
 void rewriteCoreTypeAttrs(ModuleOp module) {
   tl::CoreType moduleCore = tl::CoreType::AIV;
   bool sawCore = false;
@@ -193,7 +208,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
 
     RewritePatternSet patterns(ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
-                 ConvertBinary<tl::MulOp, hivm::VMulOp>,
+                 ConvertConcat, ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>>(converter, ctx);

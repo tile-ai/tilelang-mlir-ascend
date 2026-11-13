@@ -78,3 +78,39 @@ LogicalResult MaxOp::verify() {
 LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
+
+LogicalResult ConcatOp::verify() {
+  auto dstTy = llvm::cast<MemRefType>(getDst().getType());
+  int64_t axis = getAxis();
+  int64_t rank = dstTy.getRank();
+
+  if (axis < 0 || axis >= rank)
+    return emitOpError("axis (") << axis << ") out of bounds for rank " << rank;
+
+  if (getSrcs().empty())
+    return emitOpError("expected at least one source operand");
+
+  int64_t axisSum = 0;
+  for (auto src : getSrcs()) {
+    auto srcTy = llvm::cast<MemRefType>(src.getType());
+    if (srcTy.getRank() != rank)
+      return emitOpError("all operands must have the same rank as dst");
+    if (srcTy.getElementType() != dstTy.getElementType())
+      return emitOpError("all operands must have the same element type as dst");
+    for (int64_t d = 0; d < rank; ++d) {
+      if (d == axis)
+        continue;
+      if (srcTy.getDimSize(d) != dstTy.getDimSize(d))
+        return emitOpError("dimension ")
+               << d << " must match dst outside the concat axis";
+    }
+    axisSum += srcTy.getDimSize(axis);
+  }
+
+  if (axisSum != dstTy.getDimSize(axis))
+    return emitOpError("sum of source sizes along axis (")
+           << axisSum << ") does not match dst axis size ("
+           << dstTy.getDimSize(axis) << ")";
+
+  return success();
+}

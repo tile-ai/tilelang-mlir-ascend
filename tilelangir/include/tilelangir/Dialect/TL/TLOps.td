@@ -93,4 +93,21 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_ConcatOp : TL_Op<"concat", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Concatenate tile buffers along a given axis";
+  let description = [{
+    Destination-style concat: writes the variadic `srcs` into `dst`,
+    laid out contiguously along dimension `axis`. All `srcs` and `dst`
+    must share rank and element type; every non-axis dimension must
+    match across all operands, and the axis-dimension sizes of `srcs`
+    must sum to `dst`'s axis-dimension size.
+    Example:
+      tl.concat ins(%a, %b) outs(%dst) axis(1) : memref<8x4xf32>, memref<8x4xf32> -> memref<8x8xf32>
+  }];
+  let arguments = (ins Variadic<AnyMemRef>:$srcs, AnyMemRef:$dst, I64Attr:$axis);
+  let assemblyFormat =
+      "`ins` `(` $srcs `)` `outs` `(` $dst `)` `axis` `(` $axis `)` attr-dict `:` type($srcs) `->` type($dst)";
+  let hasVerifier = 1;
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

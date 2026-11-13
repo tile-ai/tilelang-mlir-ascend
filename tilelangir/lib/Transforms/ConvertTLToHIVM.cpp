@@ -135,6 +135,18 @@ struct ConvertSub : public OpConversionPattern<tl::SubOp> {
   }
 };
 
+struct ConvertFlip : public OpConversionPattern<tl::FlipOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::FlipOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VFlipOp>(
+        op, TypeRange{}, adaptor.getSrc(), adaptor.getDst(), adaptor.getAxis());
+    return success();
+  }
+};
+
 template <typename TLOpT, typename HIVMOpT>
 struct ConvertBinary : public OpConversionPattern<TLOpT> {
   using OpConversionPattern<TLOpT>::OpConversionPattern;
@@ -192,7 +204,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
-    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub, ConvertFlip,
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,

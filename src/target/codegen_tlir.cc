@@ -136,6 +136,13 @@ void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
                                      GetBufferValue(sub.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitFlip(const CallNode *op) {
+  tvm::tl::NpuirFlip flip(op->args, vmap_);
+  builder_.create<::mlir::tl::FlipOp>(builder_.getUnknownLoc(),
+                                      GetBufferValue(flip.src),
+                                      GetBufferValue(flip.dst), flip.axis);
+}
+
 template <typename TLOpT, typename NpuirOpT>
 void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
   NpuirOpT bin(op->args, vmap_);
@@ -251,6 +258,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
     EmitSub(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_flip"))) {
+    EmitFlip(op);
     return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_mul"))) {

@@ -76,6 +76,7 @@ private:
   void EmitCopy(const CallNode *op);
   void EmitAdd(const CallNode *op);
   void EmitSub(const CallNode *op);
+  void EmitFlip(const CallNode *op);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
 

@@ -6,7 +6,7 @@
 # The runner label, the container image and the environment/bootstrap recipe are
 # copied from the `ascend` job of ci.yml so that both pipelines share one
 # toolchain: Ascend 950 hardware on the `linux-amd64-a5-4` self-hosted runner,
-# inside the CANN 9.3.0 weekly container.
+# inside the CANN 9.2.0 container.
 #
 # This is the single PR gate: it runs the clean-code lint checks (pre-commit,
 # AST compile, C++ API style) and then the Ascend 950 AscendC suite. It is the
@@ -117,7 +117,7 @@ jobs:
     needs: [lint]
     runs-on: linux-amd64-a5-4
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/tilelang/tilelang-ascend:cann9.3.0-weekly.20261021-ubuntu22.04-py3.12
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/tilelang/tilelang-ascend:cann9.2.0-ubuntu22.04-py3.12
     timeout-minutes: 120
     env:
       PIP_USER: "0"
@@ -201,12 +201,11 @@ jobs:
         id: ascendc-unit-tests
         if: ${{ !cancelled() && steps.ascend-build.outcome == 'success' }}
         shell: bash
-        env:
-          # `pto` marks the PTO-backend tests, so deselect them for AscendC.
-          TEST_MARKERS: not pto
         run: |
           source .venv/bin/activate
-          python -m pytest --verbose --durations=0 --maxfail=3 -n 32 -m "${TEST_MARKERS}" testing/ascend
+          # Only the AscendC tree: PTO unit tests live under testing/ascend/pto
+          # and need the PTO toolchain, which this job does not run.
+          python -m pytest --verbose --durations=0 --maxfail=3 -n 32 testing/ascend/ascendc
 
       - name: Summarize AscendC results
         if: ${{ always() }}
@@ -223,5 +222,5 @@ jobs:
             echo "| --- | --- |"
             echo "| Build | ${BUILD_RESULT} |"
             echo "| AscendC examples | ${EXAMPLES_RESULT} |"
-            echo "| AscendC unit tests (not pto) | ${UNIT_RESULT} |"
+            echo "| AscendC unit tests | ${UNIT_RESULT} |"
           } >> "${GITHUB_STEP_SUMMARY}"

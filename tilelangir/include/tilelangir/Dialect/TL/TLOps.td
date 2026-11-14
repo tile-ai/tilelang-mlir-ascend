@@ -93,4 +93,24 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_AtomicAddOp : TL_Op<"atomic_add", [
+    MemoryEffects<[MemRead, MemWrite]>
+]> {
+  let summary = "Atomic elementwise add into a tile buffer (dst += src)";
+  let description = [{
+    Atomic destination-style vector add: dst += src, lowered to
+    `hivm.hir.store ... atomic = <add>`. Operands must share shape and
+    element type, but (unlike `tl.add`) their address spaces may differ:
+    `src` is typically UB and `dst` GM, so no round-trip copy back out of
+    UB is needed.
+
+    Example:
+      tl.atomic_add %src -> %dst : memref<64xf32, #tl.address_space<ub>>, memref<64xf32, #tl.address_space<gm>>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst);
+  let assemblyFormat =
+      "$src `->` $dst attr-dict `:` type($src) `,` type($dst)";
+  let hasVerifier = 1;
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

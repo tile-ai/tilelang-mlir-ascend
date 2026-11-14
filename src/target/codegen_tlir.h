@@ -9,6 +9,8 @@
  *   allocate -> tl.alloc
  *   tl.copy  -> tl.copy
  *   tl.npuir_add -> tl.add
+ *   tl.npuir_sub/mul/div/max/min -> tl.sub/mul/div/max/min
+ *   tl.npuir_set_flag -> tl.set_flag
  *
  * HIVM/runtime ABI attrs are intentionally omitted; this is the middle IR.
  */
@@ -78,6 +80,10 @@ private:
   void EmitSub(const CallNode *op);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
+  void EmitSetFlag(const CallNode *op);
+  void EmitWaitFlag(const CallNode *op);
+  mlir::tl::Pipe PipeFromString(const std::string &pipe);
+  mlir::Value GetEventID(PrimExpr id);
 
   mlir::MLIRContext context_;
   mlir::OpBuilder builder_;

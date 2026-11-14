@@ -93,4 +93,36 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_SetFlagOp : TL_Op<"set_flag", []> {
+  let summary = "Set a cross-pipe synchronization flag";
+  let description = [{
+    Signals an event on `set_pipe` so that a consumer on `wait_pipe` can
+    synchronize against it with a matching `tl.wait_flag` (or the HIVM
+    `wait_flag` it lowers to). `event_id` is the numeric flag/event id and is
+    widened to i64 during lowering, matching `hivm.hir.set_flag`.
+
+    Example:
+      tl.set_flag[#tl.pipe<pipe_mte2>, #tl.pipe<pipe_v>, %event_id] : i64
+  }];
+  let arguments = (ins TL_PipeAttr:$set_pipe, TL_PipeAttr:$wait_pipe,
+                       AnySignlessInteger:$event_id);
+  let assemblyFormat =
+      "`[` $set_pipe `,` $wait_pipe `,` $event_id `]` attr-dict `:` type($event_id)";
+}
+
+def TL_WaitFlagOp : TL_Op<"wait_flag", []> {
+  let summary = "Wait on a cross-pipe synchronization flag";
+  let description = [{
+    Blocks `wait_pipe` until the matching `tl.set_flag` on `set_pipe` has
+    signaled `event_id`. Lowers to `hivm.hir.wait_flag`.
+
+    Example:
+      tl.wait_flag[#tl.pipe<pipe_mte2>, #tl.pipe<pipe_v>, %event_id] : i64
+  }];
+  let arguments = (ins TL_PipeAttr:$set_pipe, TL_PipeAttr:$wait_pipe,
+                       AnySignlessInteger:$event_id);
+  let assemblyFormat =
+      "`[` $set_pipe `,` $wait_pipe `,` $event_id `]` attr-dict `:` type($event_id)";
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

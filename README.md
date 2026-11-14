@@ -130,13 +130,13 @@ TileLang enables developers to write high-performance kernels on Ascend NPU with
 
 The default Ascend path is still TileLang Python → TVM TIR → C++ codegen → HIVM/HIVMAVE (`codegen_npuir_api*.cc` / `_dev*`). A second path is being added through a restricted TileLang dialect (**TLIR**, namespace `tl`) so tile-level memory and compute can sit in MLIR before HIVM.
 
-Current v0.1 subset (expert-mode elementwise add, sub, mul, div, max, min):
+Current v0.1 subset (expert-mode elementwise add, sub, mul, div, max, min, set_flag, wait_flag):
 
 | Stage | What it does |
 |-------|----------------|
-| Dialect | `tl.alloc`, `tl.copy`, `tl.add`, `tl.sub`, `tl.mul`, `tl.div`, `tl.max`, `tl.min` plus `#tl.address_space`, `#tl.layout`, `#tl.core_type` |
+| Dialect | `tl.alloc`, `tl.copy`, `tl.add`, `tl.sub`, `tl.mul`, `tl.div`, `tl.max`, `tl.min`, `tl.set_flag`, `tl.wait_flag` plus `#tl.address_space`, `#tl.layout`, `#tl.core_type`, `#tl.pipe` |
 | TIR → TLIR | `src/target/codegen_tlir.cc`, registered as `target.build.tilelang_tlir` |
-| TLIR → HIVM | `tilelangir-convert-tl-to-hivm`: `tl.alloc`→`memref.alloc`, `tl.copy`→`memref.copy`, `tl.add`→`hivm.hir.vadd`, `tl.sub`/`tl.mul`/`tl.div`/`tl.max`/`tl.min`→`hivm.hir.vsub`/`vmul`/`vdiv`/`vmax`/`vmin` |
+| TLIR → HIVM | `tilelangir-convert-tl-to-hivm`: `tl.alloc`→`memref.alloc`, `tl.copy`→`memref.copy`, `tl.add`→`hivm.hir.vadd`, `tl.sub`/`tl.mul`/`tl.div`/`tl.max`/`tl.min`→`hivm.hir.vsub`/`vmul`/`vdiv`/`vmax`/`vmin`, `tl.set_flag`/`tl.wait_flag`→`hivm.hir.set_flag`/`wait_flag` |
 
 TLIR is middle IR only. It does **not** emit HACC / FFTS / workspace ABI. The existing HIVM codegen path is unchanged unless `TILELANG_TLIR=1`.
 

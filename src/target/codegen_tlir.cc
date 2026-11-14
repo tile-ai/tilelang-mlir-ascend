@@ -27,6 +27,27 @@
 namespace tvm {
 namespace codegen {
 
+namespace {
+constexpr uint8_t kFlagIdBits = 64;
+
+const std::unordered_map<std::string, ::mlir::tl::Pipe> &PipeNameMap() {
+  static const std::unordered_map<std::string, ::mlir::tl::Pipe> kMap{
+      {"PIPE_S", ::mlir::tl::Pipe::PIPE_S},
+      {"PIPE_V", ::mlir::tl::Pipe::PIPE_V},
+      {"PIPE_M", ::mlir::tl::Pipe::PIPE_M},
+      {"PIPE_MTE1", ::mlir::tl::Pipe::PIPE_MTE1},
+      {"PIPE_MTE2", ::mlir::tl::Pipe::PIPE_MTE2},
+      {"PIPE_MTE3", ::mlir::tl::Pipe::PIPE_MTE3},
+      {"PIPE_ALL", ::mlir::tl::Pipe::PIPE_ALL},
+      {"PIPE_MTE4", ::mlir::tl::Pipe::PIPE_MTE4},
+      {"PIPE_MTE5", ::mlir::tl::Pipe::PIPE_MTE5},
+      {"PIPE_V2", ::mlir::tl::Pipe::PIPE_V2},
+      {"PIPE_FIX", ::mlir::tl::Pipe::PIPE_FIX},
+  };
+  return kMap;
+}
+} // namespace
+
 CodeGenTileLangTLIR::CodeGenTileLangTLIR() : builder_(&context_) {
   context_.loadDialect<::mlir::func::FuncDialect, ::mlir::memref::MemRefDialect,
                        ::mlir::arith::ArithDialect, ::mlir::tl::TLDialect>();
@@ -148,6 +169,52 @@ void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
                          GetBufferValue(bin.Dst().GetBuffer()));
 }
 
+mlir::tl::Pipe CodeGenTileLangTLIR::PipeFromString(const std::string &pipe) {
+  const auto &pipe_map = PipeNameMap();
+  auto it = pipe_map.find(pipe);
+  ICHECK(it != pipe_map.end())
+      << "CodeGenTileLangTLIR: unknown pipe name " << pipe;
+  return it->second;
+}
+
+mlir::Value CodeGenTileLangTLIR::GetEventID(PrimExpr id) {
+  DataType raw_type = id.dtype();
+  ICHECK(raw_type.is_int() || raw_type.is_uint())
+      << "CodeGenTileLangTLIR: event_id must be an integer";
+  mlir::Value origin_id = VisitExpr(id);
+  if (raw_type.bits() >= kFlagIdBits)
+    return origin_id;
+  mlir::Location unknown_loc = builder_.getUnknownLoc();
+  mlir::IntegerType i64_type = builder_.getI64Type();
+  if (raw_type.is_int())
+    return builder_.create<::mlir::arith::ExtSIOp>(unknown_loc, i64_type,
+                                                   origin_id);
+  return builder_.create<::mlir::arith::ExtUIOp>(unknown_loc, i64_type,
+                                                 origin_id);
+}
+
+void CodeGenTileLangTLIR::EmitSetFlag(const CallNode *op) {
+  tvm::tl::NpuirSetFlag sync_op(op->args, vmap_);
+  auto set_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe1));
+  auto wait_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe2));
+  mlir::Value event_id = GetEventID(sync_op.event_id);
+  builder_.create<::mlir::tl::SetFlagOp>(builder_.getUnknownLoc(), set_pipe,
+                                         wait_pipe, event_id);
+}
+
+void CodeGenTileLangTLIR::EmitWaitFlag(const CallNode *op) {
+  tvm::tl::NpuirWaitFlag sync_op(op->args, vmap_);
+  auto set_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe1));
+  auto wait_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe2));
+  mlir::Value event_id = GetEventID(sync_op.event_id);
+  builder_.create<::mlir::tl::WaitFlagOp>(builder_.getUnknownLoc(), set_pipe,
+                                          wait_pipe, event_id);
+}
+
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
                                       const PrimFunc &f) {
   InitFuncState();
@@ -267,6 +334,14 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_min"))) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_set_flag"))) {
+    EmitSetFlag(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_wait_flag"))) {
+    EmitWaitFlag(op);
     return {};
   }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;

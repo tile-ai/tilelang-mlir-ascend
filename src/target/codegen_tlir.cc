@@ -148,6 +148,13 @@ void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
                          GetBufferValue(bin.Dst().GetBuffer()));
 }
 
+template <typename TLOpT, typename NpuirOpT>
+void CodeGenTileLangTLIR::EmitUnary(const CallNode *op) {
+  NpuirOpT un(op->args, vmap_);
+  builder_.create<TLOpT>(builder_.getUnknownLoc(), GetBufferValue(un.src),
+                         GetBufferValue(un.dst));
+}
+
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
                                       const PrimFunc &f) {
   InitFuncState();
@@ -267,6 +274,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_min"))) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_rec"))) {
+    EmitUnary<::mlir::tl::RecOp, tvm::tl::NpuirRec>(op);
     return {};
   }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;

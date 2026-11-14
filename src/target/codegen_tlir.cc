@@ -148,6 +148,13 @@ void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
                          GetBufferValue(bin.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitAtomicAdd(const CallNode *op) {
+  tvm::tl::NpuirAtomicAdd atomic_add(op->args, vmap_);
+  builder_.create<::mlir::tl::AtomicAddOp>(builder_.getUnknownLoc(),
+                                           GetBufferValue(atomic_add.src),
+                                           GetBufferValue(atomic_add.dst));
+}
+
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
                                       const PrimFunc &f) {
   InitFuncState();
@@ -267,6 +274,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_min"))) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_atomic_add"))) {
+    EmitAtomicAdd(op);
     return {};
   }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;

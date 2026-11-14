@@ -78,3 +78,13 @@ LogicalResult MaxOp::verify() {
 LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
+
+LogicalResult AtomicAddOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto dst = llvm::cast<MemRefType>(getDst().getType());
+  if (src.getElementType() != dst.getElementType())
+    return emitOpError("source and destination element types must match");
+  if (src.getShape() != dst.getShape())
+    return emitOpError("source and destination shapes must match");
+  return success();
+}

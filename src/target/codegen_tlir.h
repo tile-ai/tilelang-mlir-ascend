@@ -9,6 +9,7 @@
  *   allocate -> tl.alloc
  *   tl.copy  -> tl.copy
  *   tl.npuir_add -> tl.add
+ *   tl.npuir_pad -> tl.pad
  *
  * HIVM/runtime ABI attrs are intentionally omitted; this is the middle IR.
  */
@@ -76,6 +77,7 @@ private:
   void EmitCopy(const CallNode *op);
   void EmitAdd(const CallNode *op);
   void EmitSub(const CallNode *op);
+  void EmitPad(const CallNode *op);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
 

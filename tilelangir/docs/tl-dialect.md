@@ -1,7 +1,7 @@
 # TL dialect (TLIR) v0.1
 
 Restricted TileLang tile-level IR between TVM TIR and HIVM. v0.1 covers
-expert-mode elementwise add/sub/mul/div/max/min: parse/print, TIR → TLIR import, and
+expert-mode elementwise add/sub/mul/div/max/min and pad: parse/print, TIR → TLIR import, and
 `tilelangir-convert-tl-to-hivm`.
 
 ## Attributes
@@ -27,6 +27,7 @@ expert-mode elementwise add/sub/mul/div/max/min: parse/print, TIR → TLIR impor
 | `tl.div` | Destination-style elementwise divide (`out = lhs / rhs`) |
 | `tl.max` | Destination-style elementwise maximum |
 | `tl.min` | Destination-style elementwise minimum |
+| `tl.pad` | Destination-style pad along one dimension (`AttrSizedOperandSegments`; static amounts in `static_low`/`static_high`, dynamic amounts via `low`/`high` operands) |
 
 ```mlir
 func.func @elemwise_add(%gm_a: memref<64xf32, #tl.address_space<gm>>,
@@ -55,6 +56,33 @@ Lower to HIVM (expert-mode add subset: `memref.alloc` / `memref.copy` / `hivm.hi
 ```bash
 tilelangir-opt --tilelangir-convert-tl-to-hivm \
   tilelangir/test/Dialect/TL/alloc-copy-add.mlir
+```
+
+```mlir
+func.func @elemwise_pad(%gm_src: memref<60xf32, #tl.address_space<gm>>,
+                        %gm_dst: memref<64xf32, #tl.address_space<gm>>)
+    attributes {tl.core_type = #tl.core_type<aiv>} {
+  %ub_src = tl.alloc : memref<60xf32, #tl.address_space<ub>>
+  %ub_dst = tl.alloc : memref<64xf32, #tl.address_space<ub>>
+  %pad_val = arith.constant 0.0 : f32
+  tl.copy %gm_src -> %ub_src : memref<60xf32, #tl.address_space<gm>>, memref<60xf32, #tl.address_space<ub>>
+  tl.pad ins(%ub_src) outs(%ub_dst) pad_value(%pad_val : f32) low() high() {static_low = array<i64: 0>, static_high = array<i64: 4>} : memref<60xf32, #tl.address_space<ub>>, memref<64xf32, #tl.address_space<ub>>
+  tl.copy %ub_dst -> %gm_dst : memref<64xf32, #tl.address_space<ub>>, memref<64xf32, #tl.address_space<gm>>
+  return
+}
+```
+
+Round-trip:
+
+```bash
+tilelangir-opt tilelangir/test/Dialect/TL/alloc-copy-pad.mlir
+```
+
+Lower to HIVM (expert-mode pad subset: `memref.alloc` / `memref.copy` / `hivm.hir.vpad`):
+
+```bash
+tilelangir-opt --tilelangir-convert-tl-to-hivm \
+  tilelangir/test/Dialect/TL/alloc-copy-pad.mlir
 ```
 
 This pass does not inject HACC / FFTS / workspace ABI.

@@ -150,6 +150,21 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
   }
 };
 
+template <typename TLOpT, typename HIVMOpT>
+struct ConvertUnary : public OpConversionPattern<TLOpT> {
+  using OpConversionPattern<TLOpT>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TLOpT op,
+                  typename OpConversionPattern<TLOpT>::OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.template replaceOpWithNewOp<HIVMOpT>(op, TypeRange{},
+                                                  ValueRange{adaptor.getSrc()},
+                                                  ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
 void rewriteCoreTypeAttrs(ModuleOp module) {
   tl::CoreType moduleCore = tl::CoreType::AIV;
   bool sawCore = false;
@@ -196,7 +211,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
-                 ConvertBinary<tl::MinOp, hivm::VMinOp>>(converter, ctx);
+                 ConvertBinary<tl::MinOp, hivm::VMinOp>,
+                 ConvertUnary<tl::RecOp, hivm::VRecOp>>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

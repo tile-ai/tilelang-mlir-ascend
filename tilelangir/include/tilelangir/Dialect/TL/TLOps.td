@@ -73,6 +73,16 @@ class TL_BinaryOp<string mnemonic> : TL_Op<mnemonic, [
   let hasVerifier = 1;
 }
 
+class TL_UnaryOp<string mnemonic> : TL_Op<mnemonic, [
+  MemoryEffects<[MemRead, MemWrite]>,
+  AllTypesMatch<["src", "out"]>
+]> {
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$out);
+  let assemblyFormat =
+    "`ins` `(` $src `)` `outs` `(` $out `)` attr-dict `:` type($src)";
+  let hasVerifier = 1;
+}
+
 def TL_MulOp : TL_BinaryOp<"mul"> {
   let summary = "Elementwise multiply of two tile buffers";
   let description = [{ Destination-style vector mul: out = lhs * rhs. }];
@@ -91,6 +101,11 @@ def TL_MaxOp : TL_BinaryOp<"max"> {
 def TL_MinOp : TL_BinaryOp<"min"> {
   let summary = "Elementwise minimum of two tile buffers";
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
+}
+
+def TL_RecOp : TL_UnaryOp<"rec"> {
+  let summary = "Elementwise reciprocal of a tile buffer";
+  let description = [{ Destination-style vector reciprocal: out = 1 / src. Lowers to hivm.hir.vrec, which requires f16/f32 operands. }];
 }
 
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

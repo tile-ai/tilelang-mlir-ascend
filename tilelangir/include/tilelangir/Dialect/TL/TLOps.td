@@ -93,4 +93,24 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+
+def TL_VErfOp : TL_Op<"verf", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["src", "dst"]>
+]> {
+  let summary = "Vector error function (erf) approximation";
+  let description = [{
+    Destination-style unary op: dst = erf(src), computed as a polynomial
+    approximation when lowered to HIVM. src and dst share shape and element
+    type.
+
+    Example:
+      tl.verf ins(%a) outs(%b) : memref<64xf32>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst);
+  let assemblyFormat =
+      "`ins` `(` $src `)` `outs` `(` $dst `)` attr-dict `:` type($src)";
+  let hasVerifier = 1;
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

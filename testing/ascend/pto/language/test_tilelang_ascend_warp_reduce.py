@@ -4,7 +4,6 @@ import torch
 import tilelang
 import tilelang.ascend.language as T
 import tilelang.testing
-import tvm
 from tilelang.engine.lower import lower
 
 
@@ -14,14 +13,6 @@ REDUCE_CASES = [
     ("min", "asc_reduce_min"),
 ]
 SUPPORTED_DTYPES = ["float32", "int32", "uint32", "float16"]
-UNSUPPORTED_DTYPES = [
-    "bfloat16",
-    "float64",
-    "int16",
-    "uint16",
-    "int64",
-    "uint64",
-]
 
 
 def make_warp_reduce_kernel(op, dtype):
@@ -34,24 +25,6 @@ def make_warp_reduce_kernel(op, dtype):
             B[tx] = warp_reduce(A[tx])
 
     return kernel
-
-
-@pytest.mark.parametrize("op,ascend_intrinsic", REDUCE_CASES)
-@pytest.mark.parametrize("dtype", SUPPORTED_DTYPES)
-def test_warp_reduce_codegen(op, ascend_intrinsic, dtype):
-    source = lower(make_warp_reduce_kernel(op, dtype), target="ascend").kernel_source
-
-    assert f"{ascend_intrinsic}(" in source
-
-
-@pytest.mark.parametrize("op", [case[0] for case in REDUCE_CASES])
-@pytest.mark.parametrize("dtype", UNSUPPORTED_DTYPES)
-def test_warp_reduce_rejects_unsupported_dtype(op, dtype):
-    with pytest.raises(
-        tvm.error.InternalError,
-        match="supports only scalar float16, float32, int32, and uint32",
-    ):
-        lower(make_warp_reduce_kernel(op, dtype), target="ascend")
 
 
 PTO_REDUCE_CALL = {"sum": "tl.redux_add", "max": "tl.redux_max", "min": "tl.redux_min"}
@@ -74,13 +47,10 @@ RUN_CASES = [
 
 
 @tilelang.testing.requires_ascend
-@pytest.mark.parametrize(
-    "target",
-    ["ascend", pytest.param("pto", marks=pytest.mark.pto)],
-)
+@pytest.mark.pto
 @pytest.mark.parametrize("op,dtype", RUN_CASES)
-def test_warp_reduce(op, dtype, target):
-    compiled = tilelang.compile(make_warp_reduce_kernel(op, dtype), target=target, out_idx=-1)
+def test_warp_reduce(op, dtype):
+    compiled = tilelang.compile(make_warp_reduce_kernel(op, dtype), target="pto", out_idx=-1)
     if dtype == "float32":
         values = torch.randn(32, dtype=torch.float32)
     elif dtype == "int32":

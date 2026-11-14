@@ -53,6 +53,34 @@ hivm::TFuncCoreType convertFuncCoreType(tl::CoreType core) {
   return hivm::TFuncCoreType::AIV;
 }
 
+hivm::PIPE convertPipe(tl::Pipe pipe) {
+  switch (pipe) {
+  case tl::Pipe::PIPE_S:
+    return hivm::PIPE::PIPE_S;
+  case tl::Pipe::PIPE_V:
+    return hivm::PIPE::PIPE_V;
+  case tl::Pipe::PIPE_M:
+    return hivm::PIPE::PIPE_M;
+  case tl::Pipe::PIPE_MTE1:
+    return hivm::PIPE::PIPE_MTE1;
+  case tl::Pipe::PIPE_MTE2:
+    return hivm::PIPE::PIPE_MTE2;
+  case tl::Pipe::PIPE_MTE3:
+    return hivm::PIPE::PIPE_MTE3;
+  case tl::Pipe::PIPE_ALL:
+    return hivm::PIPE::PIPE_ALL;
+  case tl::Pipe::PIPE_MTE4:
+    return hivm::PIPE::PIPE_MTE4;
+  case tl::Pipe::PIPE_MTE5:
+    return hivm::PIPE::PIPE_MTE5;
+  case tl::Pipe::PIPE_V2:
+    return hivm::PIPE::PIPE_V2;
+  case tl::Pipe::PIPE_FIX:
+    return hivm::PIPE::PIPE_FIX;
+  }
+  return hivm::PIPE::PIPE_ALL;
+}
+
 hivm::TModuleCoreType convertModuleCoreType(tl::CoreType core) {
   switch (core) {
   case tl::CoreType::AIC:
@@ -150,6 +178,22 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
   }
 };
 
+struct ConvertSetFlag : public OpConversionPattern<tl::SetFlagOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::SetFlagOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto setPipe = hivm::PipeAttr::get(
+        rewriter.getContext(), convertPipe(op.getSetPipe()));
+    auto waitPipe = hivm::PipeAttr::get(
+        rewriter.getContext(), convertPipe(op.getWaitPipe()));
+    rewriter.replaceOpWithNewOp<hivm::SetFlagOp>(
+        op, setPipe, waitPipe, hivm::EventAttr{}, adaptor.getEventId());
+    return success();
+  }
+};
+
 void rewriteCoreTypeAttrs(ModuleOp module) {
   tl::CoreType moduleCore = tl::CoreType::AIV;
   bool sawCore = false;
@@ -196,7 +240,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
-                 ConvertBinary<tl::MinOp, hivm::VMinOp>>(converter, ctx);
+                 ConvertBinary<tl::MinOp, hivm::VMinOp>, ConvertSetFlag>(
+        converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

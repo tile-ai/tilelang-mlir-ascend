@@ -188,20 +188,31 @@ mlir::Value CodeGenTileLangTLIR::GetEventID(PrimExpr id) {
   mlir::IntegerType i64_type = builder_.getI64Type();
   if (raw_type.is_int())
     return builder_.create<::mlir::arith::ExtSIOp>(unknown_loc, i64_type,
-                                                    origin_id);
+                                                   origin_id);
   return builder_.create<::mlir::arith::ExtUIOp>(unknown_loc, i64_type,
                                                  origin_id);
 }
 
 void CodeGenTileLangTLIR::EmitSetFlag(const CallNode *op) {
   tvm::tl::NpuirSetFlag sync_op(op->args, vmap_);
-  auto set_pipe = ::mlir::tl::PipeAttr::get(&context_,
-                                            PipeFromString(sync_op.pipe1));
-  auto wait_pipe = ::mlir::tl::PipeAttr::get(&context_,
-                                             PipeFromString(sync_op.pipe2));
+  auto set_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe1));
+  auto wait_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe2));
   mlir::Value event_id = GetEventID(sync_op.event_id);
   builder_.create<::mlir::tl::SetFlagOp>(builder_.getUnknownLoc(), set_pipe,
-                                        wait_pipe, event_id);
+                                         wait_pipe, event_id);
+}
+
+void CodeGenTileLangTLIR::EmitWaitFlag(const CallNode *op) {
+  tvm::tl::NpuirWaitFlag sync_op(op->args, vmap_);
+  auto set_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe1));
+  auto wait_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe2));
+  mlir::Value event_id = GetEventID(sync_op.event_id);
+  builder_.create<::mlir::tl::WaitFlagOp>(builder_.getUnknownLoc(), set_pipe,
+                                          wait_pipe, event_id);
 }
 
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
@@ -327,6 +338,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_set_flag"))) {
     EmitSetFlag(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_wait_flag"))) {
+    EmitWaitFlag(op);
     return {};
   }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;

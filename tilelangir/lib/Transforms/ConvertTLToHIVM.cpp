@@ -184,11 +184,27 @@ struct ConvertSetFlag : public OpConversionPattern<tl::SetFlagOp> {
   LogicalResult
   matchAndRewrite(tl::SetFlagOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto setPipe = hivm::PipeAttr::get(
-        rewriter.getContext(), convertPipe(op.getSetPipe()));
-    auto waitPipe = hivm::PipeAttr::get(
-        rewriter.getContext(), convertPipe(op.getWaitPipe()));
+    auto setPipe = hivm::PipeAttr::get(rewriter.getContext(),
+                                       convertPipe(op.getSetPipe()));
+    auto waitPipe = hivm::PipeAttr::get(rewriter.getContext(),
+                                        convertPipe(op.getWaitPipe()));
     rewriter.replaceOpWithNewOp<hivm::SetFlagOp>(
+        op, setPipe, waitPipe, hivm::EventAttr{}, adaptor.getEventId());
+    return success();
+  }
+};
+
+struct ConvertWaitFlag : public OpConversionPattern<tl::WaitFlagOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::WaitFlagOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto setPipe = hivm::PipeAttr::get(rewriter.getContext(),
+                                       convertPipe(op.getSetPipe()));
+    auto waitPipe = hivm::PipeAttr::get(rewriter.getContext(),
+                                        convertPipe(op.getWaitPipe()));
+    rewriter.replaceOpWithNewOp<hivm::WaitFlagOp>(
         op, setPipe, waitPipe, hivm::EventAttr{}, adaptor.getEventId());
     return success();
   }
@@ -240,8 +256,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
-                 ConvertBinary<tl::MinOp, hivm::VMinOp>, ConvertSetFlag>(
-        converter, ctx);
+                 ConvertBinary<tl::MinOp, hivm::VMinOp>, ConvertSetFlag,
+                 ConvertWaitFlag>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

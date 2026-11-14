@@ -31,6 +31,7 @@ sync primitive: parse/print, TIR → TLIR import, and
 | `tl.max` | Destination-style elementwise maximum |
 | `tl.min` | Destination-style elementwise minimum |
 | `tl.set_flag` | Set a cross-pipe sync flag/event (`set_pipe`, `wait_pipe`, `event_id`) |
+| `tl.wait_flag` | Wait on a cross-pipe sync flag/event (`set_pipe`, `wait_pipe`, `event_id`) |
 
 ```mlir
 func.func @elemwise_add(%gm_a: memref<64xf32, #tl.address_space<gm>>,
@@ -92,3 +93,30 @@ tilelangir-opt --tilelangir-convert-tl-to-hivm \
 `tl.wait_flag` is not part of this subset yet; it can follow the same
 pattern (`TL_PipeAttr` × 2 + an integer operand, lowering to
 `hivm.hir.wait_flag`) in a follow-up change.
+
+### `tl.wait_flag`
+
+`tl.wait_flag` mirrors `hivm.hir.wait_flag`: it blocks `wait_pipe` until the
+matching `tl.set_flag` on `set_pipe` has signaled `event_id`.
+
+```mlir
+%c0_i64 = arith.constant 0 : i64
+tl.wait_flag[#tl.pipe<pipe_mte2>, #tl.pipe<pipe_v>, %c0_i64] : i64
+```
+
+lowers to:
+
+```mlir
+hivm.hir.wait_flag[<PIPE_MTE2>, <PIPE_V>, %c0_i64]
+```
+
+Round-trip and conversion tests:
+
+```bash
+tilelangir-opt tilelangir/test/Dialect/TL/alloc-copy-add-set-wait-flag.mlir
+tilelangir-opt --tilelangir-convert-tl-to-hivm \
+  tilelangir/test/Conversion/TLToHIVM/alloc-copy-add-set-wait-flag.mlir
+```
+
+Together, `tl.set_flag` and `tl.wait_flag` form a complete, runnable
+cross-pipe sync pair.

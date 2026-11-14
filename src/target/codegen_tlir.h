@@ -81,6 +81,7 @@ private:
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
   void EmitSetFlag(const CallNode *op);
+  void EmitWaitFlag(const CallNode *op);
   mlir::tl::Pipe PipeFromString(const std::string &pipe);
   mlir::Value GetEventID(PrimExpr id);
 

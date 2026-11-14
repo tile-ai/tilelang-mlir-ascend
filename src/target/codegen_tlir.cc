@@ -136,6 +136,23 @@ void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
                                      GetBufferValue(sub.Dst().GetBuffer()));
 }
 
+mlir::Value CodeGenTileLangTLIR::EmitBitcast(const CallNode *op) {
+  tvm::tl::NpuirBitcast bitcast(op->args, vmap_);
+
+  auto dl_dtype = tvm::runtime::String2DLDataType(bitcast.dtype);
+  auto tir_dtype = DataType(dl_dtype);
+
+  mlir::Value src = GetBufferValue(bitcast.src);
+  auto src_type = llvm::cast<::mlir::MemRefType>(src.getType());
+  auto res_type =
+      ::mlir::MemRefType::get(src_type.getShape(), DTypeToMLIRType(tir_dtype),
+                              src_type.getLayout(), src_type.getMemorySpace());
+
+  auto vbitcast_op = builder_.create<::mlir::tl::VBitcastOp>(
+      builder_.getUnknownLoc(), res_type, src);
+  return vbitcast_op.getResult();
+}
+
 template <typename TLOpT, typename NpuirOpT>
 void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
   NpuirOpT bin(op->args, vmap_);
@@ -253,6 +270,9 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitSub(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_bitcast"))) {
+    return EmitBitcast(op);
+  }
   if (op->op.same_as(Op::Get("tl.npuir_mul"))) {
     EmitBinary<::mlir::tl::MulOp, tvm::tl::NpuirMul>(op);
     return {};
@@ -300,6 +320,10 @@ void CodeGenTileLangTLIR::VisitStmt_(const ForNode *op) {
 }
 
 void CodeGenTileLangTLIR::VisitStmt_(const LetStmtNode *op) {
+  mlir::Value value = VisitExpr(op->value);
+  if (value) {
+    var_map_[op->var.get()] = value;
+  }
   VisitStmt(op->body);
 }
 

@@ -29,6 +29,18 @@ LogicalResult CopyOp::verify() {
   return success();
 }
 
+LogicalResult VBitcastOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSource().getType());
+  auto res = llvm::cast<MemRefType>(getResult().getType());
+  if (src.getShape() != res.getShape())
+    return emitOpError("source and result shapes must match");
+  if (src.getElementType().getIntOrFloatBitWidth() !=
+      res.getElementType().getIntOrFloatBitWidth())
+    return emitOpError(
+        "source and result element types must have the same bit width");
+  return success();
+}
+
 LogicalResult AddOp::verify() {
   auto lhs = llvm::cast<MemRefType>(getLhs().getType());
   auto rhs = llvm::cast<MemRefType>(getRhs().getType());

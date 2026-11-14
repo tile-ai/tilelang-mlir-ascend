@@ -26,6 +26,7 @@ expert-mode elementwise add/sub/mul/div/max/min: parse/print, TIR → TLIR impor
 | `tl.mul` | Destination-style elementwise multiply |
 | `tl.div` | Destination-style elementwise divide (`out = lhs / rhs`) |
 | `tl.max` | Destination-style elementwise maximum |
+| `tl.vbitcast` | Reinterpret a buffer's bits as a different element type (same shape, same bit width, no destination operand) |
 | `tl.min` | Destination-style elementwise minimum |
 
 ```mlir

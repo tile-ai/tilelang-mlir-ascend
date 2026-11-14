@@ -136,6 +136,45 @@ void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
                                      GetBufferValue(sub.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitPad(const CallNode *op) {
+  tvm::tl::NpuirPad pad(op->args, vmap_);
+  mlir::Location loc = builder_.getUnknownLoc();
+
+  mlir::Value src = GetBufferValue(pad.src);
+  mlir::Value dst = GetBufferValue(pad.dst);
+  mlir::Value pad_value = VisitExpr(pad.pad_value);
+
+  llvm::SmallVector<mlir::Value> low, high;
+  for (const PrimExpr &l : pad.low) {
+    mlir::Value v = VisitExpr(l);
+    if (!v.getType().isa<mlir::IndexType>())
+      v = builder_.create<mlir::arith::IndexCastOp>(loc,
+                                                    builder_.getIndexType(), v);
+    low.push_back(v);
+  }
+  for (const PrimExpr &h : pad.high) {
+    mlir::Value v = VisitExpr(h);
+    if (!v.getType().isa<mlir::IndexType>())
+      v = builder_.create<mlir::arith::IndexCastOp>(loc,
+                                                    builder_.getIndexType(), v);
+    high.push_back(v);
+  }
+
+  // Mirror CodeGenTileLangNPUIRAPI::VpadCodegen: when a dimension's
+  // low/high padding amount is dynamic, its static_low/static_high entry
+  // must carry the dynamic-size sentinel rather than a stale static value.
+  if (!low.empty()) {
+    pad.s_low[pad.pad_dim] = mlir::ShapedType::kDynamic;
+  }
+  if (!high.empty()) {
+    pad.s_high[pad.pad_dim] = mlir::ShapedType::kDynamic;
+  }
+
+  builder_.create<::mlir::tl::PadOp>(loc, src, dst, pad_value, low, high,
+                                     builder_.getDenseI64ArrayAttr(pad.s_low),
+                                     builder_.getDenseI64ArrayAttr(pad.s_high));
+}
+
 template <typename TLOpT, typename NpuirOpT>
 void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
   NpuirOpT bin(op->args, vmap_);
@@ -251,6 +290,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
     EmitSub(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_pad"))) {
+    EmitPad(op);
     return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_mul"))) {

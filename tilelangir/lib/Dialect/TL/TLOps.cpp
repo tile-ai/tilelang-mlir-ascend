@@ -78,3 +78,30 @@ LogicalResult MaxOp::verify() {
 LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
+
+LogicalResult PadOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto dst = llvm::cast<MemRefType>(getDst().getType());
+  if (src.getElementType() != dst.getElementType())
+    return emitOpError("source and destination element types must match");
+  if (src.getRank() != dst.getRank())
+    return emitOpError("source and destination ranks must match");
+
+  int64_t rank = src.getRank();
+  llvm::ArrayRef<int64_t> staticLow = getStaticLow();
+  llvm::ArrayRef<int64_t> staticHigh = getStaticHigh();
+  if (static_cast<int64_t>(staticLow.size()) != rank)
+    return emitOpError("static_low must have one entry per source rank");
+  if (static_cast<int64_t>(staticHigh.size()) != rank)
+    return emitOpError("static_high must have one entry per source rank");
+
+  int64_t numDynamicLow = llvm::count(staticLow, ShapedType::kDynamic);
+  int64_t numDynamicHigh = llvm::count(staticHigh, ShapedType::kDynamic);
+  if (static_cast<int64_t>(getLow().size()) != numDynamicLow)
+    return emitOpError("number of dynamic low operands must match the "
+                       "number of dynamic entries in static_low");
+  if (static_cast<int64_t>(getHigh().size()) != numDynamicHigh)
+    return emitOpError("number of dynamic high operands must match the "
+                       "number of dynamic entries in static_high");
+  return success();
+}

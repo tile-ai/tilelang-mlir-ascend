@@ -97,6 +97,23 @@ struct ConvertAlloc : public OpConversionPattern<tl::AllocOp> {
   }
 };
 
+struct ConvertVBitcast : public OpConversionPattern<tl::VBitcastOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::VBitcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto newTy = dyn_cast_if_present<MemRefType>(
+        getTypeConverter()->convertType(op.getType()));
+    if (!newTy)
+      return rewriter.notifyMatchFailure(
+          op, "failed to convert vbitcast result type");
+    rewriter.replaceOpWithNewOp<hivm::BitcastOp>(op, newTy,
+                                                 adaptor.getSource());
+    return success();
+  }
+};
+
 struct ConvertCopy : public OpConversionPattern<tl::CopyOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -193,7 +210,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
 
     RewritePatternSet patterns(ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
-                 ConvertBinary<tl::MulOp, hivm::VMulOp>,
+                 ConvertVBitcast, ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>>(converter, ctx);

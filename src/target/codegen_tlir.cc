@@ -51,8 +51,12 @@ CodeGenTileLangTLIR::ScopeToAddressSpace(const std::string &scope) {
     return ::mlir::tl::AddressSpace::UB;
   if (scope == "shared.dyn")
     return ::mlir::tl::AddressSpace::L1;
+  if (scope == "wmma.matrix_a")
+    return ::mlir::tl::AddressSpace::L0A;
+  if (scope == "wmma.matrix_b")
+    return ::mlir::tl::AddressSpace::L0B;
   if (scope == "wmma.accumulator")
-    return ::mlir::tl::AddressSpace::L0;
+    return ::mlir::tl::AddressSpace::L0C;
   return ::mlir::tl::AddressSpace::UB;
 }
 

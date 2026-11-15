@@ -17,6 +17,7 @@ def TL_Dialect : Dialect {
   }];
   let cppNamespace = "::mlir::tl";
   let useDefaultAttributePrinterParser = 1;
+  let usePropertiesForAttributes = 0;
   let dependentDialects = ["memref::MemRefDialect"];
 }
 

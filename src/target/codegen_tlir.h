@@ -78,6 +78,8 @@ private:
   void EmitSub(const CallNode *op);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
+  mlir::tl::ReduceMode StringToReduceMode(const std::string &mode);
+  void EmitReduce(const CallNode *op);
 
   mlir::MLIRContext context_;
   mlir::OpBuilder builder_;

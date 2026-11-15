@@ -52,4 +52,17 @@ def TL_CoreType : TL_I32Enum<"CoreType", "TileLang launch core type", [
 
 def TL_CoreTypeAttr : TL_I32EnumAttr<"core_type", TL_CoreType>;
 
+
+def TL_ReduceModeSum : I32EnumAttrCase<"Sum", 0, "sum">;
+def TL_ReduceModeMax : I32EnumAttrCase<"Max", 1, "max">;
+def TL_ReduceModeMin : I32EnumAttrCase<"Min", 2, "min">;
+
+def TL_ReduceMode : TL_I32Enum<"ReduceMode", "TileLang reduce operation mode", [
+  TL_ReduceModeSum,
+  TL_ReduceModeMax,
+  TL_ReduceModeMin
+]>;
+
+def TL_ReduceModeAttr : TL_I32EnumAttr<"reduce_mode", TL_ReduceMode>;
+
 #endif // TILELANGIR_DIALECT_TL_TLATTRS_TD

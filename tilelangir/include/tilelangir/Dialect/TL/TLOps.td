@@ -93,4 +93,23 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+
+def TL_ReduceOp : TL_Op<"reduce", [
+    MemoryEffects<[MemRead, MemWrite]>
+]> {
+  let summary = "Reduce a tile buffer along given dimensions";
+  let description = [{
+    Destination-style reduction. Collapses reduce_dims of src into dst
+    using the given mode (sum/max/min). Unlike the binary ops, src and
+    dst may have different shapes, so no AllTypesMatch constraint.
+    Example:
+      tl.reduce ins(%src) outs(%dst) <sum> dims = [1] : memref<4x8xf32>, memref<4xf32>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst,
+                       TL_ReduceModeAttr:$mode,
+                       DenseI64ArrayAttr:$reduce_dims);
+  let assemblyFormat =
+      "`ins` `(` $src `)` `outs` `(` $dst `)` $mode `dims` `=` $reduce_dims attr-dict `:` type($src) `,` type($dst)";
+  let hasVerifier = 1;
+}
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

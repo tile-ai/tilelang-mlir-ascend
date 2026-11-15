@@ -53,6 +53,18 @@ hivm::TFuncCoreType convertFuncCoreType(tl::CoreType core) {
   return hivm::TFuncCoreType::AIV;
 }
 
+hivm::ReduceOperation convertReduceMode(tl::ReduceMode mode) {
+  switch (mode) {
+  case tl::ReduceMode::Sum:
+    return hivm::ReduceOperation::sum;
+  case tl::ReduceMode::Max:
+    return hivm::ReduceOperation::max;
+  case tl::ReduceMode::Min:
+    return hivm::ReduceOperation::min;
+  }
+  return hivm::ReduceOperation::sum;
+}
+
 hivm::TModuleCoreType convertModuleCoreType(tl::CoreType core) {
   switch (core) {
   case tl::CoreType::AIC:
@@ -135,6 +147,21 @@ struct ConvertSub : public OpConversionPattern<tl::SubOp> {
   }
 };
 
+struct ConvertReduce : public OpConversionPattern<tl::ReduceOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ReduceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto arith = hivm::ReduceOpAttr::get(getContext(),
+                                         convertReduceMode(adaptor.getMode()));
+    rewriter.replaceOpWithNewOp<hivm::VReduceOp>(
+        op, TypeRange{}, adaptor.getSrc(), ValueRange{adaptor.getDst()}, arith,
+        adaptor.getReduceDimsAttr());
+    return success();
+  }
+};
+
 template <typename TLOpT, typename HIVMOpT>
 struct ConvertBinary : public OpConversionPattern<TLOpT> {
   using OpConversionPattern<TLOpT>::OpConversionPattern;
@@ -193,7 +220,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
 
     RewritePatternSet patterns(ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
-                 ConvertBinary<tl::MulOp, hivm::VMulOp>,
+                 ConvertReduce, ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>>(converter, ctx);

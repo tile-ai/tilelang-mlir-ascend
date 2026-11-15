@@ -78,3 +78,26 @@ LogicalResult MaxOp::verify() {
 LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
+
+LogicalResult ReduceOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto dst = llvm::cast<MemRefType>(getDst().getType());
+  if (src.getElementType() != dst.getElementType())
+    return emitOpError("src and dst element types must match");
+  if (src.getRank() != dst.getRank())
+    return emitOpError("src and dst must have the same rank (keepdims)");
+  int64_t rank = src.getRank();
+  if (getReduceDims().empty())
+    return emitOpError("reduce_dims must not be empty");
+  if (static_cast<int64_t>(getReduceDims().size()) > rank)
+    return emitOpError("reduce_dims has more entries than src rank");
+  for (int64_t dim : getReduceDims()) {
+    if (dim < 0 || dim >= rank)
+      return emitOpError("reduce_dims entry ")
+             << dim << " is out of range for src of rank " << rank;
+    if (dst.getDimSize(dim) != 1)
+      return emitOpError("dst dim ")
+             << dim << " must be 1 for a reduced dimension (keepdims)";
+  }
+  return success();
+}

@@ -45,4 +45,22 @@ def TL_AddOp : TL_Op<"add", [
   let hasVerifier = 1;
 }
 
+def TL_GatherOp : TL_Op<"gather", [
+    MemoryEffects<[MemRead, MemWrite]>
+]> {
+  let summary = "Gather elements from a tile buffer using indices";
+  let description = [{
+    Retrieve elements from src according to indices, and store them in dst.
+    The gather axis is the last dimension. src/indices/dst may have different
+    element types (indices holds integer indices), so no AllTypesMatch
+    constraint is used here, unlike tl.add.
+    Example:
+      tl.gather ins(%src, %indices) outs(%dst) : memref<64xf32>, memref<64xi32>, memref<64xf32>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$indices, AnyMemRef:$dst);
+  let assemblyFormat =
+      "`ins` `(` $src `,` $indices `)` `outs` `(` $dst `)` attr-dict `:` type($src) `,` type($indices) `,` type($dst)";
+  let hasVerifier = 1;
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

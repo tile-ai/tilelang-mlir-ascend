@@ -40,3 +40,16 @@ LogicalResult AddOp::verify() {
     return emitOpError("operand shapes must match");
   return success();
 }
+
+LogicalResult GatherOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto indices = llvm::cast<MemRefType>(getIndices().getType());
+  auto dst = llvm::cast<MemRefType>(getDst().getType());
+  if (!llvm::isa<IntegerType>(indices.getElementType()))
+    return emitOpError("indices element type must be an integer type");
+  if (src.getElementType() != dst.getElementType())
+    return emitOpError("source and destination element types must match");
+  if (indices.getShape() != dst.getShape())
+    return emitOpError("indices and destination shapes must match");
+  return success();
+}

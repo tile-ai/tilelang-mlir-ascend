@@ -124,6 +124,19 @@ struct ConvertAdd : public OpConversionPattern<tl::AddOp> {
   }
 };
 
+struct ConvertTranspose : public OpConversionPattern<tl::TransposeOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::TransposeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VTransposeOp>(
+        op, TypeRange{}, adaptor.getSrc(), adaptor.getDst(),
+        rewriter.getDenseI64ArrayAttr(adaptor.getPermutation()));
+    return success();
+  }
+};
+
 void rewriteCoreTypeAttrs(ModuleOp module) {
   tl::CoreType moduleCore = tl::CoreType::AIV;
   bool sawCore = false;
@@ -165,7 +178,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
-    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd>(converter, ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertTranspose>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

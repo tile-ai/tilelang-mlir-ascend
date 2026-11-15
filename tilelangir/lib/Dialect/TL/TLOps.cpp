@@ -40,3 +40,15 @@ LogicalResult AddOp::verify() {
     return emitOpError("operand shapes must match");
   return success();
 }
+
+LogicalResult TransposeOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto dst = llvm::cast<MemRefType>(getDst().getType());
+  if (src.getElementType() != dst.getElementType())
+    return emitOpError("source and destination element types must match");
+  if (src.getRank() != dst.getRank())
+    return emitOpError("source and destination ranks must match");
+  if (static_cast<int64_t>(getPermutation().size()) != src.getRank())
+    return emitOpError("permutation size must match operand rank");
+  return success();
+}

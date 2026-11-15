@@ -128,6 +128,14 @@ void CodeGenTileLangTLIR::EmitAdd(const CallNode *op) {
                                      GetBufferValue(add.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitTranspose(const CallNode *op) {
+  tvm::tl::NpuirTranspose transpose(op->args, vmap_);
+  builder_.create<::mlir::tl::TransposeOp>(
+      builder_.getUnknownLoc(), GetBufferValue(transpose.src),
+      GetBufferValue(transpose.dst),
+      builder_.getDenseI64ArrayAttr(transpose.permutation));
+}
+
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar, const PrimFunc &f) {
   InitFuncState();
   vmap_ = f->buffer_map;
@@ -226,6 +234,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_add"))) {
     EmitAdd(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_transpose"))) {
+    EmitTranspose(op);
     return {};
   }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;

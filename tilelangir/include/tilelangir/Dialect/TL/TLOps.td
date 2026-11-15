@@ -45,4 +45,24 @@ def TL_AddOp : TL_Op<"add", [
   let hasVerifier = 1;
 }
 
+def TL_TransposeOp : TL_Op<"transpose", [
+    MemoryEffects<[MemRead, MemWrite]>
+]> {
+  let summary = "Permute the dimensions of a tile buffer";
+  let description = [{
+    Destination-style transpose. src and dst must have the same rank and
+    element type; shapes need not match since transpose permutes dimensions.
+    Example:
+      tl.transpose ins(%src) outs(%dst) permutation = [1, 0] : memref<32x8xf32>, memref<8x32xf32>
+  }];
+  let arguments = (ins
+    AnyMemRef:$src,
+    AnyMemRef:$dst,
+    DenseI64ArrayAttr:$permutation
+  );
+  let assemblyFormat =
+      "`ins` `(` $src `)` `outs` `(` $dst `)` `permutation` `=` $permutation attr-dict `:` type($src) `,` type($dst)";
+  let hasVerifier = 1;
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

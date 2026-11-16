@@ -78,3 +78,18 @@ LogicalResult MaxOp::verify() {
 LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
+
+static LogicalResult verifyElementwiseUnary(Operation *op, Value srcV,
+                                            Value dstV) {
+  auto src = llvm::cast<MemRefType>(srcV.getType());
+  auto dst = llvm::cast<MemRefType>(dstV.getType());
+  if (src.getElementType() != dst.getElementType())
+    return op->emitOpError("src and dst element types must match");
+  if (src.getShape() != dst.getShape())
+    return op->emitOpError("src and dst shapes must match");
+  return success();
+}
+
+LogicalResult VReluOp::verify() {
+  return verifyElementwiseUnary(getOperation(), getSrc(), getDst());
+}

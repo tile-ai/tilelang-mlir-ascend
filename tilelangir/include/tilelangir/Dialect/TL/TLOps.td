@@ -93,4 +93,24 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+class TL_UnaryOp<string mnemonic> : TL_Op<mnemonic, [
+  MemoryEffects<[MemRead, MemWrite]>,
+  AllTypesMatch<["src", "dst"]>
+]> {
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst);
+  let assemblyFormat =
+    "$src `,` $dst attr-dict `:` type($src)";
+  let hasVerifier = 1;
+}
+
+def TL_VReluOp : TL_UnaryOp<"vrelu"> {
+  let summary = "Elementwise ReLU activation";
+  let description = [{
+    Destination-style elementwise ReLU: dst = max(src, 0).
+
+    Example:
+      tl.vrelu %src, %dst : memref<64xf32>
+  }];
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

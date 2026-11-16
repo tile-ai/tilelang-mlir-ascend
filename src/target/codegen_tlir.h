@@ -78,6 +78,7 @@ private:
   void EmitSub(const CallNode *op);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
+  void EmitVRelu(const CallNode *op);
 
   mlir::MLIRContext context_;
   mlir::OpBuilder builder_;

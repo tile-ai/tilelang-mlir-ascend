@@ -1,0 +1,26 @@
+{
+  "engine": "vector",
+  "device": "950pr",
+  "device_cores": 28,
+  "cores": 56,
+  "dtype": "fp32",
+  "useful_ops": 2000000,
+  "executed_ops": 2000000,
+  "resources": [
+    {
+      "name": "main-memory",
+      "payload_bytes": {
+        "x": 4000000,
+        "y": 4000000
+      },
+      "bandwidth_gbps": 1000,
+      "basis": "assumed",
+      "source": "Synthetic shared read/write bandwidth, not a device specification"
+    }
+  ],
+  "assumptions": [
+    "Synthetic FP32 y=a*x+b, N=1000000, FMA counts as 2; each x read and y written once",
+    "All bytes reach main memory; ideal overlap; nominal Vector peak used as a loose ceiling"
+  ],
+  "measured_time_us": 10
+}

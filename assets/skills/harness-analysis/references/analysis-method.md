@@ -34,7 +34,7 @@ Ascend950 采集、GET/RLS 覆盖审计和 Insight 导出按随包的 [仿真 Sk
 
 ## 结果格式
 
-需要计算 Cube MFU 或条件性 Roofline 时使用 [ascend-mfu](../../ascend-mfu/SKILL.md) 及其脚本。分子仅计有效 Cube 运算，时间取相同范围的完整 kernel 设备耗时；核数、指令精度、流量和带宽假设随结果保留。纯 Vector 算子不报告 Cube MFU，模型上限也不能替代实测耗时。
+需要建立 Cube/Vector Roofline 或计算 MFU/BWU 时使用 [ascend-roofline](../../ascend-roofline/SKILL.md) 及其脚本。Cube MFU 分子仅计有效 Cube 运算，时间取相同范围的完整 kernel 设备耗时；Vector 使用匹配指令路径的峰值。保留有效/执行运算量、分层流量、核数、精度和带宽证据。AI 与拐点只确定模型限制项，实测瓶颈还需吞吐、等待或对照实验支持；模型上限不能替代实测耗时。
 
 `RESULT.md` 写清：当前候选与问题、确切标杆/候选与测试身份、实际使用的环境或历史产物、覆盖范围、主要观测及原始位置、解释与限制、交给develop的方案/假设和验证计划。执行仿真时补充simulation约定、输出比较和trace完整性；没有采集时如实写not_run/not_applicable。
 

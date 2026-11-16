@@ -56,8 +56,9 @@ def lock(root):
 
 
 def managed_skill(name):
+    # Retain the previous name so managed upgrades can remove/restore its files.
     return name.startswith('harness-') or name in {
-        'ascend950-simulation', 'tilelang-ascend-generation', 'ascend-mfu',
+        'ascend950-simulation', 'tilelang-ascend-generation', 'ascend-mfu', 'ascend-roofline',
     }
 
 

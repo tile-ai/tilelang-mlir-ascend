@@ -97,6 +97,36 @@ class InstallUpgradeTest(unittest.TestCase):
         self.assertFalse((self.workspace / self.name).exists())
         self.assertEqual((self.workspace / self.name).with_name('personal.md').read_text(), 'keep me')
 
+    def test_mfu_to_roofline_rename_and_rollback_preserve_user_files(self):
+        old = self.source / 'ascend-mfu/SKILL.md'
+        old.parent.mkdir()
+        old.write_text('old MFU')
+        target = self.workspace / '.agents/skills/ascend-mfu/SKILL.md'
+        target.parent.mkdir(parents=True)
+        target.write_bytes(old.read_bytes())
+        personal = target.with_name('personal.md')
+        personal.write_text('user notes')
+        (bundle.metadata(self.workspace) / 'manifest.json').unlink()
+        bundle.record_install(self.workspace, self.source, ['ascend-mfu'], self.entry)
+        new = self.source / 'ascend-roofline/SKILL.md'
+        new.parent.mkdir()
+        new.write_text('merged Roofline')
+        names = ['ascend-roofline']
+        target.write_text('user edit')
+        with self.assertRaisesRegex(ValueError, 'user-modified'):
+            bundle.prepare(self.workspace, self.source, names, self.new_entry)
+        target.write_bytes(old.read_bytes())
+        plan = bundle.prepare(self.workspace, self.source, names, self.new_entry)[0]
+        bundle.upgrade(self.workspace, self.source, names, self.new_entry, plan['id'])
+        installed = self.workspace / '.agents/skills/ascend-roofline/SKILL.md'
+        self.assertFalse(target.exists())
+        self.assertEqual(installed.read_text(), 'merged Roofline')
+        self.assertEqual(personal.read_text(), 'user notes')
+        bundle.transaction(self.workspace, plan['id'], rollback=True)
+        self.assertEqual(target.read_text(), 'old MFU')
+        self.assertFalse(installed.exists())
+        self.assertEqual(personal.read_text(), 'user notes')
+
     def test_legacy_adoption_requires_exact_old_bundle(self):
         legacy = self.root / 'legacy'
         skill = legacy / 'assets/skills/harness-example/SKILL.md'

@@ -43,5 +43,5 @@ analysis 将适用的方法落实到阶段/VF/存储方案；develop 按该方�
 在现有 RESULT 中说明实际采用的指导、对应源码或生成代码位置，以及暂未采用的相关方法及原因。
 无需新增独立的 Skill 证明文件。
 
-优化收益使用任务约定的 kernel 耗时比较。需要 Cube MFU 或条件性 Roofline 时读取
-[ascend-mfu](../ascend-mfu/SKILL.md)；纯 Vector 算子以耗时评价，不套用 Cube 峰值。
+优化收益使用任务约定的 kernel 耗时比较。需要 MFU、BWU 或条件性 Roofline 时读取
+[ascend-roofline](../ascend-roofline/SKILL.md)；Cube/Vector 使用统一公式和各自匹配的计算峰值，带宽按资源边界计量。

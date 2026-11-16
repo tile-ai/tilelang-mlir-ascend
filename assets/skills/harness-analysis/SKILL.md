@@ -21,7 +21,7 @@ description: 分析已有 TileLang 算子的精度/实现缺陷与性能瓶颈�
 
 ## 定位当前 kernel 的问题
 
-形成优化方案时参考 [算子生成补充](../tilelang-ascend-generation/SKILL.md) 中适用的阶段、VF 与流水方法，将具体修改和验证条件交给 develop。需要解释 Cube 利用率或带宽上限时，使用 [ascend-mfu](../ascend-mfu/SKILL.md) 处理已有证据。
+形成优化方案时参考 [算子生成补充](../tilelang-ascend-generation/SKILL.md) 中适用的阶段、VF 与流水方法，将具体修改和验证条件交给 develop。需要建立 Cube/Vector Roofline、计算 MFU/BWU 或核对 CSV 瓶颈证据时，使用 [ascend-roofline](../ascend-roofline/SKILL.md)。
 
 按 [算子缺陷与优化空间](references/operator-diagnosis.md) 对齐需求、完整调用、参考算法、TileLang/生成代码和逐 case 结果，区分精度/实现、测量/采集、性能机制与原因未明。每个问题给出触发条件、预期/实际行为、源码位置、证据强度及最小验证办法；按阶段核算工作量、资源与并行度，形成针对当前瓶颈的优化方向。诊断失败实现或新发现反例时保留原验收状态，交原 develop 修复/重验，不以分析报告替代正确性门槛。
 

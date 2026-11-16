@@ -26,7 +26,9 @@ permissions:
   contents: read
 
 env:
-  PYTHON_VERSION: "3.11"
+  # Python version used to build the tilelang wheel (cp3xx tag).
+  # Must match the Python version used in the AscendNPU-IR prebuild.
+  PYTHON_VERSION: "3.12"
   NPUIR_INSTALL_DIR: npuir-prebuild
   TVM_INSTALL_DIR: tvm-prebuild
 
@@ -60,7 +62,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: ${{ env.NPUIR_INSTALL_DIR }}
-        key: npuir-prebuild-rtti-${{ matrix.arch }}-${{ inputs.npuir-commit }}
+        key: npuir-prebuild-rtti-${{ env.PYTHON_VERSION }}-${{ matrix.arch }}-${{ inputs.npuir-commit }}
         fail-on-cache-miss: true
 
     - name: Restore TVM prebuild from cache

@@ -1,0 +1,2148 @@
+{
+  "source": "CANN platform_config: x86_64-linux/data/platform_config/Ascend950*.ini",
+  "note": "Raw config values are not automatically measured or official physical peak rates. null means unverified.",
+  "variants": [
+    {
+      "config_file": "Ascend950DT_950x.ini",
+      "sha256": "8b5fb8c5dc27a30877c2ab5c5dcdc13061ab029ce1b78cf5f5dd84e05e23b6eb",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "8",
+          "vector_core_cnt": "16",
+          "memory_size": "25769803776",
+          "l2_size": "33554432"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "19",
+          "ddr_read_rate": "19",
+          "ddr_write_rate": "19",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "10",
+          "ddr_read_rate": "10",
+          "ddr_write_rate": "10",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_950y.ini",
+      "sha256": "e324b7802d1423b15f6dd9e8b5542663b4631d580a6f5112c7c46b5350a687cb",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "8",
+          "vector_core_cnt": "16",
+          "memory_size": "17179869184",
+          "l2_size": "33554432"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "14",
+          "ddr_read_rate": "14",
+          "ddr_write_rate": "14",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "7",
+          "ddr_read_rate": "7",
+          "ddr_write_rate": "7",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9571.ini",
+      "sha256": "bae9c7642c06ff4d9d76feedf5f3c8da47e3f0856c7ce4a7f56bdd32900f5097",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "154618822656",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "80",
+          "ddr_read_rate": "80",
+          "ddr_write_rate": "80",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "40",
+          "ddr_read_rate": "40",
+          "ddr_write_rate": "40",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9572.ini",
+      "sha256": "bde43d58d2f2472ac48b6698d2e048190854e795b65e5f6e6914a1eff85697a4",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "103079215104",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "80",
+          "ddr_read_rate": "80",
+          "ddr_write_rate": "80",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "40",
+          "ddr_read_rate": "40",
+          "ddr_write_rate": "40",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9573.ini",
+      "sha256": "a30a6a3eb0a02be1315ae2959e194889542fc60cc380bde030b94c09410922ab",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "135291569824",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "70",
+          "ddr_read_rate": "70",
+          "ddr_write_rate": "70",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "35",
+          "ddr_read_rate": "35",
+          "ddr_write_rate": "35",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9574.ini",
+      "sha256": "80fd6646e8f8dc50a2a3ef90bf9918fa31b64bb51b4332b560ec846be7c03147",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "90194313216",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "70",
+          "ddr_read_rate": "70",
+          "ddr_write_rate": "70",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "35",
+          "ddr_read_rate": "35",
+          "ddr_write_rate": "35",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9575.ini",
+      "sha256": "1e396b85e8d2664adec175baaa9f6f84fa6fccc6d24d958bed311cc1ba387347",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "103079215104",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "61",
+          "ddr_read_rate": "61",
+          "ddr_write_rate": "61",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "31",
+          "ddr_read_rate": "31",
+          "ddr_write_rate": "31",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9576.ini",
+      "sha256": "2c4568d42afad3df13e4e3430fe426aa5d55ac0cfaef19f559699b842be43972",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "68719476736",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "61",
+          "ddr_read_rate": "61",
+          "ddr_write_rate": "61",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "31",
+          "ddr_read_rate": "31",
+          "ddr_write_rate": "31",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9577.ini",
+      "sha256": "e695313d04d1c91ad624b0cae941b300433c8f83ecda43e16006f28c87f2780d",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "90194313216",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "54",
+          "ddr_read_rate": "54",
+          "ddr_write_rate": "54",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "27",
+          "ddr_read_rate": "27",
+          "ddr_write_rate": "27",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9578.ini",
+      "sha256": "06e5d774947c06177cab3dbfe75ecf6afa584151c07466abcf28d71c79bd9bf6",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "60129542144",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "54",
+          "ddr_read_rate": "54",
+          "ddr_write_rate": "54",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "27",
+          "ddr_read_rate": "27",
+          "ddr_write_rate": "27",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9581.ini",
+      "sha256": "8c5685bc3358ada17ad81bc4bb4e0aab971c8fe9a2fbe67ba62cd7fe6c9055b1",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "154618822656",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "80",
+          "ddr_read_rate": "80",
+          "ddr_write_rate": "80",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "40",
+          "ddr_read_rate": "40",
+          "ddr_write_rate": "40",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9581x.ini",
+      "sha256": "a9582a98b67ed885ddee700a857fcd258dffa97e01d5f36e6eb8b3f455369f6c",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "154618822656",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "80",
+          "ddr_read_rate": "80",
+          "ddr_write_rate": "80",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "40",
+          "ddr_read_rate": "40",
+          "ddr_write_rate": "40",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9582.ini",
+      "sha256": "b8e7d61780056889e795639504530ecacb2b759ad1602e929b863d837fdf0099",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "103079215104",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "80",
+          "ddr_read_rate": "80",
+          "ddr_write_rate": "80",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "40",
+          "ddr_read_rate": "40",
+          "ddr_write_rate": "40",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9582x.ini",
+      "sha256": "f495f5be2305d9a76911321261eea5a56cb140d87e8c1d68e4bf553505bd7336",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "103079215104",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "80",
+          "ddr_read_rate": "80",
+          "ddr_write_rate": "80",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "40",
+          "ddr_read_rate": "40",
+          "ddr_write_rate": "40",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9583.ini",
+      "sha256": "9e9861a6f89ac5e4360e9b94f9aec2d57163b9bb4a199c2c965abd969b2309ab",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "135291469824",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "70",
+          "ddr_read_rate": "70",
+          "ddr_write_rate": "70",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "35",
+          "ddr_read_rate": "35",
+          "ddr_write_rate": "35",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9584.ini",
+      "sha256": "4000d3d4b6d1f91684101f7b758b98f607fbe1aca983131cb694d024260927f7",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "90194313216",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "70",
+          "ddr_read_rate": "70",
+          "ddr_write_rate": "70",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "35",
+          "ddr_read_rate": "35",
+          "ddr_write_rate": "35",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9585.ini",
+      "sha256": "c1362dfbbbb0a2142f65259a5d86a6483f14e155f7ffa0ac3c1ec992a05c8bf6",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "103079215104",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "61",
+          "ddr_read_rate": "61",
+          "ddr_write_rate": "61",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "31",
+          "ddr_read_rate": "31",
+          "ddr_write_rate": "31",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9586.ini",
+      "sha256": "d7ad8194e82a5db5650a6c2e9c233b03e34a1fe6ff141beaf3f0adba1c892c76",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "68719476736",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "61",
+          "ddr_read_rate": "61",
+          "ddr_write_rate": "61",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "31",
+          "ddr_read_rate": "31",
+          "ddr_write_rate": "31",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9587.ini",
+      "sha256": "a5eda15393b2811d3b8dffd8c4456161d3cb8dd0dc2c6033b5e383a77a6760ed",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "90194313216",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "54",
+          "ddr_read_rate": "54",
+          "ddr_write_rate": "54",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "27",
+          "ddr_read_rate": "27",
+          "ddr_write_rate": "27",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9588.ini",
+      "sha256": "0fc64555038c927aabf27d89eaf9907d4da185f2810a653567bee4f55e3a1fda",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "60129542144",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "54",
+          "ddr_read_rate": "54",
+          "ddr_write_rate": "54",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "27",
+          "ddr_read_rate": "27",
+          "ddr_write_rate": "27",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9591.ini",
+      "sha256": "b636a4effb4248d2fc90fdd3623ec061de1135780cf8172c00cb8cd8bf1c029a",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "36",
+          "vector_core_cnt": "72",
+          "memory_size": "154618822656",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1800",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "80",
+          "ddr_read_rate": "80",
+          "ddr_write_rate": "80",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1800",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "40",
+          "ddr_read_rate": "40",
+          "ddr_write_rate": "40",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9592.ini",
+      "sha256": "34996ceec7fce6b6d9adbc63e6a2901d0e6d955c532e41c79010a5fb709be2f1",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "36",
+          "vector_core_cnt": "72",
+          "memory_size": "103079215104",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1800",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "80",
+          "ddr_read_rate": "80",
+          "ddr_write_rate": "80",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1800",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "40",
+          "ddr_read_rate": "40",
+          "ddr_write_rate": "40",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9595.ini",
+      "sha256": "ff4142b3188bf169506140c48c639b4f950b4b63f36fdc4baab0cc4a2259a380",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "36",
+          "vector_core_cnt": "72",
+          "memory_size": "103079215104",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1800",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "61",
+          "ddr_read_rate": "61",
+          "ddr_write_rate": "61",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1800",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "31",
+          "ddr_read_rate": "31",
+          "ddr_write_rate": "31",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_9596.ini",
+      "sha256": "0fcf5ad30cc339af083f827e50535e2c50fc0a5def936e922d5af141119f99e8",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "36",
+          "vector_core_cnt": "72",
+          "memory_size": "68719476736",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1800",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "61",
+          "ddr_read_rate": "61",
+          "ddr_write_rate": "61",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1800",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "31",
+          "ddr_read_rate": "31",
+          "ddr_write_rate": "31",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_95A1.ini",
+      "sha256": "a31b8af3a635cfff671d3d592c888b2033f5d98db9e3db9482a3be44f1a66baa",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "36",
+          "vector_core_cnt": "72",
+          "memory_size": "154618822656",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1800",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "80",
+          "ddr_read_rate": "80",
+          "ddr_write_rate": "80",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1800",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "40",
+          "ddr_read_rate": "40",
+          "ddr_write_rate": "40",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950DT_95A2.ini",
+      "sha256": "45e3afb87139f7e44c316c5109a06f96fac9f80a43842c2265111b01f3057c20",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "36",
+          "vector_core_cnt": "72",
+          "memory_size": "103079215104",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1800",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "80",
+          "ddr_read_rate": "80",
+          "ddr_write_rate": "80",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1800",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "40",
+          "ddr_read_rate": "40",
+          "ddr_write_rate": "40",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950PR_950z.ini",
+      "sha256": "7124fd337b0b9c50e0d373d33aa2793d878567ae8e1adcac7bbf8cd19239dea6",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "4",
+          "vector_core_cnt": "8",
+          "memory_size": "25769803776",
+          "l2_size": "16777216"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "4",
+          "ddr_read_rate": "4",
+          "ddr_write_rate": "4",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "2",
+          "ddr_read_rate": "2",
+          "ddr_write_rate": "2",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950PR_9579.ini",
+      "sha256": "d64057f5de8dba320908204bb352e34639aae932476402bca421a66641f371e6",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "137438953472",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "31",
+          "ddr_read_rate": "31",
+          "ddr_write_rate": "31",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "16",
+          "ddr_read_rate": "16",
+          "ddr_write_rate": "16",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950PR_957b.ini",
+      "sha256": "afa39753ab256048cc190060b1fcc8ed73c5b086f93563f2a73560a2870a8da0",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "120259084288",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "27",
+          "ddr_read_rate": "27",
+          "ddr_write_rate": "27",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "14",
+          "ddr_read_rate": "14",
+          "ddr_write_rate": "14",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950PR_957bx.ini",
+      "sha256": "f08760541203488c55852643c352240e46fc7db6d0fbd15ecb3360a500ed9b2a",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "120259084288",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "27",
+          "ddr_read_rate": "27",
+          "ddr_write_rate": "27",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "14",
+          "ddr_read_rate": "14",
+          "ddr_write_rate": "14",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950PR_957c.ini",
+      "sha256": "0c892ec95ff5a7ba4d681da6e35caef47fd92a3fb3f499c1011563e1834799ba",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "90194313216",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "27",
+          "ddr_read_rate": "27",
+          "ddr_write_rate": "27",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "14",
+          "ddr_read_rate": "14",
+          "ddr_write_rate": "14",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950PR_957d.ini",
+      "sha256": "d204638d63420428165eac1b3cab96995e0ba6d0769cb3de82e6a63c94e59423",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "28",
+          "vector_core_cnt": "56",
+          "memory_size": "103079215104",
+          "l2_size": "100663296"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "23",
+          "ddr_read_rate": "23",
+          "ddr_write_rate": "23",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "12",
+          "ddr_read_rate": "12",
+          "ddr_write_rate": "12",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950PR_9589.ini",
+      "sha256": "26817090a82641634900e243ece827effeb112a6f2f7a59994ceb5f333554211",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "137438953472",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "31",
+          "ddr_read_rate": "31",
+          "ddr_write_rate": "31",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "16",
+          "ddr_read_rate": "16",
+          "ddr_write_rate": "16",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950PR_958b.ini",
+      "sha256": "aaded207d139226da4d7935f21ff1d32b9d9644bed9cc8fe89d29b183f25ee16",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "32",
+          "vector_core_cnt": "64",
+          "memory_size": "120259084288",
+          "l2_size": "117440512"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1650",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "27",
+          "ddr_read_rate": "27",
+          "ddr_write_rate": "27",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1650",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "14",
+          "ddr_read_rate": "14",
+          "ddr_write_rate": "14",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    },
+    {
+      "config_file": "Ascend950PR_9599.ini",
+      "sha256": "5ce93c6e9a97063ebaa5c8e4267dc74c17a925da23f473f7d81e68365ff36da0",
+      "raw_config": {
+        "SoCInfo": {
+          "cube_core_cnt": "36",
+          "vector_core_cnt": "72",
+          "memory_size": "137438953472",
+          "l2_size": "134217728"
+        },
+        "AICoreSpec": {
+          "cube_freq": "1800",
+          "l0_a_size": "65536",
+          "l0_b_size": "65536",
+          "l0_c_size": "262144",
+          "l1_size": "524288",
+          "ub_size": "253952"
+        },
+        "AICoreMemoryRates": {
+          "ddr_rate": "31",
+          "ddr_read_rate": "31",
+          "ddr_write_rate": "31",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "l1_to_l0_a_rate": "256",
+          "l1_to_l0_b_rate": "256",
+          "l1_to_ub_rate": "128",
+          "l0_c_to_ub_rate": "128",
+          "ub_to_l2_rate": "128",
+          "ub_to_ddr_rate": "128",
+          "ub_to_l1_rate": "128"
+        },
+        "VectorCoreSpec": {
+          "vec_freq": "1800",
+          "vec_calc_size": "128",
+          "ub_size": "253952",
+          "ubblock_size": "32",
+          "ubbank_size": "4096",
+          "ubbank_num": "16",
+          "ubsubbank_num": "64",
+          "vector_reg_width": "256"
+        },
+        "VectorCoreMemoryRates": {
+          "ddr_rate": "16",
+          "ddr_read_rate": "16",
+          "ddr_write_rate": "16",
+          "l2_rate": "100",
+          "l2_read_rate": "100",
+          "l2_write_rate": "100",
+          "ub_to_l2_rate": "42",
+          "ub_to_ddr_rate": "40"
+        }
+      },
+      "verified_main_memory_bandwidth_gbps": null,
+      "verified_l2_bandwidth_gbps": null,
+      "verified_mte2_bandwidth_gbps": null,
+      "verified_mte3_bandwidth_gbps": null,
+      "verified_vector_ub_bandwidth_gbps": null,
+      "runtime_frequency_mhz": null
+    }
+  ],
+  "package_metadata": {
+    "directory_label": "9.3.0",
+    "opp_version": "9.2.0",
+    "opp_timestamp": "20260916_000323606",
+    "platform_config_version": null,
+    "note": "Component/version labels differ; neither directory nor OPP metadata establishes the exact platform_config release. File hashes identify the data."
+  }
+}

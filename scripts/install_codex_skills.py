@@ -17,7 +17,7 @@ NAMES = (
     "harness-develop",
     "harness-status", "harness-next", "harness-automatic",
     "harness-archive-project", "harness-restore-project",
-    "tilelang-ascend-generation", "ascend-mfu",
+    "tilelang-ascend-generation", "ascend-roofline",
 )
 
 

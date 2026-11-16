@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Cube-only useful-operation utilization. Python 3.9+, standard library only."""
+"""Cube/Vector useful-operation utilization, with optional GEMM counting."""
 
 import argparse
 import json
 import math
 from pathlib import Path
+from peak_catalog import CATALOG, select_peak, counted_utilization
 
 
-CATALOG = Path(__file__).resolve().parents[1] / "references" / "cube-peaks.json"
-DTYPES = ("fp16", "bf16", "tf32", "fp8", "mxfp8", "hif8", "mxfp4", "int8")
+DTYPES = ("fp16", "bf16", "fp32", "tf32", "fp8", "mxfp8", "hif8", "mxfp4", "int8", "int16", "int32", "int64")
 
 
 def integer(value, label, minimum=0):
@@ -81,7 +81,7 @@ def calculate(device, device_cores, cores, dtype, time, unit, iterations, specs)
     if unit not in ("s", "ms", "us", "ns"):
         raise ValueError("unsupported time unit")
     try:
-        peak = catalog["devices"][device][str(device_cores)][dtype]
+        peak = catalog["devices"][device][str(device_cores)]['cube'][dtype]
     except KeyError:
         raise ValueError("unverified device/core-count/dtype combination; use --list-devices") from None
     if not isinstance(specs, list) or not specs:
@@ -119,10 +119,14 @@ def calculate(device, device_cores, cores, dtype, time, unit, iterations, specs)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list-devices", action="store_true")
+    parser.add_argument('--engine', choices=('cube', 'vector'), default='cube')
+    parser.add_argument('--useful-ops', type=int, help='effective operations per iteration; excludes redundant work')
+    parser.add_argument('--peak-tops', type=float, help='explicit scoped peak in 1e12 ops/s; floating point means TFLOPS')
+    parser.add_argument('--peak-source', help='instruction/dtype/core/frequency scope and evidence for explicit peak')
     parser.add_argument("--device", choices=("950pr", "950dt"), type=str.lower)
-    parser.add_argument("--device-cores", type=int, help="total Cube cores of the verified physical variant")
-    parser.add_argument("--cores", type=int, help="participating physical Cube cores, not AIVs or logical blocks")
-    parser.add_argument("--dtype", choices=DTYPES, type=str.lower, help="actual Cube instruction precision")
+    parser.add_argument("--device-cores", type=int, help="variant selector: physical AIC count, for either engine")
+    parser.add_argument("--cores", type=int, help="participating physical AICs for cube, AIVs for vector")
+    parser.add_argument("--dtype", choices=DTYPES, type=str.lower, help="actual instruction precision of the selected engine")
     parser.add_argument("--time", type=float, help="total measured time for --iterations repetitions")
     parser.add_argument("--unit", choices=("s", "ms", "us", "ns"))
     parser.add_argument("--iterations", type=int, default=1)
@@ -135,13 +139,35 @@ def main():
     if args.list_devices:
         print(CATALOG.read_text(encoding="utf-8"))
         return
-    for key in ("device", "device_cores", "cores", "dtype", "time", "unit"):
+    for key in ("dtype", "time", "unit"):
         if getattr(args, key) is None:
             parser.error("required argument: --" + key.replace("_", "-"))
     spec = {key: getattr(args, key) for key in
             ("m", "n", "k", "batch", "mask", "valid_pairs", "valid_macs", "causal_offset")
             if getattr(args, key) is not None}
     try:
+        if args.useful_ops is not None:
+            if spec or args.gemms_json:
+                raise ValueError('--useful-ops cannot be combined with GEMM parameters')
+            if args.peak_tops is not None:
+                if any(x is not None for x in (args.device,args.device_cores,args.cores)):
+                    raise ValueError('explicit peak and catalog device/core selection are mutually exclusive')
+                peak, source = args.peak_tops, args.peak_source
+            else:
+                if args.peak_source is not None:
+                    raise ValueError('--peak-source requires --peak-tops')
+                selected = select_peak(args.device,args.device_cores,args.cores,args.dtype,args.engine)
+                peak, source = selected['peak_tops'], selected['source']
+            result = counted_utilization(args.engine,args.dtype,args.useful_ops,args.time,args.unit,
+                                         args.iterations,peak,source)
+            if args.peak_tops is None:
+                result.update(device=args.device,device_aic_cores=args.device_cores,
+                              participating_engine_cores=args.cores,peak_selection=selected)
+            print(json.dumps(result, ensure_ascii=True, indent=2, allow_nan=False) if args.json
+                  else f"{result['metric']}: {result['utilization_percent']:.6f}%; peak={peak} {result['peak_unit']}")
+            return
+        if args.engine != 'cube' or args.peak_tops is not None or args.peak_source is not None:
+            raise ValueError('Vector or explicit-peak calculation requires --useful-ops')
         if args.gemms_json:
             if spec:
                 raise ValueError("--gemms-json cannot be combined with single-GEMM parameters")

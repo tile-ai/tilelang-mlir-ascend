@@ -35,7 +35,7 @@ def vec_atomic_add_2d(M, N, block_M, block_N, dtype="float32"):
             t0 = shape_N - by
             tile_size_N = T.min(block_N, t0)   
             T.copy(A[bx : bx + tile_size_M, by : by + tile_size_N], A_VEC[0:tile_size_M, 0:tile_size_N]) 
-            T.npuir_atomic_add(A_VEC, B[bx, by], [tile_size_M, tile_size_N])           
+            T.npuir_atomic_add(B[bx, by], A_VEC, [tile_size_M, tile_size_N])  # args match wrapper signature: npuir_atomic_add(dst, src, size)           
             
     return vecAtomicAdd2D
 

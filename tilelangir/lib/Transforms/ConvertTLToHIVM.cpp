@@ -159,6 +159,18 @@ struct ConvertArange : public OpConversionPattern<tl::ArangeOp> {
     rewriter.replaceOpWithNewOp<hivm::VArangeOp>(
         op, TypeRange{}, adaptor.getDst(), adaptor.getOffset(),
         adaptor.getStrides());
+struct ConvertPrint : public OpConversionPattern<tl::PrintOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::PrintOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // VERIFY operand/attr order against HIVM_DebugOp in HIVMOps.td before
+    // relying on this — inferred from the builder.create<mlir::hivm::DebugOp>
+    // call in codegen_npuir_api.cc::DebugPrintCodegen.
+    rewriter.replaceOpWithNewOp<hivm::DebugOp>(op, "print", op.getPrefix(),
+                                               op.getHex(), adaptor.getSrc(),
+                                               hivm::TCoreTypeAttr{});
     return success();
   }
 };
@@ -205,11 +217,14 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertPrint>(converter,
+                                                                      ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
                  ConvertArange, ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
-                 ConvertBinary<tl::MinOp, hivm::VMinOp>>(converter, ctx);
+                 ConvertBinary<tl::MinOp, hivm::VMinOp>,
+                 ConvertBinary<tl::AndOp, hivm::VAndOp>>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

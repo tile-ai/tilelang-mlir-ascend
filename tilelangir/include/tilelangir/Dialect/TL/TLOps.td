@@ -45,6 +45,21 @@ def TL_AddOp : TL_Op<"add", [
   let hasVerifier = 1;
 }
 
+def TL_PrintOp : TL_Op<"print", [MemoryEffects<[MemRead]>]> {
+  let summary = "Debug-print a scalar or tile buffer (device-side)";
+  let description = [{
+    ...
+  }];
+  let arguments = (ins
+    AnyType:$src,
+    StrAttr:$prefix,
+    BoolAttr:$hex
+  );
+  let results = (outs);
+  let assemblyFormat =
+      "$src `prefix` $prefix `hex` $hex attr-dict `:` type($src)";
+  let hasVerifier = 1;
+
 def TL_SubOp : TL_Op<"sub", [
   MemoryEffects<[MemRead, MemWrite]>,
   AllTypesMatch<["lhs", "rhs", "out"]>
@@ -110,6 +125,9 @@ def TL_FlipOp : TL_Op<"flip", [
   let assemblyFormat =
       "`ins` `(` $src `)` `outs` `(` $dst `)` attr-dict `:` type($src)";
   let hasVerifier = 1;
+def TL_AndOp : TL_BinaryOp<"and"> {
+  let summary = "Elementwise bitwise AND of two tile buffers";
+  let description = [{ Destination-style vector and: out = lhs & rhs. }];
 }
 
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

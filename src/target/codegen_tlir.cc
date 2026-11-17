@@ -126,6 +126,18 @@ void CodeGenTileLangTLIR::EmitAdd(const CallNode *op) {
                                      GetBufferValue(add.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitPrintVar(const CallNode *op) {
+  tvm::tl::NpuirDevicePrintVar print(op->args, vmap_);
+  builder_.create<::mlir::tl::PrintOp>(
+      builder_.getUnknownLoc(), VisitExpr(print.src),
+      builder_.getStringAttr(print.prefix), builder_.getBoolAttr(print.hex));
+}
+
+void CodeGenTileLangTLIR::EmitPrintBuf(const CallNode *op) {
+  tvm::tl::NpuirDevicePrintBuf print(op->args, vmap_);
+  builder_.create<::mlir::tl::PrintOp>(
+      builder_.getUnknownLoc(), GetBufferValue(print.src),
+      builder_.getStringAttr(print.prefix), builder_.getBoolAttr(print.hex));
 void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
   tvm::tl::NpuirSub sub(op->args, vmap_);
   ICHECK(sub.Src0().IsTensor() && sub.Src1().IsTensor() && sub.Dst().IsTensor())
@@ -249,6 +261,13 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitAdd(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_debug_print_var"))) { // <-- naya
+    EmitPrintVar(op);
+    return {};
+  }
+  if (op->op.same_as(
+          Op::Get("tl.npuir_debug_print_buffer_value"))) { // <-- naya
+    EmitPrintBuf(op);
   if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
     EmitSub(op);
     return {};

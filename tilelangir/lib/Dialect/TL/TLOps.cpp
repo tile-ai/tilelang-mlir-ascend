@@ -41,6 +41,18 @@ LogicalResult AddOp::verify() {
   return success();
 }
 
+LogicalResult PrintOp::verify() {
+  Type ty = getSrc().getType();
+  if (auto memrefTy = llvm::dyn_cast<MemRefType>(ty)) {
+    if (!memrefTy.getElementType().isIntOrFloat())
+      return emitOpError(
+          "buffer operand element type must be integer or float");
+    return success();
+  }
+  if (!ty.isIntOrFloat())
+    return emitOpError("scalar operand must be integer or float");
+  return success();
+}
 LogicalResult SubOp::verify() {
   auto lhs = llvm::cast<MemRefType>(getLhs().getType());
   auto rhs = llvm::cast<MemRefType>(getRhs().getType());

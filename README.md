@@ -134,7 +134,7 @@ Current v0.1 subset (expert-mode elementwise add, sub, mul, div, max, min):
 
 | Stage | What it does |
 |-------|----------------|
-| Dialect | `tl.alloc`, `tl.copy`, `tl.add`, `tl.sub`, `tl.mul`, `tl.div`, `tl.max`, `tl.min` plus `#tl.address_space`, `#tl.layout`, `#tl.core_type` |
+| Dialect | `tl.alloc`, `tl.copy`, `tl.add`, `tl.sub`, `tl.mul`, `tl.div`, `tl.max`, `tl.min`, `tl.print` plus `#tl.address_space`, `#tl.layout`, `#tl.core_type` |
 | TIR → TLIR | `src/target/codegen_tlir.cc`, registered as `target.build.tilelang_tlir` |
 | TLIR → HIVM | `tilelangir-convert-tl-to-hivm`: `tl.alloc`→`memref.alloc`, `tl.copy`→`memref.copy`, `tl.add`→`hivm.hir.vadd`, `tl.sub`/`tl.mul`/`tl.div`/`tl.max`/`tl.min`→`hivm.hir.vsub`/`vmul`/`vdiv`/`vmax`/`vmin` |
 

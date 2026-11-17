@@ -31,4 +31,88 @@ add_test(
   NAME tilelangir-convert-tl-to-hivm-alloc-copy-shl
   COMMAND /bin/bash -c
     "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-shl.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-shl.mlir\""
+  NAME tilelangir-tl-print
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/print.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/print.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-print
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/print.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/print.mlir\""
+)
+
+add_test(
+  NAME tilelangir-tl-print-invalid
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --split-input-file --verify-diagnostics \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/print-invalid.mlir\""
+  NAME tilelangir-tl-alloc-copy-sub
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-sub.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-sub.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-alloc-copy-sub
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-sub.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-sub.mlir\""
+)
+
+add_test(
+  NAME tilelangir-tl-alloc-copy-mul
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-mul.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-mul.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-alloc-copy-mul
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-mul.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-mul.mlir\""
+)
+
+add_test(
+  NAME tilelangir-tl-alloc-copy-div
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-div.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-div.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-alloc-copy-div
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-div.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-div.mlir\""
+)
+
+add_test(
+  NAME tilelangir-tl-alloc-copy-max
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-max.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-max.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-alloc-copy-max
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-max.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-max.mlir\""
+)
+
+add_test(
+  NAME tilelangir-tl-alloc-copy-min
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-min.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-min.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-alloc-copy-min
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-min.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-min.mlir\""
+)
+
+add_test(
+  NAME tilelangir-tl-alloc-copy-and
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-and.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-and.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-alloc-copy-and
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-and.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-and.mlir\""
 )

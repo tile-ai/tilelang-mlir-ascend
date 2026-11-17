@@ -136,6 +136,38 @@ void CodeGenTileLangTLIR::EmitShl(const CallNode *op) {
   builder_.create<::mlir::tl::ShlOp>(
       builder_.getUnknownLoc(), GetBufferValue(shl.Src0().GetBuffer()), rhs_val,
       GetBufferValue(shl.Dst().GetBuffer()));
+void CodeGenTileLangTLIR::EmitPrintVar(const CallNode *op) {
+  tvm::tl::NpuirDevicePrintVar print(op->args, vmap_);
+  builder_.create<::mlir::tl::PrintOp>(
+      builder_.getUnknownLoc(), VisitExpr(print.src),
+      builder_.getStringAttr(print.prefix), builder_.getBoolAttr(print.hex));
+}
+
+void CodeGenTileLangTLIR::EmitPrintBuf(const CallNode *op) {
+  tvm::tl::NpuirDevicePrintBuf print(op->args, vmap_);
+  builder_.create<::mlir::tl::PrintOp>(
+      builder_.getUnknownLoc(), GetBufferValue(print.src),
+      builder_.getStringAttr(print.prefix), builder_.getBoolAttr(print.hex));
+void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
+  tvm::tl::NpuirSub sub(op->args, vmap_);
+  ICHECK(sub.Src0().IsTensor() && sub.Src1().IsTensor() && sub.Dst().IsTensor())
+      << "CodeGenTileLangTLIR: tl.npuir_sub currently requires tensor operands";
+  builder_.create<::mlir::tl::SubOp>(builder_.getUnknownLoc(),
+                                     GetBufferValue(sub.Src0().GetBuffer()),
+                                     GetBufferValue(sub.Src1().GetBuffer()),
+                                     GetBufferValue(sub.Dst().GetBuffer()));
+}
+
+template <typename TLOpT, typename NpuirOpT>
+void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
+  NpuirOpT bin(op->args, vmap_);
+  ICHECK(bin.Src0().IsTensor() && bin.Src1().IsTensor() && bin.Dst().IsTensor())
+      << "CodeGenTileLangTLIR: binary npuir op currently requires tensor "
+         "operands";
+  builder_.create<TLOpT>(builder_.getUnknownLoc(),
+                         GetBufferValue(bin.Src0().GetBuffer()),
+                         GetBufferValue(bin.Src1().GetBuffer()),
+                         GetBufferValue(bin.Dst().GetBuffer()));
 }
 
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
@@ -241,6 +273,35 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_shl"))) {
     EmitShl(op);
+  if (op->op.same_as(Op::Get("tl.npuir_debug_print_var"))) { // <-- naya
+    EmitPrintVar(op);
+    return {};
+  }
+  if (op->op.same_as(
+          Op::Get("tl.npuir_debug_print_buffer_value"))) { // <-- naya
+    EmitPrintBuf(op);
+  if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
+    EmitSub(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_mul"))) {
+    EmitBinary<::mlir::tl::MulOp, tvm::tl::NpuirMul>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_div"))) {
+    EmitBinary<::mlir::tl::DivOp, tvm::tl::NpuirDiv>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_max"))) {
+    EmitBinary<::mlir::tl::MaxOp, tvm::tl::NpuirMax>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_min"))) {
+    EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_and"))) {
+    EmitBinary<::mlir::tl::AndOp, tvm::tl::NpuirAnd>(op);
     return {};
   }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;

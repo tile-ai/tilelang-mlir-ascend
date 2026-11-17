@@ -76,6 +76,11 @@ private:
   void EmitCopy(const CallNode *op);
   void EmitAdd(const CallNode *op);
   void EmitShl(const CallNode *op);
+  void EmitPrintVar(const CallNode *op);
+  void EmitPrintBuf(const CallNode *op);
+  void EmitSub(const CallNode *op);
+  template <typename TLOpT, typename NpuirOpT>
+  void EmitBinary(const CallNode *op);
 
   mlir::MLIRContext context_;
   mlir::OpBuilder builder_;

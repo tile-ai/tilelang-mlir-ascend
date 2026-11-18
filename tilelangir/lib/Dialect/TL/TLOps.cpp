@@ -41,6 +41,46 @@ LogicalResult AddOp::verify() {
   return success();
 }
 
+LogicalResult CastOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto dst = llvm::cast<MemRefType>(getDst().getType());
+  if (src.getShape() != dst.getShape())
+    return emitOpError("src/dst shapes must match");
+  // Element types are intentionally allowed to differ: that is the point
+  // of a cast. Legal src/dst dtype pairs are constrained by the HIVM vcast
+  // hardware op, not here.
+  llvm::StringRef mode = getRoundMode();
+  static constexpr llvm::StringRef kValidModes[] = {"round", "rint",  "floor",
+                                                    "ceil",  "trunc", "odd"};
+  if (!llvm::is_contained(kValidModes, mode))
+    return emitOpError("round_mode must be one of round/rint/floor/ceil/"
+                       "trunc/odd, got '")
+           << mode << "'";
+  return success();
+}
+LogicalResult ShrOp::verify() {
+LogicalResult ShlOp::verify() {
+  auto lhs = llvm::cast<MemRefType>(getLhs().getType());
+  auto out = llvm::cast<MemRefType>(getOut().getType());
+  if (lhs.getElementType() != out.getElementType())
+    return emitOpError("lhs/out element types must match");
+  if (lhs.getShape() != out.getShape())
+    return emitOpError("lhs/out shapes must match");
+  // rhs is intentionally unconstrained here (scalar shift amount).
+  return success();
+}
+LogicalResult PrintOp::verify() {
+  Type ty = getSrc().getType();
+  if (auto memrefTy = llvm::dyn_cast<MemRefType>(ty)) {
+    if (!memrefTy.getElementType().isIntOrFloat())
+      return emitOpError(
+          "buffer operand element type must be integer or float");
+    return success();
+  }
+  if (!ty.isIntOrFloat())
+    return emitOpError("scalar operand must be integer or float");
+  return success();
+}
 LogicalResult SubOp::verify() {
   auto lhs = llvm::cast<MemRefType>(getLhs().getType());
   auto rhs = llvm::cast<MemRefType>(getRhs().getType());
@@ -92,4 +132,7 @@ static LogicalResult verifyElementwiseUnary(Operation *op, Value srcV,
 
 LogicalResult VReluOp::verify() {
   return verifyElementwiseUnary(getOperation(), getSrc(), getDst());
+}
+LogicalResult AndOp::verify() {
+  return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }

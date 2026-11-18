@@ -122,6 +122,22 @@ struct ConvertAdd : public OpConversionPattern<tl::AddOp> {
   }
 };
 
+struct ConvertCast : public OpConversionPattern<tl::CastOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::CastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto roundModeOpt = hivm::symbolizeRoundMode(adaptor.getRoundMode());
+    if (!roundModeOpt)
+      return rewriter.notifyMatchFailure(op, "unknown round_mode: " +
+                                                 adaptor.getRoundMode());
+    auto roundModeAttr = hivm::RoundModeAttr::get(getContext(), *roundModeOpt);
+    auto castAttr =
+        hivm::TypeFnAttr::get(getContext(), hivm::TypeFn::cast_signed);
+    rewriter.replaceOpWithNewOp<hivm::VCastOp>(
+        op, TypeRange{}, ValueRange{adaptor.getSrc()},
+        ValueRange{adaptor.getDst()}, roundModeAttr, castAttr);
 struct ConvertShr : public OpConversionPattern<tl::ShrOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -230,6 +246,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertCast>(converter,
+                                                                     ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShr>(converter,
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShl>(converter,
                                                                     ctx);

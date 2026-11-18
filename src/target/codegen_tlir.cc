@@ -126,6 +126,11 @@ void CodeGenTileLangTLIR::EmitAdd(const CallNode *op) {
                                      GetBufferValue(add.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitCast(const CallNode *op) {
+  tvm::tl::NpuirCast cast(op->args, vmap_);
+  builder_.create<::mlir::tl::CastOp>(
+      builder_.getUnknownLoc(), GetBufferValue(cast.src),
+      GetBufferValue(cast.dst), builder_.getStringAttr(cast.round_mode));
 void CodeGenTileLangTLIR::EmitShr(const CallNode *op) {
   tvm::tl::NpuirShr shr(op->args, vmap_);
   auto round_attr = builder_.getBoolAttr(shr.round);
@@ -277,6 +282,8 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitAdd(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_cast"))) {
+    EmitCast(op);
   if (op->op.same_as(Op::Get("tl.npuir_shr"))) {
     EmitShr(op);
   if (op->op.same_as(Op::Get("tl.npuir_shl"))) {

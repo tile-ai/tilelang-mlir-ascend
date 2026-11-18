@@ -75,6 +75,7 @@ private:
   mlir::Attribute AddressSpaceAttr(mlir::tl::AddressSpace space);
   void EmitCopy(const CallNode *op);
   void EmitAdd(const CallNode *op);
+  void EmitCast(const CallNode *op);
   void EmitShr(const CallNode *op);
   void EmitShl(const CallNode *op);
   void EmitPrintVar(const CallNode *op);

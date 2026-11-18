@@ -19,6 +19,7 @@ def TL_Dialect : Dialect {
   let useDefaultAttributePrinterParser = 1;
   let usePropertiesForAttributes = 0;
   let dependentDialects = ["memref::MemRefDialect"];
+  let usePropertiesForAttributes = 0;
 }
 
 class TL_Op<string mnemonic, list<Trait> traits = []>

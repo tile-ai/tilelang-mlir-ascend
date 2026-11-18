@@ -65,6 +65,115 @@ def TL_CastOp : TL_Op<"cast", [
   let assemblyFormat =
       "`ins` `(` $src `)` `outs` `(` $dst `)` `round_mode` `(` $round_mode `)` attr-dict `:` type($src) `,` type($dst)";
   let hasVerifier = 1;
+def TL_ShrOp : TL_Op<"shr", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["lhs", "rhs", "out"]>
+]> {
+  let summary = "Elementwise right-shift of a tile buffer, with optional rounding";
+  let description = [{
+    Destination-style vector shift-right: out = lhs >> rhs (arithmetic,
+    with optional rounding). lhs, rhs and out share shape and element type
+    (integer only: i16/i32/i64, per HIVM vshr constraints).
+
+    KNOWN LIMITATION: rhs is modeled here as a tensor operand (not scalar),
+    matching what the existing NpuirShr/npuir_shr TIR call layer actually
+    supports today. This does NOT match HIVM vshr's true ScalarOnlyHWTrait
+    on its second operand; conversion to HIVM is only correct when rhs is,
+    in practice, a single-element buffer. Full scalar-rhs support requires
+    fixing NpuirShr's C++ constructor and the npuir_shr Python wrapper,
+    which is out of scope here.
+    Example:
+      tl.shr ins(%a, %shift) outs(%c) round(true) : memref<64xi32>
+  }];
+  let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out,
+      DefaultValuedAttr<BoolAttr, "true">:$round);
+  let assemblyFormat =
+      "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` `round` `(` $round `)` attr-dict `:` type($lhs)";
+def TL_ShlOp : TL_Op<"shl", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["lhs", "out"]>
+]> {
+  let summary = "Elementwise left-shift of a tile buffer by a scalar";
+  let description = [{
+    Destination-style vector shift-left: out = lhs << rhs. lhs and out share
+    shape and element type (integer only: i16/i32/i64, per HIVM vshl
+    constraints). rhs is a scalar shift amount, not a tile buffer, matching
+    the HIVM ScalarOnlyHWTrait constraint on vshl's second operand.
+    Example:
+      tl.shl ins(%a, %shift) outs(%c) : memref<64xi32>, i32
+  }];
+  let arguments = (ins AnyMemRef:$lhs, AnyType:$rhs, AnyMemRef:$out);
+  let assemblyFormat =
+      "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` attr-dict `:` type($lhs) `,` type($rhs)";
+  let hasVerifier = 1;
+}
+
+def TL_PrintOp : TL_Op<"print", [MemoryEffects<[MemRead]>]> {
+  let summary = "Debug-print a scalar or tile buffer (device-side)";
+  let description = [{
+    ...
+  }];
+  let arguments = (ins
+    AnyType:$src,
+    StrAttr:$prefix,
+    BoolAttr:$hex
+  );
+  let results = (outs);
+  let assemblyFormat =
+      "$src `prefix` $prefix `hex` $hex attr-dict `:` type($src)";
+  let hasVerifier = 1;
+
+def TL_SubOp : TL_Op<"sub", [
+  MemoryEffects<[MemRead, MemWrite]>,
+  AllTypesMatch<["lhs", "rhs", "out"]>
+]> {
+  let summary = "Elementwise subtract of two tile buffers";
+  let description = [{
+    Destination-style vector sub: out = lhs - rhs. All operands share shape
+    and element type.
+
+    Example:
+      tl.sub ins(%a, %b) outs(%c) : memref<64xf32>
+  }];
+  let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out);
+  let assemblyFormat =
+    "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` attr-dict `:` type($lhs)";
+  let hasVerifier = 1;
+}
+
+class TL_BinaryOp<string mnemonic> : TL_Op<mnemonic, [
+  MemoryEffects<[MemRead, MemWrite]>,
+  AllTypesMatch<["lhs", "rhs", "out"]>
+]> {
+  let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out);
+  let assemblyFormat =
+    "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` attr-dict `:` type($lhs)";
+  let hasVerifier = 1;
+}
+
+def TL_MulOp : TL_BinaryOp<"mul"> {
+  let summary = "Elementwise multiply of two tile buffers";
+  let description = [{ Destination-style vector mul: out = lhs * rhs. }];
+}
+
+def TL_DivOp : TL_BinaryOp<"div"> {
+  let summary = "Elementwise divide of two tile buffers";
+  let description = [{ Destination-style vector div: out = lhs / rhs. }];
+}
+
+def TL_MaxOp : TL_BinaryOp<"max"> {
+  let summary = "Elementwise maximum of two tile buffers";
+  let description = [{ Destination-style vector max: out = max(lhs, rhs). }];
+}
+
+def TL_MinOp : TL_BinaryOp<"min"> {
+  let summary = "Elementwise minimum of two tile buffers";
+  let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
+}
+
+def TL_AndOp : TL_BinaryOp<"and"> {
+  let summary = "Elementwise bitwise AND of two tile buffers";
+  let description = [{ Destination-style vector and: out = lhs & rhs. }];
 }
 
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

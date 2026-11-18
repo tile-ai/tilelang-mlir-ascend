@@ -132,6 +132,16 @@ void CodeGenTileLangTLIR::EmitShr(const CallNode *op) {
   builder_.create<::mlir::tl::ShrOp>(
       builder_.getUnknownLoc(), GetBufferValue(shr.src0),
       GetBufferValue(shr.src1), GetBufferValue(shr.dst), round_attr);
+void CodeGenTileLangTLIR::EmitShl(const CallNode *op) {
+  tvm::tl::NpuirShl shl(op->args, vmap_);
+  ICHECK(shl.Src0().IsTensor() && shl.Dst().IsTensor())
+      << "CodeGenTileLangTLIR: tl.npuir_shl requires tensor lhs/out";
+  ICHECK(shl.Src1().IsScalar()) << "CodeGenTileLangTLIR: tl.npuir_shl requires "
+                                   "a scalar rhs (shift amount)";
+  mlir::Value rhs_val = VisitExpr(shl.Src1().GetExpr());
+  builder_.create<::mlir::tl::ShlOp>(
+      builder_.getUnknownLoc(), GetBufferValue(shl.Src0().GetBuffer()), rhs_val,
+      GetBufferValue(shl.Dst().GetBuffer()));
 void CodeGenTileLangTLIR::EmitPrintVar(const CallNode *op) {
   tvm::tl::NpuirDevicePrintVar print(op->args, vmap_);
   builder_.create<::mlir::tl::PrintOp>(
@@ -269,6 +279,8 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_shr"))) {
     EmitShr(op);
+  if (op->op.same_as(Op::Get("tl.npuir_shl"))) {
+    EmitShl(op);
   if (op->op.same_as(Op::Get("tl.npuir_debug_print_var"))) { // <-- naya
     EmitPrintVar(op);
     return {};

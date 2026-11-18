@@ -131,6 +131,19 @@ struct ConvertShr : public OpConversionPattern<tl::ShrOp> {
     rewriter.replaceOpWithNewOp<hivm::VShROp>(
         op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
         ValueRange{adaptor.getOut()}, adaptor.getRoundAttr());
+struct ConvertShl : public OpConversionPattern<tl::ShlOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ShlOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VShLOp>(
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
 struct ConvertSub : public OpConversionPattern<tl::SubOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -218,6 +231,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
 
     RewritePatternSet patterns(ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShr>(converter,
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShl>(converter,
                                                                     ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertPrint>(converter,
                                                                       ctx);

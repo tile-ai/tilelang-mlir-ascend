@@ -42,6 +42,16 @@ LogicalResult AddOp::verify() {
 }
 
 LogicalResult ShrOp::verify() {
+LogicalResult ShlOp::verify() {
+  auto lhs = llvm::cast<MemRefType>(getLhs().getType());
+  auto out = llvm::cast<MemRefType>(getOut().getType());
+  if (lhs.getElementType() != out.getElementType())
+    return emitOpError("lhs/out element types must match");
+  if (lhs.getShape() != out.getShape())
+    return emitOpError("lhs/out shapes must match");
+  // rhs is intentionally unconstrained here (scalar shift amount).
+  return success();
+}
 LogicalResult PrintOp::verify() {
   Type ty = getSrc().getType();
   if (auto memrefTy = llvm::dyn_cast<MemRefType>(ty)) {

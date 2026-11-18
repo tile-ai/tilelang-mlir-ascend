@@ -122,6 +122,44 @@ struct ConvertAdd : public OpConversionPattern<tl::AddOp> {
   }
 };
 
+struct ConvertCast : public OpConversionPattern<tl::CastOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::CastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto roundModeOpt = hivm::symbolizeRoundMode(adaptor.getRoundMode());
+    if (!roundModeOpt)
+      return rewriter.notifyMatchFailure(op, "unknown round_mode: " +
+                                                 adaptor.getRoundMode());
+    auto roundModeAttr = hivm::RoundModeAttr::get(getContext(), *roundModeOpt);
+    auto castAttr =
+        hivm::TypeFnAttr::get(getContext(), hivm::TypeFn::cast_signed);
+    rewriter.replaceOpWithNewOp<hivm::VCastOp>(
+        op, TypeRange{}, ValueRange{adaptor.getSrc()},
+        ValueRange{adaptor.getDst()}, roundModeAttr, castAttr);
+struct ConvertShr : public OpConversionPattern<tl::ShrOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ShrOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VShROp>(
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{adaptor.getOut()}, adaptor.getRoundAttr());
+struct ConvertShl : public OpConversionPattern<tl::ShlOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ShlOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VShLOp>(
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
 struct ConvertSub : public OpConversionPattern<tl::SubOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -146,6 +184,22 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
     rewriter.template replaceOpWithNewOp<HIVMOpT>(
         op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
         ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
+struct ConvertPrint : public OpConversionPattern<tl::PrintOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::PrintOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // VERIFY operand/attr order against HIVM_DebugOp in HIVMOps.td before
+    // relying on this — inferred from the builder.create<mlir::hivm::DebugOp>
+    // call in codegen_npuir_api.cc::DebugPrintCodegen.
+    rewriter.replaceOpWithNewOp<hivm::DebugOp>(op, "print", op.getPrefix(),
+                                               op.getHex(), adaptor.getSrc(),
+                                               hivm::TCoreTypeAttr{});
     return success();
   }
 };
@@ -192,12 +246,20 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertCast>(converter,
+                                                                     ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShr>(converter,
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShl>(converter,
+                                                                    ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertPrint>(converter,
+                                                                      ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>,
-                 ConvertBinary<tl::OrOp, hivm::VOrOp>>(converter, ctx);
+                 ConvertBinary<tl::OrOp, hivm::VOrOp>,
+                 ConvertBinary<tl::AndOp, hivm::VAndOp>>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

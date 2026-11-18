@@ -41,6 +41,7 @@ LogicalResult AddOp::verify() {
   return success();
 }
 
+LogicalResult ShrOp::verify() {
 LogicalResult ShlOp::verify() {
   auto lhs = llvm::cast<MemRefType>(getLhs().getType());
   auto out = llvm::cast<MemRefType>(getOut().getType());

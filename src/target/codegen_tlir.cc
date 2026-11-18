@@ -126,6 +126,12 @@ void CodeGenTileLangTLIR::EmitAdd(const CallNode *op) {
                                      GetBufferValue(add.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitShr(const CallNode *op) {
+  tvm::tl::NpuirShr shr(op->args, vmap_);
+  auto round_attr = builder_.getBoolAttr(shr.round);
+  builder_.create<::mlir::tl::ShrOp>(
+      builder_.getUnknownLoc(), GetBufferValue(shr.src0),
+      GetBufferValue(shr.src1), GetBufferValue(shr.dst), round_attr);
 void CodeGenTileLangTLIR::EmitShl(const CallNode *op) {
   tvm::tl::NpuirShl shl(op->args, vmap_);
   ICHECK(shl.Src0().IsTensor() && shl.Dst().IsTensor())
@@ -271,6 +277,8 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitAdd(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_shr"))) {
+    EmitShr(op);
   if (op->op.same_as(Op::Get("tl.npuir_shl"))) {
     EmitShl(op);
   if (op->op.same_as(Op::Get("tl.npuir_debug_print_var"))) { // <-- naya

@@ -28,6 +28,7 @@ expert-mode elementwise add/sub/mul/div/max/min: parse/print, TIR → TLIR impor
 | `tl.div` | Destination-style elementwise divide (`out = lhs / rhs`) |
 | `tl.max` | Destination-style elementwise maximum |
 | `tl.min` | Destination-style elementwise minimum |
+| `tl.vrelu` | Elementwise ReLU: `dst = max(src, 0)` (lowers to `hivm.hir.vrelu`) |
 
 ```mlir
 func.func @elemwise_add(%gm_a: memref<64xf32, #tl.address_space<gm>>,

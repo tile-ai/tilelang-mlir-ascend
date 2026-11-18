@@ -124,6 +124,19 @@ add_test(
 )
 
 add_test(
+  NAME tilelangir-tl-vrelu
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/vrelu.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/vrelu.mlir\""
+)
+
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-vrelu
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/vrelu.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/vrelu.mlir\""
+ )
+ 
+ add_test(
   NAME tilelangir-tl-alloc-copy-and
   COMMAND /bin/bash -c
     "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-and.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-and.mlir\""

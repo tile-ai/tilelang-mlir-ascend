@@ -65,6 +65,8 @@ def TL_CastOp : TL_Op<"cast", [
   let assemblyFormat =
       "`ins` `(` $src `)` `outs` `(` $dst `)` `round_mode` `(` $round_mode `)` attr-dict `:` type($src) `,` type($dst)";
   let hasVerifier = 1;
+}
+
 def TL_ShrOp : TL_Op<"shr", [
     MemoryEffects<[MemRead, MemWrite]>,
     AllTypesMatch<["lhs", "rhs", "out"]>
@@ -89,6 +91,8 @@ def TL_ShrOp : TL_Op<"shr", [
       DefaultValuedAttr<BoolAttr, "true">:$round);
   let assemblyFormat =
       "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` `round` `(` $round `)` attr-dict `:` type($lhs)";
+}
+
 def TL_ShlOp : TL_Op<"shl", [
     MemoryEffects<[MemRead, MemWrite]>,
     AllTypesMatch<["lhs", "out"]>
@@ -122,6 +126,7 @@ def TL_PrintOp : TL_Op<"print", [MemoryEffects<[MemRead]>]> {
   let assemblyFormat =
       "$src `prefix` $prefix `hex` $hex attr-dict `:` type($src)";
   let hasVerifier = 1;
+}
 
 def TL_SubOp : TL_Op<"sub", [
   MemoryEffects<[MemRead, MemWrite]>,
@@ -169,6 +174,22 @@ def TL_MaxOp : TL_BinaryOp<"max"> {
 def TL_MinOp : TL_BinaryOp<"min"> {
   let summary = "Elementwise minimum of two tile buffers";
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
+}
+
+class TL_UnaryOp<string mnemonic> : TL_Op<mnemonic, [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["src", "dst"]>
+]> {
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst);
+  let assemblyFormat = "$src `,` $dst attr-dict `:` type($src)";
+  let hasVerifier = 1;
+}
+
+def TL_VSigmoidOp : TL_UnaryOp<"vsigmoid"> {
+  let summary = "Elementwise sigmoid activation";
+  let description = [{
+    Destination-style elementwise sigmoid: dst = 1 / (1 + exp(-src)).
+  }];
 }
 
 def TL_PowOp : TL_BinaryOp<"pow"> {

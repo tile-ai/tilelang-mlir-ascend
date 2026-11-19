@@ -138,6 +138,10 @@ struct ConvertCast : public OpConversionPattern<tl::CastOp> {
     rewriter.replaceOpWithNewOp<hivm::VCastOp>(
         op, TypeRange{}, ValueRange{adaptor.getSrc()},
         ValueRange{adaptor.getDst()}, roundModeAttr, castAttr);
+    return success();
+  }
+};
+
 struct ConvertShr : public OpConversionPattern<tl::ShrOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -184,6 +188,44 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
     rewriter.template replaceOpWithNewOp<HIVMOpT>(
         op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
         ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
+struct ConvertVSigmoid : public OpConversionPattern<tl::VSigmoidOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::VSigmoidOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value src = adaptor.getSrc();
+    Value dst = adaptor.getDst();
+    auto memrefTy = llvm::cast<MemRefType>(src.getType());
+    Type elemTy = memrefTy.getElementType();
+
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getFloatAttr(elemTy, 0.0));
+    Value one = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getFloatAttr(elemTy, 1.0));
+    Value tmp = rewriter.create<memref::AllocOp>(loc, memrefTy);
+
+    // Mirrors codegen_npuir_dev.cc::VsigmoidCodegen:
+    // sigmoid(x) = 1 / (1 + exp(-x))
+    // Step 1: tmp = 0 - src
+    rewriter.create<hivm::VSubOp>(loc, TypeRange{}, ValueRange{zero, src},
+                                  ValueRange{tmp});
+    // Step 2: tmp = exp(tmp)
+    rewriter.create<hivm::VExpOp>(loc, TypeRange{}, ValueRange{tmp},
+                                  ValueRange{tmp});
+    // Step 3: tmp = tmp + 1
+    rewriter.create<hivm::VAddOp>(loc, TypeRange{}, ValueRange{tmp, one},
+                                  ValueRange{tmp});
+    // Step 4: dst = 1 / tmp
+    rewriter.create<hivm::VDivOp>(loc, TypeRange{}, ValueRange{one, tmp},
+                                  ValueRange{dst});
+
+    rewriter.eraseOp(op);
     return success();
   }
 };
@@ -257,6 +299,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
+                 ConvertBinary<tl::MinOp, hivm::VMinOp>, 
+                 ConvertVSigmoid>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>,
                  ConvertBinary<tl::PowOp, hivm::VPowOp>,
                  ConvertBinary<tl::XorOp, hivm::VXorOp>,

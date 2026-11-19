@@ -181,6 +181,13 @@ void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
                          GetBufferValue(bin.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitVSigmoid(const CallNode *op) {
+  tvm::tl::NpuirSigmoid sigmoid(op->args, vmap_);
+  builder_.create<::mlir::tl::VSigmoidOp>(builder_.getUnknownLoc(),
+                                          GetBufferValue(sigmoid.src),
+                                          GetBufferValue(sigmoid.dst));
+}
+
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
                                       const PrimFunc &f) {
   InitFuncState();
@@ -284,10 +291,16 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_cast"))) {
     EmitCast(op);
+    return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_shr"))) {
     EmitShr(op);
+    return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_shl"))) {
     EmitShl(op);
+    return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_debug_print_var"))) { // <-- naya
     EmitPrintVar(op);
     return {};
@@ -295,6 +308,8 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   if (op->op.same_as(
           Op::Get("tl.npuir_debug_print_buffer_value"))) { // <-- naya
     EmitPrintBuf(op);
+    return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
     EmitSub(op);
     return {};
@@ -315,8 +330,13 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_sigmoid"))) {
+    EmitVSigmoid(op);
+    return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_pow"))) {
     EmitBinary<::mlir::tl::PowOp, tvm::tl::NpuirPow>(op);
+    return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_xor"))) {
     EmitBinary<::mlir::tl::XorOp, tvm::tl::NpuirXor>(op);

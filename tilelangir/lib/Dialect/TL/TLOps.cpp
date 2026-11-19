@@ -76,7 +76,70 @@ LogicalResult SortOp::verify() {
     return emitOpError("sort_axis must be the tail axis (rank - 1) or -1; "
                        "only tail-axis sorting is currently supported")
            << ", got " << axis << " for rank " << rank;
+      return success();
+   }
 
+LogicalResult CastOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto dst = llvm::cast<MemRefType>(getDst().getType());
+  if (src.getShape() != dst.getShape())
+    return emitOpError("src/dst shapes must match");
+  // Element types are intentionally allowed to differ: that is the point
+  // of a cast. Legal src/dst dtype pairs are constrained by the HIVM vcast
+  // hardware op, not here.
+  llvm::StringRef mode = getRoundMode();
+  static constexpr llvm::StringRef kValidModes[] = {"round", "rint",  "floor",
+                                                    "ceil",  "trunc", "odd"};
+  if (!llvm::is_contained(kValidModes, mode))
+    return emitOpError("round_mode must be one of round/rint/floor/ceil/"
+                       "trunc/odd, got '")
+           << mode << "'";
+  return success();
+}
+LogicalResult ShrOp::verify() {
+  auto lhs = llvm::cast<MemRefType>(getLhs().getType());
+  auto rhs = llvm::cast<MemRefType>(getRhs().getType());
+  auto out = llvm::cast<MemRefType>(getOut().getType());
+
+  // AllTypesMatch<["lhs", "rhs", "out"]> already guarantees identical
+  // shape and element type across all three operands, so only the
+  // element-type restriction needs checking here.
+  Type elemTy = lhs.getElementType();
+  unsigned width = elemTy.isInteger() ? elemTy.getIntOrFloatBitWidth() : 0;
+  if (!elemTy.isSignlessInteger() || (width != 16 && width != 32 && width != 64))
+    return emitOpError("operand element type must be i16, i32, or i64, "
+                       "matching HIVM vshr's integer-only constraint");
+
+  // rhs is modeled as a tensor operand here, not scalar — a known mismatch
+  // with HIVM vshr's ScalarOnlyHWTrait<1>. Conversion to HIVM is only
+  // hardware-correct when rhs is, in practice, a single-element buffer;
+  // that is not checked here and is tracked as follow-up work.
+  (void)rhs;
+  (void)out;
+
+  return success();
+}
+
+LogicalResult ShlOp::verify() {
+  auto lhs = llvm::cast<MemRefType>(getLhs().getType());
+  auto out = llvm::cast<MemRefType>(getOut().getType());
+  if (lhs.getElementType() != out.getElementType())
+    return emitOpError("lhs/out element types must match");
+  if (lhs.getShape() != out.getShape())
+    return emitOpError("lhs/out shapes must match");
+  // rhs is intentionally unconstrained here (scalar shift amount).
+  return success();
+}
+LogicalResult PrintOp::verify() {
+  Type ty = getSrc().getType();
+  if (auto memrefTy = llvm::dyn_cast<MemRefType>(ty)) {
+    if (!memrefTy.getElementType().isIntOrFloat())
+      return emitOpError(
+          "buffer operand element type must be integer or float");
+    return success();
+  }
+  if (!ty.isIntOrFloat())
+    return emitOpError("scalar operand must be integer or float");
   return success();
 }
 LogicalResult SubOp::verify() {
@@ -114,5 +177,19 @@ LogicalResult MaxOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
 LogicalResult MinOp::verify() {
+  return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
+}
+
+LogicalResult PowOp::verify() {
+return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
+}
+ 
+LogicalResult XorOp::verify() {
+  return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
+}
+LogicalResult OrOp::verify() {
+  return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
+}
+LogicalResult AndOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }

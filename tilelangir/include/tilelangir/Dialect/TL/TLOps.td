@@ -93,4 +93,20 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+class TL_UnaryOp<string mnemonic> : TL_Op<mnemonic, [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["src", "dst"]>
+]> {
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst);
+  let assemblyFormat = "$src `,` $dst attr-dict `:` type($src)";
+  let hasVerifier = 1;
+}
+
+def TL_VSigmoidOp : TL_UnaryOp<"vsigmoid"> {
+  let summary = "Elementwise sigmoid activation";
+  let description = [{
+    Destination-style elementwise sigmoid: dst = 1 / (1 + exp(-src)).
+  }];
+}
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

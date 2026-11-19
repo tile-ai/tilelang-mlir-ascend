@@ -118,6 +118,9 @@ LogicalResult MaxOp::verify() {
 LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
+LogicalResult OrOp::verify() {
+  return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
+}
 LogicalResult AndOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }

@@ -174,7 +174,12 @@ def TL_MinOp : TL_BinaryOp<"min"> {
 def TL_XorOp : TL_BinaryOp<"xor"> {
   let summary = "Elementwise bitwise XOR of two tile buffers";
   let description = [{ Destination-style vector xor: out = lhs ^ rhs. }];
-} 
+}
+
+def TL_OrOp : TL_BinaryOp<"or"> {
+  let summary = "Elementwise bitwise OR of two tile buffers";
+  let description = [{ Destination-style vector or: out = lhs | rhs. }];
+ }
   
 def TL_AndOp : TL_BinaryOp<"and"> {
   let summary = "Elementwise bitwise AND of two tile buffers";

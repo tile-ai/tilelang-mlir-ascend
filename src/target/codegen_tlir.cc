@@ -319,6 +319,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitBinary<::mlir::tl::XorOp, tvm::tl::NpuirXor>(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_or"))) {
+    EmitBinary<::mlir::tl::OrOp, tvm::tl::NpuirOr>(op);
+    return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_and"))) {
     EmitBinary<::mlir::tl::AndOp, tvm::tl::NpuirAnd>(op);
     return {};

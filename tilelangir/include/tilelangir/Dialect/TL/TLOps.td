@@ -189,6 +189,16 @@ class TL_BinaryOp<string mnemonic> : TL_Op<mnemonic, [
   let hasVerifier = 1;
 }
 
+class TL_UnaryOp<string mnemonic> : TL_Op<mnemonic, [
+  MemoryEffects<[MemRead, MemWrite]>,
+  AllTypesMatch<["src", "out"]>
+]> {
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$out);
+  let assemblyFormat =
+    "`ins` `(` $src `)` `outs` `(` $out `)` attr-dict `:` type($src)";
+  let hasVerifier = 1;
+}
+
 def TL_MulOp : TL_BinaryOp<"mul"> {
   let summary = "Elementwise multiply of two tile buffers";
   let description = [{ Destination-style vector mul: out = lhs * rhs. }];
@@ -209,6 +219,10 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_NotOp : TL_UnaryOp<"not"> {
+  let summary = "Elementwise logical/bitwise not of a tile buffer";
+  let description = [{ Destination-style vector not: out = not(src). Lowers to hivm.hir.vnot. }];
+}
 
 def TL_FlipOp : TL_Op<"flip", [
     MemoryEffects<[MemRead, MemWrite]>,

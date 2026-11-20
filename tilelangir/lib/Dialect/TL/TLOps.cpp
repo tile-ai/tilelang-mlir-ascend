@@ -180,6 +180,21 @@ LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
 
+static LogicalResult verifyElementwiseUnary(Operation *op, Value srcV,
+                                            Value outV) {
+  auto src = llvm::cast<MemRefType>(srcV.getType());
+  auto out = llvm::cast<MemRefType>(outV.getType());
+  if (src.getElementType() != out.getElementType())
+    return op->emitOpError("operand element types must match");
+  if (src.getShape() != out.getShape())
+    return op->emitOpError("operand shapes must match");
+  return success();
+}
+
+LogicalResult NotOp::verify() {
+  return verifyElementwiseUnary(getOperation(), getSrc(), getOut());
+}
+
 LogicalResult FlipOp::verify() {
   auto src = llvm::cast<MemRefType>(getSrc().getType());
   auto dst = llvm::cast<MemRefType>(getDst().getType());
@@ -246,9 +261,9 @@ LogicalResult ReshapeOp::verify() {
   return success();
 }
 LogicalResult PowOp::verify() {
-return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
+  return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
- 
+
 LogicalResult XorOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }

@@ -208,6 +208,21 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
   }
 };
 
+template <typename TLOpT, typename HIVMOpT>
+struct ConvertUnary : public OpConversionPattern<TLOpT> {
+  using OpConversionPattern<TLOpT>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TLOpT op,
+                  typename OpConversionPattern<TLOpT>::OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.template replaceOpWithNewOp<HIVMOpT>(op, TypeRange{},
+                                                  ValueRange{adaptor.getSrc()},
+                                                  ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
 struct ConvertConcat : public OpConversionPattern<tl::ConcatOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -219,7 +234,7 @@ struct ConvertConcat : public OpConversionPattern<tl::ConcatOp> {
     rewriter.replaceOpWithNewOp<hivm::VConcatOp>(
         op, TypeRange{}, rewriter.getI64IntegerAttr(adaptor.getAxis()),
         adaptor.getSrcs(), adaptor.getDst());
-       return success();
+    return success();
   }
 };
 struct ConvertArange : public OpConversionPattern<tl::ArangeOp> {
@@ -231,7 +246,7 @@ struct ConvertArange : public OpConversionPattern<tl::ArangeOp> {
     rewriter.replaceOpWithNewOp<hivm::VArangeOp>(
         op, TypeRange{}, adaptor.getDst(), adaptor.getOffset(),
         adaptor.getStrides());
-        return success();
+    return success();
   }
 };
 struct ConvertReshape : public OpConversionPattern<tl::ReshapeOp> {
@@ -267,7 +282,7 @@ struct ConvertReshape : public OpConversionPattern<tl::ReshapeOp> {
 
     rewriter.replaceOpWithNewOp<memref::ReinterpretCastOp>(
         op, newTy, adaptor.getSrc(), offsets, sizes, stridesFold);
-        return success();
+    return success();
   }
 };
 struct ConvertSort : public OpConversionPattern<tl::SortOp> {
@@ -280,7 +295,7 @@ struct ConvertSort : public OpConversionPattern<tl::SortOp> {
         op, TypeRange{}, adaptor.getSrc(),
         ValueRange{adaptor.getDstValue(), adaptor.getDstIndex()},
         op.getDescending(), op.getSortAxis());
-     return success();
+    return success();
   }
 };
 
@@ -358,11 +373,12 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>,
-                 ConvertBinary<tl::PowOp, hivm::VPowOp>,
-                 ConvertBinary<tl::XorOp, hivm::VXorOp>,
-                 ConvertBinary<tl::OrOp, hivm::VOrOp>,
-                 ConvertBinary<tl::AndOp, hivm::VAndOp>,
-                 ConvertReshape>(converter, ctx);
+                ConvertUnary<tl::NotOp, hivm::VNotOp>,
+                ConvertBinary<tl::PowOp, hivm::VPowOp>,
+                ConvertBinary<tl::XorOp, hivm::VXorOp>,
+                ConvertBinary<tl::OrOp, hivm::VOrOp>,
+                ConvertBinary<tl::AndOp, hivm::VAndOp>,
+                ConvertReshape>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

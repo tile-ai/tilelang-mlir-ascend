@@ -199,6 +199,13 @@ void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
                          GetBufferValue(bin.Dst().GetBuffer()));
 }
 
+template <typename TLOpT, typename NpuirOpT>
+void CodeGenTileLangTLIR::EmitUnary(const CallNode *op) {
+  NpuirOpT un(op->args, vmap_);
+  builder_.create<TLOpT>(builder_.getUnknownLoc(), GetBufferValue(un.src),
+                         GetBufferValue(un.dst));
+}
+
 void CodeGenTileLangTLIR::EmitConcat(const CallNode *op) {
   tvm::tl::NpuirConcat concat(op->args, vmap_);
 
@@ -211,6 +218,7 @@ void CodeGenTileLangTLIR::EmitConcat(const CallNode *op) {
                                         GetBufferValue(concat.dst),
                                         builder_.getI64IntegerAttr(concat.dim));
 }
+
 mlir::Value CodeGenTileLangTLIR::ToIndex(mlir::Value v) {
   if (v.getType().isIndex())
     return v;
@@ -230,7 +238,8 @@ void CodeGenTileLangTLIR::EmitArange(const CallNode *op) {
 
   builder_.create<::mlir::tl::ArangeOp>(builder_.getUnknownLoc(), dst, offset,
                                         strides);
-   }
+}
+
 void CodeGenTileLangTLIR::EmitReshape(const CallNode *op) {
   tvm::tl::NpuirReshape reshape(op->args, vmap_);
   mlir::Value result = builder_.create<::mlir::tl::ReshapeOp>(
@@ -389,21 +398,25 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_not"))) {
+    EmitUnary<::mlir::tl::NotOp, tvm::tl::NpuirNot>(op);
+    return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_concat"))) {
     EmitConcat(op);
-        return {};
+    return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_arange"))) {
     EmitArange(op);
-      return {};
+    return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_reshape"))) {
     EmitReshape(op);
-        return {};
+    return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_pow"))) {
     EmitBinary<::mlir::tl::PowOp, tvm::tl::NpuirPow>(op);
-      return {};
+    return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_xor"))) {
     EmitBinary<::mlir::tl::XorOp, tvm::tl::NpuirXor>(op);

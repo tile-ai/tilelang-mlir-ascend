@@ -126,6 +126,37 @@ void CodeGenTileLangTLIR::EmitAdd(const CallNode *op) {
                                      GetBufferValue(add.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitSort(const CallNode *op) {
+  tvm::tl::NpuirSort sort(op->args, vmap_);
+  builder_.create<::mlir::tl::SortOp>(
+      builder_.getUnknownLoc(), GetBufferValue(sort.src),
+      GetBufferValue(sort.dst_value), GetBufferValue(sort.dst_index),
+      sort.descending, sort.sort_axis);
+      }
+void CodeGenTileLangTLIR::EmitCast(const CallNode *op) {
+  tvm::tl::NpuirCast cast(op->args, vmap_);
+  builder_.create<::mlir::tl::CastOp>(
+      builder_.getUnknownLoc(), GetBufferValue(cast.src),
+      GetBufferValue(cast.dst), builder_.getStringAttr(cast.round_mode));
+      }
+void CodeGenTileLangTLIR::EmitShr(const CallNode *op) {
+  tvm::tl::NpuirShr shr(op->args, vmap_);
+  auto round_attr = builder_.getBoolAttr(shr.round);
+  builder_.create<::mlir::tl::ShrOp>(
+      builder_.getUnknownLoc(), GetBufferValue(shr.src0),
+      GetBufferValue(shr.src1), GetBufferValue(shr.dst), round_attr);
+      }
+void CodeGenTileLangTLIR::EmitShl(const CallNode *op) {
+  tvm::tl::NpuirShl shl(op->args, vmap_);
+  ICHECK(shl.Src0().IsTensor() && shl.Dst().IsTensor())
+      << "CodeGenTileLangTLIR: tl.npuir_shl requires tensor lhs/out";
+  ICHECK(shl.Src1().IsScalar()) << "CodeGenTileLangTLIR: tl.npuir_shl requires "
+                                   "a scalar rhs (shift amount)";
+  mlir::Value rhs_val = VisitExpr(shl.Src1().GetExpr());
+  builder_.create<::mlir::tl::ShlOp>(
+      builder_.getUnknownLoc(), GetBufferValue(shl.Src0().GetBuffer()), rhs_val,
+      GetBufferValue(shl.Dst().GetBuffer()));
+      }
 void CodeGenTileLangTLIR::EmitPrintVar(const CallNode *op) {
   tvm::tl::NpuirDevicePrintVar print(op->args, vmap_);
   builder_.create<::mlir::tl::PrintOp>(
@@ -138,6 +169,7 @@ void CodeGenTileLangTLIR::EmitPrintBuf(const CallNode *op) {
   builder_.create<::mlir::tl::PrintOp>(
       builder_.getUnknownLoc(), GetBufferValue(print.src),
       builder_.getStringAttr(print.prefix), builder_.getBoolAttr(print.hex));
+      }
 void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
   tvm::tl::NpuirSub sub(op->args, vmap_);
   ICHECK(sub.Src0().IsTensor() && sub.Src1().IsTensor() && sub.Dst().IsTensor())
@@ -171,6 +203,33 @@ void CodeGenTileLangTLIR::EmitConcat(const CallNode *op) {
   builder_.create<::mlir::tl::ConcatOp>(builder_.getUnknownLoc(), srcs,
                                         GetBufferValue(concat.dst),
                                         builder_.getI64IntegerAttr(concat.dim));
+}
+mlir::Value CodeGenTileLangTLIR::ToIndex(mlir::Value v) {
+  if (v.getType().isIndex())
+    return v;
+  return builder_.create<::mlir::arith::IndexCastOp>(
+      builder_.getUnknownLoc(), builder_.getIndexType(), v);
+}
+
+void CodeGenTileLangTLIR::EmitArange(const CallNode *op) {
+  tvm::tl::NpuirArange arange(op->args, vmap_);
+  mlir::Value dst = GetBufferValue(arange.dst);
+  mlir::Value offset = ToIndex(VisitExpr(arange.offset));
+
+  llvm::SmallVector<::mlir::Value> strides;
+  strides.reserve(arange.strides.size());
+  for (const PrimExpr &stride : arange.strides)
+    strides.push_back(ToIndex(VisitExpr(stride)));
+
+  builder_.create<::mlir::tl::ArangeOp>(builder_.getUnknownLoc(), dst, offset,
+                                        strides);
+   }
+void CodeGenTileLangTLIR::EmitReshape(const CallNode *op) {
+  tvm::tl::NpuirReshape reshape(op->args, vmap_);
+  mlir::Value result = builder_.create<::mlir::tl::ReshapeOp>(
+      builder_.getUnknownLoc(), BufferToMemRefType(reshape.dst),
+      GetBufferValue(reshape.src));
+  var_map_[reshape.dst->data.get()] = result;
 }
 
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
@@ -274,13 +333,31 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitAdd(op);
     return {};
   }
-  if (op->op.same_as(Op::Get("tl.npuir_debug_print_var"))) { // <-- naya
+  if (op->op.same_as(Op::Get("tl.npuir_sort"))) {
+    EmitSort(op);
+      return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_cast"))) {
+    EmitCast(op);
+      return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_shr"))) {
+    EmitShr(op);
+      return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_shl"))) {
+    EmitShl(op);
+      return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_debug_print_var"))) { 
     EmitPrintVar(op);
     return {};
   }
   if (op->op.same_as(
-          Op::Get("tl.npuir_debug_print_buffer_value"))) { // <-- naya
+          Op::Get("tl.npuir_debug_print_buffer_value"))) { 
     EmitPrintBuf(op);
+      return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
     EmitSub(op);
     return {};
@@ -303,6 +380,28 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_concat"))) {
     EmitConcat(op);
+        return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_arange"))) {
+    EmitArange(op);
+      return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_reshape"))) {
+    EmitReshape(op);
+        return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_pow"))) {
+    EmitBinary<::mlir::tl::PowOp, tvm::tl::NpuirPow>(op);
+      return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_xor"))) {
+    EmitBinary<::mlir::tl::XorOp, tvm::tl::NpuirXor>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_or"))) {
+    EmitBinary<::mlir::tl::OrOp, tvm::tl::NpuirOr>(op);
+    return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_and"))) {
     EmitBinary<::mlir::tl::AndOp, tvm::tl::NpuirAnd>(op);
     return {};

@@ -34,6 +34,71 @@ function(_tilelangir_tablegen_one td_rel tblgen_exe root_abs tblgen_args tblgen_
     "  includes: \"${CMAKE_CURRENT_SOURCE_DIR};${tblgen_includes}\"\n")
 endfunction()
 
+# Generate a named TableGen output (mlir_tablegen-style).
+#   tilelangir_mlir_tablegen(TLOps.h.inc
+#     TD_FILE TLOps.td
+#     ARGS -gen-op-decls)
+function(tilelangir_mlir_tablegen ofn)
+  if(NOT BISHENGIR_ROOT_PATH)
+    message(FATAL_ERROR "BISHENGIR_ROOT_PATH required for tilelangir_mlir_tablegen")
+  endif()
+  cmake_parse_arguments(ARG "" "TD_FILE" "ARGS;EXTRA_INCLUDES;DEPENDS" ${ARGN})
+  if(NOT ARG_TD_FILE)
+    message(FATAL_ERROR "tilelangir_mlir_tablegen: TD_FILE is required")
+  endif()
+  if(NOT ARG_ARGS)
+    message(FATAL_ERROR "tilelangir_mlir_tablegen: ARGS is required")
+  endif()
+
+  get_filename_component(BISHENGIR_ROOT_ABS "${BISHENGIR_ROOT_PATH}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+  set(TBLGEN_EXE "${BISHENGIR_ROOT_ABS}/bin/mlir-tblgen")
+  if(IS_ABSOLUTE "${ARG_TD_FILE}")
+    set(td_abs "${ARG_TD_FILE}")
+  else()
+    set(td_abs "${CMAKE_CURRENT_SOURCE_DIR}/${ARG_TD_FILE}")
+  endif()
+
+  set(out_path "${CMAKE_CURRENT_BINARY_DIR}/${ofn}")
+  get_filename_component(out_dir "${out_path}" DIRECTORY)
+  file(MAKE_DIRECTORY "${out_dir}")
+
+  get_filename_component(_tilelangir_include
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+  set(_include_flags
+    -I "${BISHENGIR_ROOT_ABS}/include"
+    -I "${_tilelangir_include}"
+    -I "${CMAKE_CURRENT_SOURCE_DIR}")
+  foreach(_inc ${ARG_EXTRA_INCLUDES})
+    list(APPEND _include_flags -I "${_inc}")
+  endforeach()
+
+  set(_depends "${td_abs}")
+  foreach(_dep ${ARG_DEPENDS})
+    if(IS_ABSOLUTE "${_dep}")
+      list(APPEND _depends "${_dep}")
+    else()
+      list(APPEND _depends "${CMAKE_CURRENT_SOURCE_DIR}/${_dep}")
+    endif()
+  endforeach()
+
+  add_custom_command(
+    OUTPUT "${out_path}"
+    COMMAND ${TBLGEN_EXE} ${ARG_ARGS} ${_include_flags}
+            "${td_abs}" -o "${out_path}"
+    DEPENDS ${_depends}
+    COMMENT "Building ${ofn}..."
+  )
+  set_property(DIRECTORY APPEND PROPERTY TILELANGIR_MLIR_TABLEGEN_OUTPUTS "${out_path}")
+endfunction()
+
+function(tilelangir_add_tablegen_target target_name)
+  get_property(_outs DIRECTORY PROPERTY TILELANGIR_MLIR_TABLEGEN_OUTPUTS)
+  if(NOT _outs)
+    message(FATAL_ERROR "tilelangir_add_tablegen_target: no tilelangir_mlir_tablegen outputs in this directory")
+  endif()
+  add_custom_target(${target_name} DEPENDS ${_outs})
+endfunction()
+
 function(tilelangir_tablegen target_name)
   if(NOT BISHENGIR_ROOT_PATH)
     message(FATAL_ERROR "BISHENGIR_ROOT_PATH required for tilelangir_tablegen")

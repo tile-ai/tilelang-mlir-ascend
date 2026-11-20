@@ -138,6 +138,10 @@ struct ConvertCast : public OpConversionPattern<tl::CastOp> {
     rewriter.replaceOpWithNewOp<hivm::VCastOp>(
         op, TypeRange{}, ValueRange{adaptor.getSrc()},
         ValueRange{adaptor.getDst()}, roundModeAttr, castAttr);
+     return success();
+  }
+};
+
 struct ConvertShr : public OpConversionPattern<tl::ShrOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -147,6 +151,10 @@ struct ConvertShr : public OpConversionPattern<tl::ShrOp> {
     rewriter.replaceOpWithNewOp<hivm::VShROp>(
         op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
         ValueRange{adaptor.getOut()}, adaptor.getRoundAttr());
+     return success();
+  }
+};
+
 struct ConvertShl : public OpConversionPattern<tl::ShlOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -185,6 +193,20 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
         op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
         ValueRange{adaptor.getOut()});
     return success();
+  }
+};
+
+struct ConvertSort : public OpConversionPattern<tl::SortOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::SortOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VSortOp>(
+        op, TypeRange{}, adaptor.getSrc(),
+        ValueRange{adaptor.getDstValue(), adaptor.getDstIndex()},
+        op.getDescending(), op.getSortAxis());
+     return success();
   }
 };
 
@@ -246,9 +268,11 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSort>(converter,
+                                                                     ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertCast>(converter,
                                                                      ctx);
-    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShr>(converter,
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShr>(converter, ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShl>(converter,
                                                                     ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertPrint>(converter,

@@ -30,12 +30,13 @@ add_tilelangir_library(tilelangir MODULE TileLangIRPasses.cpp)
 target_compile_options(tilelangir PRIVATE -frtti)
 target_link_libraries(tilelangir PRIVATE
   tilelangir_transforms
+  tilelangir_tl_dialect
   tilelangir_headers
   pybind11::module
   ${_python_mlir_libs}
   ${TILELANGIR_SYSTEM_LIBS}
 )
-add_dependencies(tilelangir tilelangir_transforms_incgen)
+add_dependencies(tilelangir tilelangir_transforms_incgen tilelangir_tl_incgen)
 
 set_target_properties(tilelangir PROPERTIES
   PREFIX ""

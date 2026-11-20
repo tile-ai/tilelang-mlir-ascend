@@ -196,6 +196,18 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
   }
 };
 
+struct ConvertArange : public OpConversionPattern<tl::ArangeOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ArangeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VArangeOp>(
+        op, TypeRange{}, adaptor.getDst(), adaptor.getOffset(),
+        adaptor.getStrides());
+        return success();
+  }
+};
 struct ConvertReshape : public OpConversionPattern<tl::ReshapeOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -314,7 +326,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertPrint>(converter,
                                                                       ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
-                 ConvertBinary<tl::MulOp, hivm::VMulOp>,
+                 ConvertArange, ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>,

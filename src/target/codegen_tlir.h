@@ -83,6 +83,8 @@ private:
   void EmitPrintVar(const CallNode *op);
   void EmitPrintBuf(const CallNode *op);
   void EmitSub(const CallNode *op);
+  void EmitArange(const CallNode *op);
+  mlir::Value ToIndex(mlir::Value v);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
 

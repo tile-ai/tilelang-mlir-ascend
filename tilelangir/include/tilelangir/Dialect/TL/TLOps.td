@@ -45,6 +45,122 @@ def TL_AddOp : TL_Op<"add", [
   let hasVerifier = 1;
 }
 
+
+def TL_SortOp : TL_Op<"sort", [
+    MemoryEffects<[MemRead, MemWrite]>
+]> {
+  let summary = "Sort a tile buffer along an axis, producing sorted values and indices";
+  let description = [{
+    Destination-style vector sort. Sorts the sort_axis of src in ascending
+    or descending order, writing the sorted values into dst_value and the
+    original indices of each sorted element into dst_index. Mirrors
+    HIVM's hivm.hir.vsort op (and tl.npuir_sort at the TIR level).
+
+    Constraints:
+      - src and dst_value must have the same shape and element type.
+      - src and dst_index must have the same shape.
+      - dst_index must have an integer element type.
+
+    Example:
+      tl.sort ins(%src) outs(%dst_value, %dst_index)
+          descending = false sort_axis = -1
+          : memref<64xf32>, memref<64xf32>, memref<64xi32>
+  }];
+  let arguments = (ins AnyMemRef:$src,
+                       AnyMemRef:$dst_value,
+                       AnyMemRef:$dst_index,
+                       DefaultValuedAttr<BoolAttr, "false">:$descending,
+                       DefaultValuedAttr<I64Attr, "-1">:$sort_axis);
+  let assemblyFormat = [{
+    `ins` `(` $src `)` `outs` `(` $dst_value `,` $dst_index `)`
+    `descending` `=` $descending `sort_axis` `=` $sort_axis
+    attr-dict `:` type($src) `,` type($dst_value) `,` type($dst_index)
+  }];
+  let hasVerifier = 1;
+}
+
+def TL_CastOp : TL_Op<"cast", [
+    MemoryEffects<[MemRead, MemWrite]>
+]> {
+  let summary = "Elementwise type conversion of a tile buffer";
+  let description = [{
+    Destination-style vector cast: dst = cast(src, round_mode). src and dst
+    share shape but may differ in element type (that is the point of a
+    cast); legal src/dst dtype pairs are constrained by the HIVM vcast
+    hardware op, not by this verifier. round_mode is one of:
+    round/rint/floor/ceil/trunc/odd, matching the set accepted by
+    tilelang.language.customize_npuir.npuir_cast on the Python side (a
+    strict subset of HIVM's RoundMode enum, which also has
+    truncwithoverflow).
+    Example:
+      tl.cast ins(%a) outs(%c) round_mode("rint") : memref<64xf32>, memref<64xf16>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst, StrAttr:$round_mode);
+  let assemblyFormat =
+      "`ins` `(` $src `)` `outs` `(` $dst `)` `round_mode` `(` $round_mode `)` attr-dict `:` type($src) `,` type($dst)";
+  let hasVerifier = 1;
+  }
+def TL_ShrOp : TL_Op<"shr", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["lhs", "rhs", "out"]>
+]> {
+  let summary = "Elementwise right-shift of a tile buffer, with optional rounding";
+  let description = [{
+    Destination-style vector shift-right: out = lhs >> rhs (arithmetic,
+    with optional rounding). lhs, rhs and out share shape and element type
+    (integer only: i16/i32/i64, per HIVM vshr constraints).
+
+    KNOWN LIMITATION: rhs is modeled here as a tensor operand (not scalar),
+    matching what the existing NpuirShr/npuir_shr TIR call layer actually
+    supports today. This does NOT match HIVM vshr's true ScalarOnlyHWTrait
+    on its second operand; conversion to HIVM is only correct when rhs is,
+    in practice, a single-element buffer. Full scalar-rhs support requires
+    fixing NpuirShr's C++ constructor and the npuir_shr Python wrapper,
+    which is out of scope here.
+    Example:
+      tl.shr ins(%a, %shift) outs(%c) round(true) : memref<64xi32>
+  }];
+  let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out,
+      DefaultValuedAttr<BoolAttr, "true">:$round);
+  let assemblyFormat =
+      "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` `round` `(` $round `)` attr-dict `:` type($lhs)";
+       let hasVerifier = 1;
+}
+def TL_ShlOp : TL_Op<"shl", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["lhs", "out"]>
+]> {
+  let summary = "Elementwise left-shift of a tile buffer by a scalar";
+  let description = [{
+    Destination-style vector shift-left: out = lhs << rhs. lhs and out share
+    shape and element type (integer only: i16/i32/i64, per HIVM vshl
+    constraints). rhs is a scalar shift amount, not a tile buffer, matching
+    the HIVM ScalarOnlyHWTrait constraint on vshl's second operand.
+    Example:
+      tl.shl ins(%a, %shift) outs(%c) : memref<64xi32>, i32
+  }];
+  let arguments = (ins AnyMemRef:$lhs, AnyType:$rhs, AnyMemRef:$out);
+  let assemblyFormat =
+      "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` attr-dict `:` type($lhs) `,` type($rhs)";
+  let hasVerifier = 1;
+}
+
+def TL_PrintOp : TL_Op<"print", [MemoryEffects<[MemRead]>]> {
+  let summary = "Debug-print a scalar or tile buffer (device-side)";
+  let description = [{
+    ...
+  }];
+  let arguments = (ins
+    AnyType:$src,
+    StrAttr:$prefix,
+    BoolAttr:$hex
+  );
+  let results = (outs);
+  let assemblyFormat =
+      "$src `prefix` $prefix `hex` $hex attr-dict `:` type($src)";
+  let hasVerifier = 1;
+}
+
 def TL_SubOp : TL_Op<"sub", [
   MemoryEffects<[MemRead, MemWrite]>,
   AllTypesMatch<["lhs", "rhs", "out"]>
@@ -91,6 +207,26 @@ def TL_MaxOp : TL_BinaryOp<"max"> {
 def TL_MinOp : TL_BinaryOp<"min"> {
   let summary = "Elementwise minimum of two tile buffers";
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
+}
+
+def TL_PowOp : TL_BinaryOp<"pow"> {
+  let summary = "Elementwise power of two tile buffers";
+  let description = [{ Destination-style vector pow: out = pow(lhs, rhs). Lowers to hivm.hir.vpow, which requires i32 operands. }];
+}
+  
+def TL_XorOp : TL_BinaryOp<"xor"> {
+  let summary = "Elementwise bitwise XOR of two tile buffers";
+  let description = [{ Destination-style vector xor: out = lhs ^ rhs. }];
+}
+
+def TL_OrOp : TL_BinaryOp<"or"> {
+  let summary = "Elementwise bitwise OR of two tile buffers";
+  let description = [{ Destination-style vector or: out = lhs | rhs. }];
+ }
+  
+def TL_AndOp : TL_BinaryOp<"and"> {
+  let summary = "Elementwise bitwise AND of two tile buffers";
+  let description = [{ Destination-style vector and: out = lhs & rhs. }];
 }
 
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD

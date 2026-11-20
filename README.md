@@ -16,6 +16,7 @@ Within the TileLang ecosystem, we have developed an NPU Intermediate Representat
 </div>
 
 ## Latest News
+- 10/5/2026 🚀: Added the restricted TileLang MLIR dialect (**TLIR**, `tl`) and an expert-mode add path: TVM TIR → TLIR → HIVM. See [TL dialect](./tilelangir/docs/tl-dialect.md) and [example_tlir_add_expert.py](./examples/elementwise/example_tlir_add_expert.py).
 - 4/24/2026 🚀: Released DeepSeek V4 kernels [DeepSeek-V4](./examples/deepseek_v4)!
 - 3/28/2026 🚀: We provide a free environment to facilitate user experience and development for TileLang [Pull Request#708](https://github.com/tile-ai/tilelang-ascend/pull/708).
 
@@ -125,11 +126,37 @@ TileLang enables developers to write high-performance kernels on Ascend NPU with
 <img src=./images/fa_performance.png width="80%" />
 </div>
 
+## TileLang MLIR Dialect (TLIR)
+
+The default Ascend path is still TileLang Python → TVM TIR → C++ codegen → HIVM/HIVMAVE (`codegen_npuir_api*.cc` / `_dev*`). A second path is being added through a restricted TileLang dialect (**TLIR**, namespace `tl`) so tile-level memory and compute can sit in MLIR before HIVM.
+
+Current v0.1 subset (expert-mode elementwise add):
+
+| Stage | What it does |
+|-------|----------------|
+| Dialect | `tl.alloc`, `tl.copy`, `tl.add` plus `#tl.address_space`, `#tl.layout`, `#tl.core_type` |
+| TIR → TLIR | `src/target/codegen_tlir.cc`, registered as `target.build.tilelang_tlir` |
+| TLIR → HIVM | `tilelangir-convert-tl-to-hivm`: `tl.alloc`→`memref.alloc`, `tl.copy`→`memref.copy`, `tl.add`→`hivm.hir.vadd` |
+
+TLIR is middle IR only. It does **not** emit HACC / FFTS / workspace ABI. The existing HIVM codegen path is unchanged unless `TILELANG_TLIR=1`.
+
+```shell
+# Dump TIR -> TLIR for the expert add kernel
+TILELANG_TLIR=1 TILELANG_ASCEND_MODE=expert \
+  python examples/elementwise/example_tlir_add_expert.py
+
+# Lower that TLIR to HIVM
+tilelangir-opt --tilelangir-convert-tl-to-hivm path/to/kernel.mlir
+```
+
+Dialect spec and FileCheck tests: [tilelangir/docs/tl-dialect.md](./tilelangir/docs/tl-dialect.md), [tilelangir/test/Dialect/TL](./tilelangir/test/Dialect/TL), [tilelangir/test/Conversion/TLToHIVM](./tilelangir/test/Conversion/TLToHIVM).
+
 ## Environment Variables Guide
 Currently, we need to set environment variables to configure the developer mode or expert mode. For more environment variables, please refer to the [EnvironmentVariables.md](https://github.com/tile-ai/tilelang-ascend/tree/npuir/docs/developer/EnvironmentVariables.md)
 | Variable | Default | Description | Valid Values |
 |----------|---------|-------------|--------------|
 | `TILELANG_ASCEND_MODE` | Expert | Set the TileLang Mode; currently, Expert mode and Developer mode are supported | `Expert`: Expert Mode<br>`Developer`: Developer Mode |
+| `TILELANG_TLIR` | unset | When set, expert-mode `npuir` lowering emits TLIR (`tl`) instead of HIVM via `codegen_npuir_api` | `1` / `true` / `on` / `yes` |
 
 ## Tested Devices
 Although TileLang aims to support portability across a variety of devices, it has been specifically tested and validated on the following hardware:Huawei Ascend AI accelerators, including A2/A3.

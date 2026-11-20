@@ -69,3 +69,9 @@ generated element, and `%s0, %s1, ...` are per-dimension `index` strides
 multi-dimensional position. Lowers to `hivm.hir.varange` with the same
 `offset`/`strides` operands and `outs`, which is backed by a real hardware
 vector-arange instruction on `ub`-resident buffers.
+## tl.reshape
+
+A pure view op (not destination-passing like tl.add/tl.cast): `%view = tl.reshape %src : T1 to T2`.
+src and result share element type and total element count but may differ in
+shape/rank. Lowers directly to `memref.reinterpret_cast` with contiguous
+strides computed from the result shape -- no HIVM hardware op is involved.

@@ -398,6 +398,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_abs"))) {
+    EmitUnary<::mlir::tl::AbsOp, tvm::tl::NpuirAbs>(op);
+    return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_not"))) {
     EmitUnary<::mlir::tl::NotOp, tvm::tl::NpuirNot>(op);
     return {};

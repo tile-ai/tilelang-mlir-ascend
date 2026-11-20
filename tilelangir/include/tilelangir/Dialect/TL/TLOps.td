@@ -219,6 +219,11 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_AbsOp : TL_UnaryOp<"abs"> {
+  let summary = "Elementwise absolute value of a tile buffer";
+  let description = [{ Destination-style vector abs: out = abs(src). Lowers to hivm.hir.vabs. }];
+}
+
 def TL_NotOp : TL_UnaryOp<"not"> {
   let summary = "Elementwise logical/bitwise not of a tile buffer";
   let description = [{ Destination-style vector not: out = not(src). Lowers to hivm.hir.vnot. }];

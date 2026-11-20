@@ -178,7 +178,7 @@ LogicalResult MaxOp::verify() {
 }
 LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
-}
+} 
 
 static LogicalResult verifyElementwiseUnary(Operation *op, Value srcV,
                                             Value outV) {
@@ -189,6 +189,10 @@ static LogicalResult verifyElementwiseUnary(Operation *op, Value srcV,
   if (src.getShape() != out.getShape())
     return op->emitOpError("operand shapes must match");
   return success();
+}
+
+LogicalResult AbsOp::verify() {
+  return verifyElementwiseUnary(getOperation(), getSrc(), getOut());
 }
 
 LogicalResult NotOp::verify() {

@@ -196,6 +196,20 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
   }
 };
 
+struct ConvertConcat : public OpConversionPattern<tl::ConcatOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ConcatOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // NOTE: confirm the exact HIVM op name/signature for concat
+    // (likely hivm.hir.vconcat or similar) and adjust accordingly.
+    rewriter.replaceOpWithNewOp<hivm::VConcatOp>(
+        op, TypeRange{}, rewriter.getI64IntegerAttr(adaptor.getAxis()),
+        adaptor.getSrcs(), adaptor.getDst());
+       return success();
+  }
+};
 struct ConvertArange : public OpConversionPattern<tl::ArangeOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -297,7 +311,6 @@ void rewriteCoreTypeAttrs(ModuleOp module) {
                   hivm::TModuleCoreTypeAttr::get(
                       module.getContext(), convertModuleCoreType(moduleCore)));
 }
-
 struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
@@ -315,7 +328,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
       return converter.isLegal(op.getOperandTypes());
     });
 
-      RewritePatternSet patterns(ctx);
+    RewritePatternSet patterns(ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSort>(converter,
                                                                      ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertCast>(converter,
@@ -326,7 +339,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertPrint>(converter,
                                                                       ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
-                 ConvertArange, ConvertBinary<tl::MulOp, hivm::VMulOp>,
+                 ConvertConcat, ConvertArange,
+                 ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>,
@@ -347,6 +361,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     rewriteCoreTypeAttrs(getOperation());
   }
 };
+
    
 
 } // namespace

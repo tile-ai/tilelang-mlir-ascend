@@ -192,6 +192,18 @@ void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
                          GetBufferValue(bin.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitConcat(const CallNode *op) {
+  tvm::tl::NpuirConcat concat(op->args, vmap_);
+
+  llvm::SmallVector<::mlir::Value> srcs;
+  srcs.reserve(concat.srcs.size());
+  for (const Buffer &src : concat.srcs)
+    srcs.push_back(GetBufferValue(src));
+
+  builder_.create<::mlir::tl::ConcatOp>(builder_.getUnknownLoc(), srcs,
+                                        GetBufferValue(concat.dst),
+                                        builder_.getI64IntegerAttr(concat.dim));
+}
 mlir::Value CodeGenTileLangTLIR::ToIndex(mlir::Value v) {
   if (v.getType().isIndex())
     return v;
@@ -365,6 +377,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   if (op->op.same_as(Op::Get("tl.npuir_min"))) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
     return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_concat"))) {
+    EmitConcat(op);
+        return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_arange"))) {
     EmitArange(op);

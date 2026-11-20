@@ -1,6 +1,7 @@
 # TL dialect (TLIR) v0.1
 
 Restricted TileLang tile-level IR between TVM TIR and HIVM. v0.1 covers
+expert-mode elementwise add/sub/mul/div/max/min/flip: parse/print, TIR → TLIR import, and
 expert-mode elementwise add/sub/mul/div/max/min and concat: parse/print, TIR → TLIR import, and
 `tilelangir-convert-tl-to-hivm`.
 
@@ -28,6 +29,7 @@ expert-mode elementwise add/sub/mul/div/max/min and concat: parse/print, TIR →
 | `tl.div` | Destination-style elementwise divide (`out = lhs / rhs`) |
 | `tl.max` | Destination-style elementwise maximum |
 | `tl.min` | Destination-style elementwise minimum |
+| `tl.flip` | Destination-style flip along `axis` |
 | `tl.concat` | Destination-style concat of variadic tile buffers along a static axis |
 
 ```mlir

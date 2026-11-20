@@ -180,6 +180,17 @@ LogicalResult MinOp::verify() {
   return verifyElementwiseBinary(getOperation(), getLhs(), getRhs(), getOut());
 }
 
+LogicalResult FlipOp::verify() {
+  auto src = llvm::cast<MemRefType>(getSrc().getType());
+  auto dst = llvm::cast<MemRefType>(getDst().getType());
+  if (src.getElementType() != dst.getElementType())
+    return emitOpError("src and dst element types must match");
+  if (src.getShape() != dst.getShape())
+    return emitOpError("src and dst shapes must match");
+  if (static_cast<int64_t>(getAxis()) >= src.getRank())
+    return emitOpError("axis out of range for operand rank");
+  return success();
+}
 LogicalResult ConcatOp::verify() {
   auto dstTy = llvm::cast<MemRefType>(getDst().getType());
   int64_t axis = getAxis();

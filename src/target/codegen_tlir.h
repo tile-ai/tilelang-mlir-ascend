@@ -83,6 +83,7 @@ private:
   void EmitPrintVar(const CallNode *op);
   void EmitPrintBuf(const CallNode *op);
   void EmitSub(const CallNode *op);
+  void EmitFlip(const CallNode *op);
   void EmitConcat(const CallNode *op);
   void EmitArange(const CallNode *op);
   mlir::Value ToIndex(mlir::Value v);

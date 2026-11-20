@@ -209,6 +209,24 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+
+def TL_FlipOp : TL_Op<"flip", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["src", "dst"]>
+]> {
+  let summary = "Flip a tile buffer along an axis";
+  let description = [{
+    Destination-style vector flip: reverses `src` along `axis` and writes the
+    result to `dst`. `src` and `dst` share shape and element type.
+
+    Example:
+      tl.flip ins(%a) outs(%b) {axis = 1 : ui64} : memref<128x256xf16>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst, UI64Attr:$axis);
+  let assemblyFormat =
+      "`ins` `(` $src `)` `outs` `(` $dst `)` attr-dict `:` type($src)";
+  let hasVerifier = 1;
+}
 def TL_ConcatOp : TL_Op<"concat", [MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "Concatenate tile buffers along a given axis";
   let description = [{

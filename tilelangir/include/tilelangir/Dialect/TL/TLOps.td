@@ -219,6 +219,11 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_SqrtOp : TL_UnaryOp<"sqrt"> {
+  let summary = "Elementwise square root of a tile buffer";
+  let description = [{ Destination-style vector sqrt: out = sqrt(src). Lowers to hivm.hir.vsqrt, which requires f16/f32 operands. }];
+}
+
 def TL_AbsOp : TL_UnaryOp<"abs"> {
   let summary = "Elementwise absolute value of a tile buffer";
   let description = [{ Destination-style vector abs: out = abs(src). Lowers to hivm.hir.vabs. }];

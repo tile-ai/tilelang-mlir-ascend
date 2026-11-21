@@ -150,6 +150,118 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
   }
 };
 
+hivm::PIPE stringToHIVMPipe(StringRef pipeType) {
+  // Verified: TIR-level pipe_type strings match HIVM_PIPE_* case names
+  // without the "PIPE_" prefix (confirmed via pipe_barrier()'s docstring
+  // in tilelang/language/customize_npuir.py).
+  if (pipeType == "S")
+    return hivm::PIPE::PIPE_S;
+  if (pipeType == "V")
+    return hivm::PIPE::PIPE_V;
+  if (pipeType == "M")
+    return hivm::PIPE::PIPE_M;
+  if (pipeType == "MTE1")
+    return hivm::PIPE::PIPE_MTE1;
+  if (pipeType == "MTE2")
+    return hivm::PIPE::PIPE_MTE2;
+  if (pipeType == "MTE3")
+    return hivm::PIPE::PIPE_MTE3;
+  if (pipeType == "ALL")
+    return hivm::PIPE::PIPE_ALL;
+  if (pipeType == "MTE4")
+    return hivm::PIPE::PIPE_MTE4;
+  if (pipeType == "MTE5")
+    return hivm::PIPE::PIPE_MTE5;
+  if (pipeType == "V2")
+    return hivm::PIPE::PIPE_V2;
+  if (pipeType == "FIX")
+    return hivm::PIPE::PIPE_FIX;
+  llvm_unreachable("unknown pipe type string in tl.pipe_barrier");
+}
+
+hivm::TCoreType inferTCoreType(Operation *op) {
+  auto func = op->getParentOfType<func::FuncOp>();
+  if (!func)
+    return hivm::TCoreType::VECTOR;
+  auto tlCore = func->getAttrOfType<tl::CoreTypeAttr>("tl.core_type");
+  if (!tlCore)
+    return hivm::TCoreType::VECTOR;
+  switch (tlCore.getValue()) {
+  case tl::CoreType::AIC:
+    return hivm::TCoreType::CUBE;
+  case tl::CoreType::AIV:
+    return hivm::TCoreType::VECTOR;
+  case tl::CoreType::MIX:
+    // Not modeled yet in this TLIR subset; default to VECTOR.
+    return hivm::TCoreType::VECTOR;
+  }
+  return hivm::TCoreType::VECTOR;
+}
+
+hivm::SyncBlockInstrMode convertSyncInstrMode(tl::SyncInstrMode mode) {
+  switch (mode) {
+  case tl::SyncInstrMode::INTER_BLOCK:
+    return hivm::SyncBlockInstrMode::INTER_BLOCK_SYNCHRONIZATION;
+  case tl::SyncInstrMode::INTER_SUBBLOCK:
+    return hivm::SyncBlockInstrMode::INTER_SUBBLOCK_SYNCHRONIZATION;
+  case tl::SyncInstrMode::INTRA_BLOCK:
+    return hivm::SyncBlockInstrMode::INTRA_BLOCK_SYNCHRONIZATION;
+  }
+  return hivm::SyncBlockInstrMode::INTRA_BLOCK_SYNCHRONIZATION;
+}
+
+struct ConvertPipeBarrier : public OpConversionPattern<tl::PipeBarrierOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::PipeBarrierOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto pipeAttr =
+        hivm::PipeAttr::get(op.getContext(), stringToHIVMPipe(op.getPipe()));
+    rewriter.replaceOpWithNewOp<hivm::PipeBarrierOp>(op, pipeAttr);
+    return success();
+  }
+};
+
+struct ConvertSyncBlockSet : public OpConversionPattern<tl::SyncBlockSetOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::SyncBlockSetOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto *ctx = op.getContext();
+    auto tcoreTypeAttr = hivm::TCoreTypeAttr::get(ctx, inferTCoreType(op));
+    auto tpipeAttr = hivm::PipeAttr::get(ctx, stringToHIVMPipe(op.getPipe()));
+    auto pipeAttr = hivm::PipeAttr::get(ctx, hivm::PIPE::PIPE_S);
+    auto flagIdAttr = rewriter.getI64IntegerAttr(op.getFlagId());
+    auto instrModeAttr = hivm::SyncBlockInstrModeAttr::get(
+        ctx, convertSyncInstrMode(op.getSyncInstrMode()));
+    rewriter.replaceOpWithNewOp<hivm::SyncBlockSetOp>(
+        op, tcoreTypeAttr, tpipeAttr, pipeAttr,
+        /*static_flag_id=*/flagIdAttr, /*dynamic_flag_id=*/Value(),
+        /*ffts_base_addr=*/Value(), instrModeAttr);
+    return success();
+  }
+};
+
+struct ConvertSyncBlockWait : public OpConversionPattern<tl::SyncBlockWaitOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::SyncBlockWaitOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto *ctx = op.getContext();
+    auto tcoreTypeAttr = hivm::TCoreTypeAttr::get(ctx, inferTCoreType(op));
+    auto tpipeAttr = hivm::PipeAttr::get(ctx, hivm::PIPE::PIPE_S);
+    auto pipeAttr = hivm::PipeAttr::get(ctx, stringToHIVMPipe(op.getPipe()));
+    auto flagIdAttr = rewriter.getI64IntegerAttr(op.getFlagId());
+    rewriter.replaceOpWithNewOp<hivm::SyncBlockWaitOp>(
+        op, tcoreTypeAttr, tpipeAttr, pipeAttr,
+        /*static_flag_id=*/flagIdAttr, /*dynamic_flag_id=*/Value());
+    return success();
+  }
+};
+
 void rewriteCoreTypeAttrs(ModuleOp module) {
   tl::CoreType moduleCore = tl::CoreType::AIV;
   bool sawCore = false;
@@ -196,7 +308,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
-                 ConvertBinary<tl::MinOp, hivm::VMinOp>>(converter, ctx);
+                 ConvertBinary<tl::MinOp, hivm::VMinOp>, ConvertPipeBarrier,
+                 ConvertSyncBlockSet, ConvertSyncBlockWait>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

@@ -78,6 +78,10 @@ private:
   void EmitSub(const CallNode *op);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
+  void EmitPipeBarrier(const CallNode *op);
+  void EmitSyncBlockSet(const CallNode *op);
+  void EmitSyncBlockWait(const CallNode *op);
+  void EmitSyncBlock(const CallNode *op); // block_barrier / subblock_barrier
 
   mlir::MLIRContext context_;
   mlir::OpBuilder builder_;

@@ -122,6 +122,52 @@ struct ConvertAdd : public OpConversionPattern<tl::AddOp> {
   }
 };
 
+struct ConvertCast : public OpConversionPattern<tl::CastOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::CastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto roundModeOpt = hivm::symbolizeRoundMode(adaptor.getRoundMode());
+    if (!roundModeOpt)
+      return rewriter.notifyMatchFailure(op, "unknown round_mode: " +
+                                                 adaptor.getRoundMode());
+    auto roundModeAttr = hivm::RoundModeAttr::get(getContext(), *roundModeOpt);
+    auto castAttr =
+        hivm::TypeFnAttr::get(getContext(), hivm::TypeFn::cast_signed);
+    rewriter.replaceOpWithNewOp<hivm::VCastOp>(
+        op, TypeRange{}, ValueRange{adaptor.getSrc()},
+        ValueRange{adaptor.getDst()}, roundModeAttr, castAttr);
+     return success();
+  }
+};
+
+struct ConvertShr : public OpConversionPattern<tl::ShrOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ShrOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VShROp>(
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{adaptor.getOut()}, adaptor.getRoundAttr());
+     return success();
+  }
+};
+
+struct ConvertShl : public OpConversionPattern<tl::ShlOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ShlOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VShLOp>(
+        op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
 struct ConvertSub : public OpConversionPattern<tl::SubOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -131,6 +177,18 @@ struct ConvertSub : public OpConversionPattern<tl::SubOp> {
     rewriter.replaceOpWithNewOp<hivm::VSubOp>(
         op, TypeRange{}, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
         ValueRange{adaptor.getOut()});
+    return success();
+  }
+};
+
+struct ConvertFlip : public OpConversionPattern<tl::FlipOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::FlipOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VFlipOp>(
+        op, TypeRange{}, adaptor.getSrc(), adaptor.getDst(), adaptor.getAxis());
     return success();
   }
 };
@@ -165,6 +223,98 @@ struct ConvertUnary : public OpConversionPattern<TLOpT> {
   }
 };
 
+struct ConvertConcat : public OpConversionPattern<tl::ConcatOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ConcatOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // NOTE: confirm the exact HIVM op name/signature for concat
+    // (likely hivm.hir.vconcat or similar) and adjust accordingly.
+    rewriter.replaceOpWithNewOp<hivm::VConcatOp>(
+        op, TypeRange{}, rewriter.getI64IntegerAttr(adaptor.getAxis()),
+        adaptor.getSrcs(), adaptor.getDst());
+    return success();
+  }
+};
+struct ConvertArange : public OpConversionPattern<tl::ArangeOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ArangeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VArangeOp>(
+        op, TypeRange{}, adaptor.getDst(), adaptor.getOffset(),
+        adaptor.getStrides());
+    return success();
+  }
+};
+struct ConvertReshape : public OpConversionPattern<tl::ReshapeOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ReshapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto newTy = dyn_cast_if_present<MemRefType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    if (!newTy)
+      return rewriter.notifyMatchFailure(
+          op, "failed to convert reshape result type");
+
+    ArrayRef<int64_t> shape = newTy.getShape();
+    SmallVector<int64_t> strides(shape.size(), 1);
+    for (int64_t i = static_cast<int64_t>(shape.size()) - 2; i >= 0; --i)
+      strides[i] = strides[i + 1] * shape[i + 1];
+
+    // newTy already has no explicit layout (the type converter only rewrites
+    // the memory space), which MLIR treats as the canonical contiguous,
+    // offset-0 layout -- exactly what we compute below. Reusing it directly
+    // (instead of attaching an explicit StridedLayoutAttr) keeps this op's
+    // result type identical to what downstream ops like tl.copy's lowering
+    // expect, avoiding an unresolved materialization between an explicitly-
+    // strided type and the plain one.
+    SmallVector<OpFoldResult> offsets(shape.size(), rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> sizes, stridesFold;
+    for (int64_t s : shape)
+      sizes.push_back(rewriter.getIndexAttr(s));
+    for (int64_t s : strides)
+      stridesFold.push_back(rewriter.getIndexAttr(s));
+
+    rewriter.replaceOpWithNewOp<memref::ReinterpretCastOp>(
+        op, newTy, adaptor.getSrc(), offsets, sizes, stridesFold);
+    return success();
+  }
+};
+struct ConvertSort : public OpConversionPattern<tl::SortOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::SortOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VSortOp>(
+        op, TypeRange{}, adaptor.getSrc(),
+        ValueRange{adaptor.getDstValue(), adaptor.getDstIndex()},
+        op.getDescending(), op.getSortAxis());
+    return success();
+  }
+};
+
+struct ConvertPrint : public OpConversionPattern<tl::PrintOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::PrintOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // VERIFY operand/attr order against HIVM_DebugOp in HIVMOps.td before
+    // relying on this — inferred from the builder.create<mlir::hivm::DebugOp>
+    // call in codegen_npuir_api.cc::DebugPrintCodegen.
+    rewriter.replaceOpWithNewOp<hivm::DebugOp>(op, "print", op.getPrefix(),
+                                               op.getHex(), adaptor.getSrc(),
+                                               hivm::TCoreTypeAttr{});
+    return success();
+  }
+};
+
 void rewriteCoreTypeAttrs(ModuleOp module) {
   tl::CoreType moduleCore = tl::CoreType::AIV;
   bool sawCore = false;
@@ -188,7 +338,6 @@ void rewriteCoreTypeAttrs(ModuleOp module) {
                   hivm::TModuleCoreTypeAttr::get(
                       module.getContext(), convertModuleCoreType(moduleCore)));
 }
-
 struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
@@ -207,12 +356,32 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertFlip>(converter,
+                                                                     ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSort>(converter,
+                                                                     ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertCast>(converter,
+                                                                     ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShr>(converter, ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertShl>(converter,
+                                                                    ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertPrint>(converter,
+                                                                      ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
+                 ConvertConcat, ConvertArange,
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>,
-                 ConvertUnary<tl::RsqrtOp, hivm::VRsqrtOp>>(converter, ctx);
+                 ConvertUnary<tl::RsqrtOp, hivm::VRsqrtOp>,
+                 ConvertUnary<tl::SqrtOp, hivm::VSqrtOp>,
+                 ConvertUnary<tl::AbsOp, hivm::VAbsOp>,
+                 ConvertUnary<tl::NotOp, hivm::VNotOp>,
+                 ConvertBinary<tl::PowOp, hivm::VPowOp>,
+                 ConvertBinary<tl::XorOp, hivm::VXorOp>,
+                 ConvertBinary<tl::OrOp, hivm::VOrOp>,
+                 ConvertBinary<tl::AndOp, hivm::VAndOp>,
+                 ConvertReshape>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);
@@ -225,6 +394,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     rewriteCoreTypeAttrs(getOperation());
   }
 };
+
+   
 
 } // namespace
 

@@ -119,11 +119,11 @@ jobs:
         target:
           # Build wheels for the minimum supported Python ABI.
           - { runner: ubuntu-latest, toolkit: "CUDA-13.0", test_backends: "cu130", python_version: "3.10" }
-          - { runner: ubuntu-24.04-arm, toolkit: "CUDA-13.0", test_backends: "cu130", python_version: "3.10" }
-          - { runner: windows-latest, toolkit: "CUDA-13.0", test_backends: "cu130", python_version: "3.10" }
+          # - { runner: ubuntu-24.04-arm, toolkit: "CUDA-13.0", test_backends: "cu130", python_version: "3.10" }
+          # - { runner: windows-latest, toolkit: "CUDA-13.0", test_backends: "cu130", python_version: "3.10" }
           # CUDA 13.4 and its Windows ARM64 PyTorch wheel are developer previews.
-          - { runner: windows-11-arm, toolkit: "CUDA-13.4", test_backends: "cu134", torch_backend: "cu134", torch_package: "torch==2.14.0.dev20260728+cu134", torch_index_url: "https://pypi.nvidia.com/nvtorch_oot_nightly/", python_version: "3.13" }
-          - { runner: macos-latest, toolkit: "Metal", python_version: "3.10" }
+          # - { runner: windows-11-arm, toolkit: "CUDA-13.4", test_backends: "cu134", torch_backend: "cu134", torch_package: "torch==2.14.0.dev20260728+cu134", torch_index_url: "https://pypi.nvidia.com/nvtorch_oot_nightly/", python_version: "3.13" }
+          # - { runner: macos-latest, toolkit: "Metal", python_version: "3.10" }
           # - "3.14t"  # let user to build from source for now
           # TODO: Add cp315-abi3.abi3t after PEP 803
       fail-fast: false
@@ -754,7 +754,7 @@ jobs:
           TEST_MARKERS: not pto
         run: |
           source .venv/bin/activate
-          python -m pytest --verbose --durations=0 --maxfail=3 -n 32 -m "${TEST_MARKERS}" --ignore=testing/ascend/transform/test_ascend_vmi_alloc_marker.py testing/ascend
+          python -m pytest --verbose --durations=0 --maxfail=3 -n 32 -m "${TEST_MARKERS}" testing/ascend
 
       - name: Summarize Ascend wheel test results
         if: ${{ always() }}

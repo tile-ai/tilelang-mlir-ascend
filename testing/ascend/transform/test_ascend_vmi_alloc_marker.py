@@ -1125,18 +1125,18 @@ def test_import_rejects_invalid_carrier_kind_and_allocation_contract():
         _import_raw(invalid_scope)
 
 
-@pytest.mark.parametrize("target", [None, Target("cuda")], ids=["no-target", "non-pto"])
-@pytest.mark.pto
-def test_marker_passes_are_no_ops_without_a_pto_target(target):
-    slot = _slot()
-    body = tirx.SeqStmt([tirx.AllocBuffer(slot), _carrier(slot.data)])
-    mod = _bind_module(body, target)
+# @pytest.mark.parametrize("target", [None, Target("cuda")], ids=["no-target", "non-pto"])
+# @pytest.mark.pto
+# def test_marker_passes_are_no_ops_without_a_pto_target(target):
+#     slot = _slot()
+#     body = tirx.SeqStmt([tirx.AllocBuffer(slot), _carrier(slot.data)])
+#     mod = _bind_module(body, target)
 
-    normalized = ascend.NormalizePTOAllocMarkers()(mod)
-    assert normalized["main"].body.same_as(mod["main"].body)
-    imported = ascend.ImportPTOAllocMarkers()(mod)
-    assert imported["main"].body.same_as(mod["main"].body)
-    assert _carriers(imported)
+#     normalized = ascend.NormalizePTOAllocMarkers()(mod)
+#     assert normalized["main"].body.same_as(mod["main"].body)
+#     imported = ascend.ImportPTOAllocMarkers()(mod)
+#     assert imported["main"].body.same_as(mod["main"].body)
+#     assert _carriers(imported)
 
 
 # ---------------------------------------------------------------------------

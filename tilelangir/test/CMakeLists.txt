@@ -169,6 +169,30 @@ add_test(
 )
 
 add_test(
+  NAME tilelangir-tl-pipe-barrier
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/pipe_barrier.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/pipe_barrier.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-pipe-barrier
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/pipe_barrier.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/pipe_barrier.mlir\""
+)
+
+add_test(
+  NAME tilelangir-tl-sync-block
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/sync_block.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/sync_block.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-sync-block
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/sync_block.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/sync_block.mlir\""
+)
+
+add_test(  
   NAME tilelangir-tl-alloc-copy-sqrt
   COMMAND /bin/bash -c
     "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-sqrt.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-sqrt.mlir\""

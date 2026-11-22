@@ -89,6 +89,10 @@ private:
   mlir::Value ToIndex(mlir::Value v);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
+  void EmitPipeBarrier(const CallNode *op);
+  void EmitSyncBlockSet(const CallNode *op);
+  void EmitSyncBlockWait(const CallNode *op);
+  void EmitSyncBlock(const CallNode *op); // block_barrier / subblock_barrier
   template <typename TLOpT, typename NpuirOpT>
   void EmitUnary(const CallNode *op);
 

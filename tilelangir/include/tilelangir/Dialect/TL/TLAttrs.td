@@ -52,4 +52,16 @@ def TL_CoreType : TL_I32Enum<"CoreType", "TileLang launch core type", [
 
 def TL_CoreTypeAttr : TL_I32EnumAttr<"core_type", TL_CoreType>;
 
+def TL_INTER_BLOCK : I32EnumAttrCase<"INTER_BLOCK", 0, "inter_block">;
+def TL_INTER_SUBBLOCK : I32EnumAttrCase<"INTER_SUBBLOCK", 1, "inter_subblock">;
+def TL_INTRA_BLOCK : I32EnumAttrCase<"INTRA_BLOCK", 2, "intra_block">;
+
+def TL_SyncInstrMode : TL_I32Enum<"SyncInstrMode", "TileLang block sync instruction mode", [
+  TL_INTER_BLOCK,
+  TL_INTER_SUBBLOCK,
+  TL_INTRA_BLOCK
+]>;
+
+def TL_SyncInstrModeAttr : TL_I32EnumAttr<"sync_instr_mode", TL_SyncInstrMode>;
+
 #endif // TILELANGIR_DIALECT_TL_TLATTRS_TD

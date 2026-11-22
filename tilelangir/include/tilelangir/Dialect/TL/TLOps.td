@@ -219,6 +219,46 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_PipeBarrierOp : TL_Op<"pipe_barrier"> {
+  let summary = "Barrier across a given pipe";
+  let description = [{
+    Blocks all following instructions on `pipe` until all previous
+    instructions on that pipe finish. `pipe` is carried as a string,
+    mirroring NpuirPipeBarrier::pipe_type on the TVM side.
+    Example:
+      tl.pipe_barrier "v"
+  }];
+  let arguments = (ins StrAttr:$pipe);
+  let assemblyFormat = "$pipe attr-dict";
+  let hasVerifier = 0;
+}
+
+def TL_SyncBlockSetOp : TL_Op<"sync_block_set"> {
+  let summary = "Set an inter/intra-block synchronization flag";
+  let description = [{
+    Lowers to hivm.hir.sync_block_set. The target core type is derived from
+    the enclosing function's `tl.core_type` (not stored on this op).
+    `flag_id` is restricted to a static (compile-time) value in this subset.
+    Example:
+      tl.sync_block_set <inter_block> "Vector" 0
+  }];
+  let arguments = (ins TL_SyncInstrModeAttr:$sync_instr_mode, StrAttr:$pipe,
+                       I64Attr:$flag_id);
+  let assemblyFormat = "$sync_instr_mode $pipe $flag_id attr-dict";
+}
+
+def TL_SyncBlockWaitOp : TL_Op<"sync_block_wait"> {
+  let summary = "Wait for an inter/intra-block synchronization flag";
+  let description = [{
+    Lowers to hivm.hir.sync_block_wait. Target core type is derived the same
+    way as tl.sync_block_set.
+    Example:
+      tl.sync_block_wait "Vector" 0
+  }];
+  let arguments = (ins StrAttr:$pipe, I64Attr:$flag_id);
+  let assemblyFormat = "$pipe $flag_id attr-dict";
+}
+
 def TL_SqrtOp : TL_UnaryOp<"sqrt"> {
   let summary = "Elementwise square root of a tile buffer";
   let description = [{ Destination-style vector sqrt: out = sqrt(src). Lowers to hivm.hir.vsqrt, which requires f16/f32 operands. }];

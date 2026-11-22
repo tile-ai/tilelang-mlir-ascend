@@ -180,6 +180,66 @@ void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
                                      GetBufferValue(sub.Dst().GetBuffer()));
 }
 
+static ::mlir::tl::SyncInstrMode
+ToTLSyncInstrMode(tvm::tl::SyncBlockMode mode) {
+  switch (mode) {
+  case tvm::tl::SyncBlockMode::INTER_BLOCK:
+    return ::mlir::tl::SyncInstrMode::INTER_BLOCK;
+  case tvm::tl::SyncBlockMode::INTER_SUBBLOCK:
+    return ::mlir::tl::SyncInstrMode::INTER_SUBBLOCK;
+  case tvm::tl::SyncBlockMode::INTRA_BLOCK:
+    return ::mlir::tl::SyncInstrMode::INTRA_BLOCK;
+  }
+  LOG(FATAL) << "CodeGenTileLangTLIR: unknown SyncBlockMode";
+  return ::mlir::tl::SyncInstrMode::INTRA_BLOCK;
+}
+
+static int64_t StaticFlagId(const PrimExpr &flag_id) {
+  auto *imm = flag_id.as<IntImmNode>();
+  ICHECK(imm) << "CodeGenTileLangTLIR: tl.sync_block_* currently requires a "
+                 "static (compile-time constant) flag id";
+  return imm->value;
+}
+
+void CodeGenTileLangTLIR::EmitPipeBarrier(const CallNode *op) {
+  tvm::tl::NpuirPipeBarrier barrier(op->args, vmap_);
+  builder_.create<::mlir::tl::PipeBarrierOp>(
+      builder_.getUnknownLoc(), builder_.getStringAttr(barrier.pipe_type));
+}
+
+void CodeGenTileLangTLIR::EmitSyncBlockSet(const CallNode *op) {
+  tvm::tl::NpuirSyncBlockSet sync_op(op->args, vmap_);
+  builder_.create<::mlir::tl::SyncBlockSetOp>(
+      builder_.getUnknownLoc(),
+      ::mlir::tl::SyncInstrModeAttr::get(&context_,
+                                         ToTLSyncInstrMode(sync_op.mode)),
+      builder_.getStringAttr(sync_op.pipe_type),
+      builder_.getI64IntegerAttr(StaticFlagId(sync_op.flag_id)));
+}
+
+void CodeGenTileLangTLIR::EmitSyncBlockWait(const CallNode *op) {
+  tvm::tl::NpuirSyncBlockWait sync_op(op->args, vmap_);
+  builder_.create<::mlir::tl::SyncBlockWaitOp>(
+      builder_.getUnknownLoc(), builder_.getStringAttr(sync_op.pipe_type),
+      builder_.getI64IntegerAttr(StaticFlagId(sync_op.flag_id)));
+}
+
+void CodeGenTileLangTLIR::EmitSyncBlock(const CallNode *op) {
+  // Backs both block_barrier() and subblock_barrier() — they differ only
+  // in `mode`, and both lower to a set+wait pair (see SyncBlockSetCodegen
+  // + SyncBlockWaitCodegen in codegen_npuir.cc for the NPUIR backend).
+  tvm::tl::NpuirSyncBlock sync_op(op->args, vmap_);
+  auto pipeAttr = builder_.getStringAttr(sync_op.pipe_type);
+  auto flagIdAttr = builder_.getI64IntegerAttr(StaticFlagId(sync_op.flag_id));
+  builder_.create<::mlir::tl::SyncBlockSetOp>(
+      builder_.getUnknownLoc(),
+      ::mlir::tl::SyncInstrModeAttr::get(&context_,
+                                         ToTLSyncInstrMode(sync_op.mode)),
+      pipeAttr, flagIdAttr);
+  builder_.create<::mlir::tl::SyncBlockWaitOp>(builder_.getUnknownLoc(),
+                                               pipeAttr, flagIdAttr);
+}                                          
+                                               
 void CodeGenTileLangTLIR::EmitFlip(const CallNode *op) {
   tvm::tl::NpuirFlip flip(op->args, vmap_);
   builder_.create<::mlir::tl::FlipOp>(builder_.getUnknownLoc(),
@@ -396,6 +456,22 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_min"))) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_pipe_barrier"))) {
+    EmitPipeBarrier(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_sync_block"))) {
+    EmitSyncBlock(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_sync_block_set"))) {
+    EmitSyncBlockSet(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_sync_block_wait"))) {
+    EmitSyncBlockWait(op);
     return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_sqrt"))) {

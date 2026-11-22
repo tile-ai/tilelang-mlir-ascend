@@ -75,13 +75,26 @@ private:
   mlir::Attribute AddressSpaceAttr(mlir::tl::AddressSpace space);
   void EmitCopy(const CallNode *op);
   void EmitAdd(const CallNode *op);
+  void EmitReshape(const CallNode *op);
+  void EmitSort(const CallNode *op);
+  void EmitCast(const CallNode *op);
+  void EmitShr(const CallNode *op);
+  void EmitShl(const CallNode *op);
+  void EmitPrintVar(const CallNode *op);
+  void EmitPrintBuf(const CallNode *op);
   void EmitSub(const CallNode *op);
+  void EmitFlip(const CallNode *op);
+  void EmitConcat(const CallNode *op);
+  void EmitArange(const CallNode *op);
+  mlir::Value ToIndex(mlir::Value v);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
   void EmitPipeBarrier(const CallNode *op);
   void EmitSyncBlockSet(const CallNode *op);
   void EmitSyncBlockWait(const CallNode *op);
   void EmitSyncBlock(const CallNode *op); // block_barrier / subblock_barrier
+  template <typename TLOpT, typename NpuirOpT>
+  void EmitUnary(const CallNode *op);
 
   mlir::MLIRContext context_;
   mlir::OpBuilder builder_;

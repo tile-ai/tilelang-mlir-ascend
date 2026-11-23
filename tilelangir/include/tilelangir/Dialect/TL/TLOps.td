@@ -219,6 +219,42 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+
+def TL_PadOp : TL_Op<"pad", [MemoryEffects<[MemRead, MemWrite]>,
+    AttrSizedOperandSegments]> {
+  let summary = "Pad a tile buffer along one dimension";
+  let description = [{
+    Destination-style pad: writes `src` into `dst`, filling the padded
+    region with the scalar `pad_value`. Per-dimension static padding
+    amounts are recorded in `static_low`/`static_high` (one entry per rank
+    of `src`); any dimension whose low/high padding amount is only known
+    at runtime instead contributes a value to the variadic `low`/`high`
+    operands, with the corresponding `static_low`/`static_high` entry set
+    to the dynamic-size sentinel (`ShapedType::kDynamic`).
+
+    Mirrors `tvm::tl::NpuirPad` / `hivm::VPadOp` one-to-one.
+  }];
+
+  let arguments = (ins
+    AnyMemRef:$src,
+    AnyMemRef:$dst,
+    AnyType:$pad_value,
+    Variadic<Index>:$low,
+    Variadic<Index>:$high,
+    DenseI64ArrayAttr:$static_low,
+    DenseI64ArrayAttr:$static_high
+  );
+
+  let assemblyFormat = [{
+    `ins` `(` $src `)` `outs` `(` $dst `)`
+    `pad_value` `(` $pad_value `:` type($pad_value) `)`
+    `low` `(` $low `)` `high` `(` $high `)`
+    attr-dict `:` type($src) `,` type($dst)
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TL_RsqrtOp : TL_UnaryOp<"rsqrt"> {
   let summary = "Elementwise reciprocal square root of a tile buffer";
   let description = [{ Destination-style vector rsqrt: out = 1 / sqrt(src). Lowers to hivm.hir.vrsqrt, which requires f16/f32 operands. }];

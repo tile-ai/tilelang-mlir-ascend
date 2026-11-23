@@ -9,6 +9,7 @@
  *   allocate -> tl.alloc
  *   tl.copy  -> tl.copy
  *   tl.npuir_add -> tl.add
+ *   tl.npuir_pad -> tl.pad
  *
  * HIVM/runtime ABI attrs are intentionally omitted; this is the middle IR.
  */
@@ -83,6 +84,7 @@ private:
   void EmitPrintVar(const CallNode *op);
   void EmitPrintBuf(const CallNode *op);
   void EmitSub(const CallNode *op);
+  void EmitPad(const CallNode *op);
   void EmitFlip(const CallNode *op);
   void EmitConcat(const CallNode *op);
   void EmitArange(const CallNode *op);

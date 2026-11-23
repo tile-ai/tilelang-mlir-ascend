@@ -181,6 +181,19 @@ struct ConvertSub : public OpConversionPattern<tl::SubOp> {
   }
 };
 
+struct ConvertPad : public OpConversionPattern<tl::PadOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::PadOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<hivm::VPadOp>(
+        op, TypeRange{}, adaptor.getSrc(), adaptor.getDst(),
+        adaptor.getPadValue(), adaptor.getLow(), adaptor.getHigh(),
+        adaptor.getStaticLow(), adaptor.getStaticHigh());
+      return success();
+  }
+};
 struct ConvertFlip : public OpConversionPattern<tl::FlipOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -356,6 +369,8 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     });
 
     RewritePatternSet patterns(ctx);
+    patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertPad>(converter,
+                                                                     ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertFlip>(converter,
                                                                      ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSort>(converter,

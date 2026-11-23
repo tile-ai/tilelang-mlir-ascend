@@ -169,6 +169,17 @@ add_test(
 )
 
 add_test(
+  NAME tilelangir-tl-alloc-copy-pad
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-pad.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-pad.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-alloc-copy-pad
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-pad.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-copy-pad.mlir\""
+  )
+add_test(
   NAME tilelangir-tl-alloc-copy-rsqrt
   COMMAND /bin/bash -c
     "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-rsqrt.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-rsqrt.mlir\""

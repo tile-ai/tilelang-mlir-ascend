@@ -851,11 +851,11 @@ jobs:
 
   publish-obs:
     name: Publish wheels to OBS nightly repo
-    # Publish the shared Linux wheel after the CUDA and ROCm smoke tests pass.
+    # Self-hosted GPU runners can be unavailable, so publish once the wheels are built.
     if: |
       github.repository_owner == 'tile-ai' &&
       (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
-    needs: [test-wheels-gpu]
+    needs: [build-wheels]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -1082,12 +1082,11 @@ jobs:
     name: Publish wheels to GitHub nightly repo
     # Publish all built wheels to tile-ai/tilelang-nightly GitHub Releases and
     # update the SHA-256-pinned index at https://tile-ai.github.io/whl/mlir-ascend-nightly
-    # after the Linux CUDA/ROCm GPU smoke tests pass. Runs in parallel with
-    # publish-obs so an outage on one mirror does not block the other.
+    # after the wheel build. This job runs in parallel with publish-obs.
     if: |
       github.repository_owner == 'tile-ai' &&
       (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
-    needs: [test-wheels-gpu]
+    needs: [build-wheels]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:

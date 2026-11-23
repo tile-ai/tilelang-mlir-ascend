@@ -220,6 +220,22 @@ def TL_MinOp : TL_BinaryOp<"min"> {
 }
 
 
+def TL_VErfOp : TL_Op<"verf", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["src", "dst"]>
+]> {
+  let summary = "Vector error function (erf) approximation";
+  let description = [{
+    Destination-style unary op: dst = erf(src), computed as a polynomial
+    approximation when lowered to HIVM. src and dst share shape and element
+    type.
+
+    Example:
+      tl.verf ins(%a) outs(%b) : memref<64xf32>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst);
+ }  
+ 
 def TL_PadOp : TL_Op<"pad", [MemoryEffects<[MemRead, MemWrite]>,
     AttrSizedOperandSegments]> {
   let summary = "Pad a tile buffer along one dimension";

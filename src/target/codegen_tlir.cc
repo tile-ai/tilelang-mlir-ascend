@@ -180,6 +180,15 @@ void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
                                      GetBufferValue(sub.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitVErf(const CallNode *op) {
+  tvm::tl::NpuirVErf verf(op->args, vmap_);
+  ICHECK_EQ(verf.srcs.size(), 1u)
+      << "CodeGenTileLangTLIR: tl.npuir_verf currently requires exactly one "
+         "source operand";
+  builder_.create<::mlir::tl::VErfOp>(builder_.getUnknownLoc(),
+                                      GetBufferValue(verf.srcs[0]),
+                                      GetBufferValue(verf.dst));
+}
 void CodeGenTileLangTLIR::EmitPad(const CallNode *op) {
   tvm::tl::NpuirPad pad(op->args, vmap_);
   mlir::Location loc = builder_.getUnknownLoc();
@@ -415,6 +424,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
     EmitSub(op);
     return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_verf"))) {
+    EmitVErf(op);
+     return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_pad"))) {
     EmitPad(op);

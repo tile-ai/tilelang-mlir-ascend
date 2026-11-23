@@ -1,7 +1,11 @@
 # TL dialect (TLIR) v0.1
 
 Restricted TileLang tile-level IR between TVM TIR and HIVM. v0.1 covers
-expert-mode elementwise add/sub/mul/div/max/min: parse/print, TIR → TLIR import, and
+expert-mode elementwise add/sub/mul/div/max/min/atomic_add: parse/print, TIR → TLIR import, and
+expert-mode elementwise add/sub/mul/div/max/min/verf: parse/print, TIR → TLIR import, and
+expert-mode elementwise add/sub/mul/div/max/min and pad: parse/print, TIR → TLIR import, and
+expert-mode elementwise add/sub/mul/div/max/min/flip: parse/print, TIR → TLIR import, and
+expert-mode elementwise add/sub/mul/div/max/min and concat: parse/print, TIR → TLIR import, and
 `tilelangir-convert-tl-to-hivm`.
 
 ## Attributes
@@ -22,11 +26,17 @@ expert-mode elementwise add/sub/mul/div/max/min: parse/print, TIR → TLIR impor
 | `tl.alloc` | Allocate a tile buffer |
 | `tl.copy` | Same-shape DMA-style copy (spaces may differ) |
 | `tl.add` | Destination-style elementwise add |
+| `tl.print` | Debug-print a scalar or buffer (lowers to `hivm.hir.debug`) |
 | `tl.sub` | Destination-style elementwise subtract (`out = lhs - rhs`) |
 | `tl.mul` | Destination-style elementwise multiply |
 | `tl.div` | Destination-style elementwise divide (`out = lhs / rhs`) |
 | `tl.max` | Destination-style elementwise maximum |
 | `tl.min` | Destination-style elementwise minimum |
+| `tl.atomic_add` | Atomic elementwise add in place (`dst += src`; spaces may differ, no copy-back) |
+| `tl.verf` | Destination-style erf approximation (lowers to a polynomial of `hivm.hir.vmul`/`vadd`) |
+| `tl.pad` | Destination-style pad along one dimension (`AttrSizedOperandSegments`; static amounts in `static_low`/`static_high`, dynamic amounts via `low`/`high` operands) |
+| `tl.flip` | Destination-style flip along `axis` |
+| `tl.concat` | Destination-style concat of variadic tile buffers along a static axis |
 
 ```mlir
 func.func @elemwise_add(%gm_a: memref<64xf32, #tl.address_space<gm>>,
@@ -57,4 +67,47 @@ tilelangir-opt --tilelangir-convert-tl-to-hivm \
   tilelangir/test/Dialect/TL/alloc-copy-add.mlir
 ```
 
+```mlir
+func.func @elemwise_pad(%gm_src: memref<60xf32, #tl.address_space<gm>>,
+                        %gm_dst: memref<64xf32, #tl.address_space<gm>>)
+    attributes {tl.core_type = #tl.core_type<aiv>} {
+  %ub_src = tl.alloc : memref<60xf32, #tl.address_space<ub>>
+  %ub_dst = tl.alloc : memref<64xf32, #tl.address_space<ub>>
+  %pad_val = arith.constant 0.0 : f32
+  tl.copy %gm_src -> %ub_src : memref<60xf32, #tl.address_space<gm>>, memref<60xf32, #tl.address_space<ub>>
+  tl.pad ins(%ub_src) outs(%ub_dst) pad_value(%pad_val : f32) low() high() {static_low = array<i64: 0>, static_high = array<i64: 4>} : memref<60xf32, #tl.address_space<ub>>, memref<64xf32, #tl.address_space<ub>>
+  tl.copy %ub_dst -> %gm_dst : memref<64xf32, #tl.address_space<ub>>, memref<64xf32, #tl.address_space<gm>>
+  return
+}
+```
+
+Round-trip:
+
+```bash
+tilelangir-opt tilelangir/test/Dialect/TL/alloc-copy-pad.mlir
+```
+
+Lower to HIVM (expert-mode pad subset: `memref.alloc` / `memref.copy` / `hivm.hir.vpad`):
+
+```bash
+tilelangir-opt --tilelangir-convert-tl-to-hivm \
+  tilelangir/test/Dialect/TL/alloc-copy-pad.mlir
+```
+
 This pass does not inject HACC / FFTS / workspace ABI.
+
+## tl.arange
+A destination-passing op that fills a buffer with a strided index sequence:
+`tl.arange outs(%dst) offset(%offset) strides(%s0, %s1, ...) : T`.
+`%dst` is written in place; `%offset` is a scalar `index` added to every
+generated element, and `%s0, %s1, ...` are per-dimension `index` strides
+(one per result dimension) used to compute each element's value from its
+multi-dimensional position. Lowers to `hivm.hir.varange` with the same
+`offset`/`strides` operands and `outs`, which is backed by a real hardware
+vector-arange instruction on `ub`-resident buffers.
+## tl.reshape
+
+A pure view op (not destination-passing like tl.add/tl.cast): `%view = tl.reshape %src : T1 to T2`.
+src and result share element type and total element count but may differ in
+shape/rank. Lowers directly to `memref.reinterpret_cast` with contiguous
+strides computed from the result shape -- no HIVM hardware op is involved.

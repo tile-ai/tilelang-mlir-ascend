@@ -92,6 +92,7 @@ private:
   mlir::Value ToIndex(mlir::Value v);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
+  void EmitAtomicAdd(const CallNode *op);
   template <typename TLOpT, typename NpuirOpT>
   void EmitUnary(const CallNode *op);
 

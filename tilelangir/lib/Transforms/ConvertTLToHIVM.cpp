@@ -295,6 +295,18 @@ struct ConvertBinary : public OpConversionPattern<TLOpT> {
   }
 };
 
+struct ConvertAtomicAdd : public OpConversionPattern<tl::AtomicAddOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::AtomicAddOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto storeOp = rewriter.replaceOpWithNewOp<hivm::StoreOp>(
+        op, TypeRange{}, adaptor.getSrc(), adaptor.getDst());
+    storeOp.setAtomicKind(hivm::AtomicKind::ADD);
+    return success();
+  }
+};
 template <typename TLOpT, typename HIVMOpT>
 struct ConvertUnary : public OpConversionPattern<TLOpT> {
   using OpConversionPattern<TLOpT>::OpConversionPattern;
@@ -472,7 +484,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::XorOp, hivm::VXorOp>,
                  ConvertBinary<tl::OrOp, hivm::VOrOp>,
                  ConvertBinary<tl::AndOp, hivm::VAndOp>,
-                 ConvertReshape>(converter, ctx);
+                 ConvertReshape,ConvertAtomicAdd>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

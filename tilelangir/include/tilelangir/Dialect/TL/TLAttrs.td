@@ -52,4 +52,32 @@ def TL_CoreType : TL_I32Enum<"CoreType", "TileLang launch core type", [
 
 def TL_CoreTypeAttr : TL_I32EnumAttr<"core_type", TL_CoreType>;
 
+def TL_PipeS    : I32EnumAttrCase<"PIPE_S", 0, "pipe_s">;
+def TL_PipeV    : I32EnumAttrCase<"PIPE_V", 1, "pipe_v">;
+def TL_PipeM    : I32EnumAttrCase<"PIPE_M", 2, "pipe_m">;
+def TL_PipeMTE1 : I32EnumAttrCase<"PIPE_MTE1", 3, "pipe_mte1">;
+def TL_PipeMTE2 : I32EnumAttrCase<"PIPE_MTE2", 4, "pipe_mte2">;
+def TL_PipeMTE3 : I32EnumAttrCase<"PIPE_MTE3", 5, "pipe_mte3">;
+def TL_PipeALL  : I32EnumAttrCase<"PIPE_ALL", 6, "pipe_all">;
+def TL_PipeMTE4 : I32EnumAttrCase<"PIPE_MTE4", 7, "pipe_mte4">;
+def TL_PipeMTE5 : I32EnumAttrCase<"PIPE_MTE5", 8, "pipe_mte5">;
+def TL_PipeV2   : I32EnumAttrCase<"PIPE_V2", 9, "pipe_v2">;
+def TL_PipeFIX  : I32EnumAttrCase<"PIPE_FIX", 10, "pipe_fix">;
+
+def TL_Pipe : TL_I32Enum<"Pipe", "TileLang sync pipe", [
+  TL_PipeS,
+  TL_PipeV,
+  TL_PipeM,
+  TL_PipeMTE1,
+  TL_PipeMTE2,
+  TL_PipeMTE3,
+  TL_PipeALL,
+  TL_PipeMTE4,
+  TL_PipeMTE5,
+  TL_PipeV2,
+  TL_PipeFIX
+]>;
+
+def TL_PipeAttr : TL_I32EnumAttr<"pipe", TL_Pipe>;
+
 #endif // TILELANGIR_DIALECT_TL_TLATTRS_TD

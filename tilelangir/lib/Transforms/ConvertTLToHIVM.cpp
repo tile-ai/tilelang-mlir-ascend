@@ -307,6 +307,7 @@ struct ConvertAtomicAdd : public OpConversionPattern<tl::AtomicAddOp> {
     return success();
   }
 };
+  
 template <typename TLOpT, typename HIVMOpT>
 struct ConvertUnary : public OpConversionPattern<TLOpT> {
   using OpConversionPattern<TLOpT>::OpConversionPattern;
@@ -476,6 +477,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>,
+                 ConvertUnary<tl::RecOp, hivm::VRecOp>,
                  ConvertUnary<tl::RsqrtOp, hivm::VRsqrtOp>,
                  ConvertUnary<tl::SqrtOp, hivm::VSqrtOp>,
                  ConvertUnary<tl::AbsOp, hivm::VAbsOp>,

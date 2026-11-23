@@ -477,6 +477,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,
                  ConvertBinary<tl::MaxOp, hivm::VMaxOp>,
                  ConvertBinary<tl::MinOp, hivm::VMinOp>,
+                 ConvertUnary<tl::ExpOp, hivm::VExpOp>,
                  ConvertUnary<tl::RecOp, hivm::VRecOp>,
                  ConvertUnary<tl::RsqrtOp, hivm::VRsqrtOp>,
                  ConvertUnary<tl::SqrtOp, hivm::VSqrtOp>,

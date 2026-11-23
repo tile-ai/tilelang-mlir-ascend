@@ -252,6 +252,7 @@ void CodeGenTileLangTLIR::EmitAtomicAdd(const CallNode *op) {
                                            GetBufferValue(atomic_add.src),
                                            GetBufferValue(atomic_add.dst));
 }
+
 template <typename TLOpT, typename NpuirOpT>
 void CodeGenTileLangTLIR::EmitUnary(const CallNode *op) {
   NpuirOpT un(op->args, vmap_);
@@ -457,6 +458,10 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_min"))) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_exp"))) {
+    EmitUnary<::mlir::tl::ExpOp, tvm::tl::NpuirExp>(op);
     return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_rec"))) {

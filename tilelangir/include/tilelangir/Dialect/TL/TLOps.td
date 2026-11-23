@@ -219,6 +219,11 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_ExpOp : TL_UnaryOp<"exp"> {
+  let summary = "Elementwise exponential of a tile buffer";
+  let description = [{ Destination-style vector exp: out = exp(src). Lowers to hivm.hir.vexp, which requires f16/f32 operands. }];
+}
+
 def TL_RecOp : TL_UnaryOp<"rec"> {
   let summary = "Elementwise reciprocal of a tile buffer";
   let description = [{ Destination-style vector reciprocal: out = 1 / src. Lowers to hivm.hir.vrec, which requires f16/f32 operands. }];

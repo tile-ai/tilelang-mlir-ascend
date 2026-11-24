@@ -86,6 +86,7 @@ private:
   void EmitPrintVar(const CallNode *op);
   void EmitPrintBuf(const CallNode *op);
   void EmitSub(const CallNode *op);
+  mlir::Value EmitBitcast(const CallNode *op);
   void EmitVErf(const CallNode *op);
   void EmitPad(const CallNode *op);
   void EmitFlip(const CallNode *op);

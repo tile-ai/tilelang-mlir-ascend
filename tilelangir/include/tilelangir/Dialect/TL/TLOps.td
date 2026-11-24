@@ -29,6 +29,26 @@ def TL_CopyOp : TL_Op<"copy", [MemoryEffects<[MemRead, MemWrite]>]> {
   let hasVerifier = 1;
 }
 
+def TL_VBitcastOp : TL_Op<"vbitcast", [MemoryEffects<[MemRead]>]> {
+  let summary = "Reinterpret the bits of a tile buffer as a different element type";
+  let description = [{
+    Bitcasts a memref to a new element type, preserving the underlying bit
+    pattern and shape. Source and result element types must have the same
+    bit width.
+
+    Unlike `tl.add`/`tl.sub`, this op produces a new SSA value rather than
+    writing into a destination operand.
+
+    Example:
+      %r = tl.vbitcast %src : memref<64xf32> to memref<64xi32>
+  }];
+  let arguments = (ins AnyMemRef:$source);
+  let results = (outs AnyMemRef:$result);
+  let assemblyFormat =
+      "$source attr-dict `:` type($source) `to` type($result)";
+  let hasVerifier = 1;
+}
+
 def TL_AddOp : TL_Op<"add", [
     MemoryEffects<[MemRead, MemWrite]>,
     AllTypesMatch<["lhs", "rhs", "out"]>

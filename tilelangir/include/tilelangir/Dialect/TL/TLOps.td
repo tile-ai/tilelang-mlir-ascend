@@ -236,6 +236,21 @@ def TL_SetFlagOp : TL_Op<"set_flag", []> {
       "`[` $set_pipe `,` $wait_pipe `,` $event_id `]` attr-dict `:` type($event_id)";
 }
 
+def TL_WaitFlagOp : TL_Op<"wait_flag", []> {
+  let summary = "Wait on a cross-pipe synchronization flag";
+  let description = [{
+    Blocks `wait_pipe` until the matching `tl.set_flag` on `set_pipe` has
+    signaled `event_id`. Lowers to `hivm.hir.wait_flag`.
+
+    Example:
+      tl.wait_flag[#tl.pipe<pipe_mte2>, #tl.pipe<pipe_v>, %event_id] : i64
+  }];
+  let arguments = (ins TL_PipeAttr:$set_pipe, TL_PipeAttr:$wait_pipe,
+                       AnySignlessInteger:$event_id);
+  let assemblyFormat =
+      "`[` $set_pipe `,` $wait_pipe `,` $event_id `]` attr-dict `:` type($event_id)";
+}
+
 def TL_ExpOp : TL_UnaryOp<"exp"> {
   let summary = "Elementwise exponential of a tile buffer";
   let description = [{ Destination-style vector exp: out = exp(src). Lowers to hivm.hir.vexp, which requires f16/f32 operands. }];
@@ -280,6 +295,9 @@ def TL_VErfOp : TL_Op<"verf", [
       tl.verf ins(%a) outs(%b) : memref<64xf32>
   }];
   let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst);
+    let assemblyFormat =
+      "`ins` `(` $src `)` `outs` `(` $dst `)` attr-dict `:` type($src)";
+  let hasVerifier = 1;
  }  
  
 def TL_PadOp : TL_Op<"pad", [MemoryEffects<[MemRead, MemWrite]>,

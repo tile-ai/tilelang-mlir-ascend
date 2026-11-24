@@ -329,13 +329,13 @@ struct ConvertSetFlag : public OpConversionPattern<tl::SetFlagOp> {
   LogicalResult
   matchAndRewrite(tl::SetFlagOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto setPipe = hivm::PipeAttr::get(
-        rewriter.getContext(), convertPipe(op.getSetPipe()));
-    auto waitPipe = hivm::PipeAttr::get(
-        rewriter.getContext(), convertPipe(op.getWaitPipe()));
+    auto setPipe = hivm::PipeAttr::get(rewriter.getContext(),
+                                       convertPipe(op.getSetPipe()));
+    auto waitPipe = hivm::PipeAttr::get(rewriter.getContext(),
+                                        convertPipe(op.getWaitPipe()));
     rewriter.replaceOpWithNewOp<hivm::SetFlagOp>(
         op, setPipe, waitPipe, hivm::EventAttr{}, adaptor.getEventId());
-        return success();
+    return success();
   }
 };
   
@@ -367,6 +367,22 @@ struct ConvertUnary : public OpConversionPattern<TLOpT> {
   }
 };
 
+struct ConvertWaitFlag : public OpConversionPattern<tl::WaitFlagOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::WaitFlagOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto setPipe = hivm::PipeAttr::get(rewriter.getContext(),
+                                       convertPipe(op.getSetPipe()));
+    auto waitPipe = hivm::PipeAttr::get(rewriter.getContext(),
+                                        convertPipe(op.getWaitPipe()));
+    rewriter.replaceOpWithNewOp<hivm::WaitFlagOp>(
+        op, setPipe, waitPipe, hivm::EventAttr{}, adaptor.getEventId());
+    return success();
+  }
+};
+  
 struct ConvertConcat : public OpConversionPattern<tl::ConcatOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -531,7 +547,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
                  ConvertBinary<tl::XorOp, hivm::VXorOp>,
                  ConvertBinary<tl::OrOp, hivm::VOrOp>,
                  ConvertBinary<tl::AndOp, hivm::VAndOp>,
-                 ConvertReshape,ConvertAtomicAdd,ConvertSetFlag>(converter, ctx);
+                 ConvertReshape,ConvertAtomicAdd,ConvertSetFlag, ConvertWaitFlag>(converter, ctx);
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns,
                                                                    converter);
     populateReturnOpTypeConversionPattern(patterns, converter);

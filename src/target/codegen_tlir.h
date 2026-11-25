@@ -99,8 +99,6 @@ private:
   void EmitWaitFlag(const CallNode *op);
   mlir::tl::Pipe PipeFromString(const std::string &pipe);
   mlir::Value GetEventID(PrimExpr id);
-  mlir::tl::Pipe PipeFromString(const std::string &pipe);
-  mlir::Value GetEventID(PrimExpr id);
   void EmitAtomicAdd(const CallNode *op);
   template <typename TLOpT, typename NpuirOpT>
   void EmitUnary(const CallNode *op);

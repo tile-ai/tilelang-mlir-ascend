@@ -239,6 +239,10 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_LnOp : TL_UnaryOp<"ln"> {
+  let summary = "Elementwise natural logarithm of a tile buffer";
+  let description = [{ Destination-style vector ln: out = ln(src). Lowers to hivm.hir.vln, which requires f16/f32 operands. }];
+}
 def TL_SetFlagOp : TL_Op<"set_flag", []> {
   let summary = "Set a cross-pipe synchronization flag";
   let description = [{

@@ -159,7 +159,7 @@ assets/skills/tilelang-ascend-knowledge/
 python3 assets/skills/tilelang-ascend-knowledge/scripts/validate_kb.py
 ```
 
-此外，官方 TileLang 的九项原生 Skill 快照保存在 [assets/native-skills/](assets/native-skills/README.md) 供离线参考；可运行算子样例位于 `example/gemm/` 与 `example/convolution/`。
+此外，官方 TileLang 的九项原生 Skill 快照保存在 [assets/native-skills/](assets/native-skills/README.md) 供离线参考；可运行算子参考样例位于 `example/attention/`（自包含真动态 shape Dense Prefill Fwd/Bwd 高起点骨架）、`example/gemm/` 与 `example/convolution/`。
 
 ---
 

@@ -11,14 +11,18 @@ verified_scope: tilelang-ascend
 
 覆盖 Prefill Forward、Prefill Backward、稀疏/滑窗/Sink/Prefix 融合变体以及 FP8 MLA / GQA Decode。
 
-## 1. 架构级选型速查
+## 1. 高起点黄金骨架（不要从零重走低 MFU 弯路）
 
-| 子类 | 推荐主循环组织 | 典型瓶颈演进路线 | 核心参考模式 |
+编写新的 Attention 算子或衍生变体（Causal、滑窗、稀疏 Mask、Bias、RoPE 融合等）时，**直接从下列自包含高起点骨架起步**，在对应 `# HOOK:` 处叠加业务语义，再按实测 `msprof` 症状按需叠加第 2 层模式卡：
+
+| 子类 | 仓内可运行高起点骨架 | 骨架已具备能力与规格 | 实测遇瓶颈后按需叠加的模式卡 |
 | --- | --- | --- | --- |
-| **Prefill Forward（含稀疏/Mask）** | 显式 CV 常驻主循环（如 `128×128` 档），单任务完成一个 Q tile 归约与写回；动态 `Sq/Sk` 与稀疏区间跳块 | 架构低效（~25% MFU）→ 重写 NPU 亲和主循环（~91% MFU，轻微 Vector-bound）→ 列向 Softmax 反转为严格 Cube-bound（>95% MFU） | [softmax-col-fp32.md](../../patterns/softmax-col-fp32.md)、[writing-paradigms.md](../../foundations/writing-paradigms.md) |
-| **Prefill Backward** | 高 GQA 坚持 `KV-outer` 驻留 `K/V`，设备侧按有效 tile 前缀和均分给持久物理 block | 负载不均/Vector 慢 → `SimdVF` + 提前送 `P` → 显式 CV 双槽/4槽环 + `flat-head` + `dq_c[2]` → 自适应 L2 分段（长序列稳定 80%+ MFU） | [cv-explicit-ring-pipeline.md](../../patterns/cv-explicit-ring-pipeline.md)、[simd-vf-256b-fusion.md](../../patterns/simd-vf-256b-fusion.md)、[l2-adaptive-sectioning.md](../../patterns/l2-adaptive-sectioning.md) |
-| **GQA Prefill 变体（Sink / 滑窗 / Prefix / Shared-RoPE）** | Query-major 复用 + 滑窗 KV 块上下界拆分 + 双 `L1` Ring 零拷贝融合 Prefix/RoPE + 入口缓存不变量（如 `sink`） | 先修静态 causal 负载不均（-30%~47%）→ 消除 Cube/FIXPIPE 队首阻塞（重叠 64%→79%）→ 无 mask 内部块免 UB score 写回 → 滑窗块拆分（-44%） | [cube-fixpipe-hol-reordering.md](../../patterns/cube-fixpipe-hol-reordering.md)、[attention-prefix-window-fusion.md](../../patterns/attention-prefix-window-fusion.md) |
-| **FP8 MLA / GQA Decode** | Split-KV + 单次 MIX 全核屏障融合（`grid` 严格等于并发物理核数，`B × splits` 整除核数）；非 2 的幂 head 精确打包（如 `Hq24→M48` 不补 32） | 对齐物理核数去尾波 → 单核融合屏障去 launch 间隙（-36%）→ 精确 head 打包 → `N128 PV` + 双 `L0C/UB` + 交错 Softmax/输出更新 + UnitFlag + 下一页 KV 预取 + 两行展开（可达官方 FIA 2×+ 提速） | [decode-split-kv-fused-barrier.md](../../patterns/decode-split-kv-fused-barrier.md) |
+| **Prefill Forward（Dense / 衍生起点）** | `example/attention/prefill_fwd_dense.py` | 单二进制真动态 `seq_q`/`seq_k`、`BF16/FP16 D=128`、BSHD + GQA、`S_trans` 列向 FP32 256B `SimdVF` Softmax + 硬件 N-split `FIXPIPE` + `L1→L0A` 转置 PV + KV-head-major 持久调度（实卡验证 ~95%–96% 频修 MFU、`aic_mac ~0.99`，预留 mask/bias/epilogue `# HOOK:`） | 遇 `aiv_vec` 饱和：[softmax-col-fp32.md](../../patterns/softmax-col-fp32.md)；需滑窗/Prefix/Sink：[attention-prefix-window-fusion.md](../../patterns/attention-prefix-window-fusion.md)；需调流水队首阻塞：[cube-fixpipe-hol-reordering.md](../../patterns/cube-fixpipe-hol-reordering.md) |
+| **Prefill Backward（Dense / 衍生起点）** | `example/attention/prefill_bwd_dense.py` | 单二进制真动态 `seq_q`/`seq_k`、`BF16/FP16 D=128`、BHSD + GQA、`KV-outer` + `flat-head` + `l1-ring4` + 双缓冲 `dq_c[2]` + 全 256B `SimdVF` 融合 `P/dS` + 自适应 L2 `G_sec` 分段（实卡验证 ~82%–83% 频修 MFU、`aic_mac ~0.946`，受 `64×128` 块几何约束，预留 `QRange`/mask/epilogue `# HOOK:`） | 调核内流水空泡：[cv-explicit-ring-pipeline.md](../../patterns/cv-explicit-ring-pipeline.md)；调向量占空比：[simd-vf-256b-fusion.md](../../patterns/simd-vf-256b-fusion.md)；调长序列 L2 命中：[l2-adaptive-sectioning.md](../../patterns/l2-adaptive-sectioning.md) |
+| **GQA Prefill 变体（Sink / 滑窗 / Prefix / Shared-RoPE）** | 基于上述 Prefill Fwd 骨架按 `# HOOK:` 扩展 | Query-major 复用 + 滑窗 KV 块上下界拆分 + 双 `L1` Ring 零拷贝融合 Prefix/RoPE + 入口缓存不变量（如 `sink`） | [cube-fixpipe-hol-reordering.md](../../patterns/cube-fixpipe-hol-reordering.md)、[attention-prefix-window-fusion.md](../../patterns/attention-prefix-window-fusion.md) |
+| **FP8 MLA / GQA Decode** | 待抽自包含独立骨架（当前按模式卡组织） | Split-KV + 单次 MIX 全核屏障融合（`grid` 严对并发物理核数，`B × splits` 整除核数）；非 2 的幂 head 精确打包（如 `Hq24→M48` 不补 32） | [decode-split-kv-fused-barrier.md](../../patterns/decode-split-kv-fused-barrier.md) |
+
+> 上游 TileLang 仓内的 `examples/ascend/flash_attention/core.py` 展示了 `T.Stage` + AutoSchedule 写法，可与仓内 `example/attention/prefill_fwd_dense.py`（显式 intrinsic + `S_trans` 路径）对照阅读，用于按 [writing-paradigms.md](../../foundations/writing-paradigms.md) 评估范式选型。
 
 ## 2. 常见陷阱与全矩阵泛化要点
 

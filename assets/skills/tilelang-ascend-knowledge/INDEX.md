@@ -23,6 +23,7 @@
 | 长序列/大工作集 L2 读命中骤降、MTE2 成为慢核长尾主因 | 超阈值自适应 L2 分段 + KV-head 优先工作排布 | Ascend950 | [l2-adaptive-sectioning.md](patterns/l2-adaptive-sectioning.md) |
 | 长上下文 Decode 并行不足、两段 launch 间隙、grid 尾波/全核屏障死锁、PV DFU 偏低 | Split-KV 单核 MIX 融合屏障 + `grid` 严对物理核数 + 非 2 的幂精确打包 + `N128 PV`/双槽/UnitFlag/预取展开 | Ascend950 | [decode-split-kv-fused-barrier.md](patterns/decode-split-kv-fused-barrier.md) |
 | Prefix/RoPE 外部 `cat` 流量大、滑窗 mask 冗余、内部块 UB 写带宽高、逐 tile 碎读 sink | 双 `L1` Ring 零拷贝融合、滑窗 KV 块上下界拆分、无 mask 内部块免 UB 写回、AIV 入口缓存不变量 | Ascend950 | [attention-prefix-window-fusion.md](patterns/attention-prefix-window-fusion.md) |
+| 多 GEMM 反向因 `dK/dV` 常驻占满 L0C 被迫用 `64×128` 半宽 MMAD（`aic_mac ~0.94` 但 MFU 卡在 ~82%） | `dk_c/dv_c` 保持常驻 + `QK/dP/dQ` 复用 2 槽 `tmp_c[2]`（256 KiB）+ `dQ` 前置藏于 3 个满 MMAD 后 + L0 奇偶交替 | Ascend950 | [l0c-pingpong-dq-first-128x128-bwd.md](patterns/l0c-pingpong-dq-first-128x128-bwd.md) |
 
 ### 已证伪反例（避免重复踩坑）
 
@@ -32,6 +33,7 @@
 | 高 GQA 比反向改用 Q-outer 遍历消除 `dQ` 原子写 | GM 读流量（~3×）与 `dK/dV` 原子写流量（~4×）成倍放大 | Ascend950 | [q-outer-gqa-traffic-blowup.md](patterns/falsified/q-outer-gqa-traffic-blowup.md) |
 | Decode 合并多 Query（如 M96）复用 KV 减半逻辑搬运字节 | split 与 workspace 翻倍、片上压力增大与逐行 mask 依赖导致整核显著回退（+6%~+58%） | Ascend950 | [decode-m96-multi-query-kv-reuse.md](patterns/falsified/decode-m96-multi-query-kv-reuse.md) |
 | 单遍 Softmax 减局部 UB 读写或仅拆首轮 K/RoPE `split_ready` | 未移动稳态关键路径（如队首阻塞），整核跨度持平甚至小幅倒退 | Ascend950 | [local-ub-or-early-sync-micro-tweaks.md](patterns/falsified/local-ub-or-early-sync-micro-tweaks.md) |
+| 释放 L0C 常驻 `dK/dV`、每 Q-tile 用 `FIXPIPE` 原子写回 GM 以扩 `128×128` | `FIXPIPE -> GM` 原子写暴涨 3× 反超 Cube（仿真慢 2.04×，实卡 `FIXP` 亦超基线整步） | Ascend950 | [non-resident-dkdv-atomic-writeback.md](patterns/falsified/non-resident-dkdv-atomic-writeback.md) |
 
 ## 三、第 3 层：按算子族路由 Playbook（`families/`）
 

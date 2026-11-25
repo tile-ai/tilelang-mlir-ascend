@@ -9,8 +9,8 @@ Specification Card
 - **Supported Scope**:
   - Dense full-visible attention backward (no causal/sparse mask).
   - Input dtypes: ``bfloat16``, ``float16`` (FP32 accumulation and gradient outputs).
-  - Head dimension: ``head_dim == 128`` with tile ``block_q=64, block_k=128, reduction_chunk=128``.
-  - Alignment: ``seq_q > 0 and seq_q % 64 == 0``, ``seq_k > 0 and seq_k % 128 == 0``.
+  - Head dimension: ``head_dim == 128`` with tile ``block_q=128, block_k=128, reduction_chunk=128``.
+  - Alignment: ``seq_q > 0 and seq_q % 128 == 0``, ``seq_k > 0 and seq_k % 128 == 0``.
   - GQA/MHA: arbitrary ``heads_q % heads_kv == 0`` (``groups = heads_q // heads_kv``).
   - Layout (BHSD):
     - ``Q, dO``: ``[B, Hq, Sq, D]`` (``bfloat16`` / ``float16``)
@@ -20,20 +20,22 @@ Specification Card
     - ``dQ``: ``[B, Hq, Sq, D]`` (``float32``, atomic-accumulated across KV blocks)
     - ``dK, dV``: ``[B, Hkv, Sk, D]`` (``float32``, direct write when sole writer, atomic-add on split/sectioned blocks)
 - **Target Architecture & Expected Performance Tier**:
-  - Ascend 950 (``dav-3510``), verified at ~82%–83% frequency-corrected MFU
-    (``aic_mac ~0.942–0.946``, ``aiv_vec ~0.40``) for dense BF16/FP16 ``D=128``
-    prefill backward; effective MAC efficiency is bounded by the ``64x128``
-    tile geometry (``block_q=64`` on ``QK/dP/dQ``) required to fit resident
-    ``dK/dV`` plus double-buffered ``dQ/QK/dP`` within on-chip L0C/L1.
+  - Ascend 950 (``dav-3510``), verified on real 950DT hardware at ~97.9%–99.3%
+    MFU (``aic_mac 0.996–0.997``, ``aic_fixpipe 0.632–0.654``, ``aiv_vec 0.421``)
+    across 8K–32K BF16 and 8K FP16 ``D=128`` dense prefill backward.
 - **Preserved Microarchitecture Invariants**:
   1. KV-outer schedule with resident ``k_l1`` / ``v_l1`` / ``kt_l1`` (avoids Q-outer GQA traffic blowup).
   2. Flattened Q-head x Q-tile loop (``flat-head``, zero head-boundary pipeline drain).
-  3. 4-slot ``q_l1`` / ``do_l1`` ring (``l1-ring4``) with split Q/dO MTE2->MTE1 ready flags.
-  4. Dual-slot ``a_l0`` / ``b_l0`` with even-MMAD ``M_MTE1`` 0/1 token preservation across segments.
-  5. Independent ``qk_c`` / ``dp_c`` L0C outputs, double-buffered ``dq_c[2]`` (256 KiB L0C),
-     and early tail writeback of ``dV`` / ``dK``.
+  3. 4-slot ``q_l1`` / ``do_l1`` ring (``l1-ring4``) with split Q/dO MTE2->MTE1 ready flags (480 KiB L1 <= 512 KiB).
+  4. Resident ``dk_c`` (64 KiB) + ``dv_c`` (64 KiB) plus shared 2-slot ``tmp_c[2]`` (128 KiB)
+     ping-pong across ``QK``, ``dP``, and ``dQ`` = 256 KiB exact L0C (zero spill, all 5 GEMMs
+     are full ``128x128x128`` MMADs with no ``dQ`` split).
+  5. ``dQ``-first gradient ordering (``QK(b0) -> dP(b1) -> dQ(b0) -> dV(b1) -> dK(b0)`` with
+     ``b0 = step % 2``) hides ``dQ`` ``FIXPIPE`` atomic writeback behind 3 consecutive full
+     MMADs (``dV + dK + next QK``) and alternates ``a_l0`` / ``b_l0`` across every MMAD and
+     loop boundary (zero MTE1-to-Cube bubbles).
   6. Fused 256B ``SimdVF`` for ``P`` and ``dS`` (zero ``SimtVF``, zero 64-bit division in hot loop)
-     with dual-slot ``lse_ub`` / ``delta_ub`` prefetch.
+     with dual-slot ``lse_ub`` / ``delta_ub`` prefetch (~193.5 KiB UB <= 256 KiB per AIV).
   7. Adaptive L2 ``G_sec`` cache-reuse sectioning with pure O(1) uniform work partitioning
      (zero host prefix array, zero binary search).
 - **Unsupported Boundaries**:
@@ -41,9 +43,11 @@ Specification Card
     masks (see ``# HOOK:`` markers inside the kernel for extension points).
 - **Related KB Playbook & Patterns**:
   - ``families/attention/PLAYBOOK.md``
+  - ``patterns/l0c-pingpong-dq-first-128x128-bwd.md``
   - ``patterns/cv-explicit-ring-pipeline.md``
   - ``patterns/simd-vf-256b-fusion.md``
   - ``patterns/l2-adaptive-sectioning.md``
+  - ``patterns/falsified/non-resident-dkdv-atomic-writeback.md``
   - ``patterns/falsified/2d-zigzag-atomic-contention.md``
   - ``patterns/falsified/q-outer-gqa-traffic-blowup.md``
 """
@@ -63,7 +67,7 @@ from tilelang.ascend.language import simd as S
 from tilelang.layout import make_ascend_compact_nz_layout
 
 SUPPORTED_DTYPES = ("bfloat16", "float16")
-BLOCK_Q = 64
+BLOCK_Q = 128
 BLOCK_K = 128
 HEAD_DIM = 128
 REDUCTION_CHUNK = 128
@@ -208,17 +212,16 @@ def dense_attention_bwd_kernel(
             # 2-slot L1 handoff buffers for Vector -> Cube (P and dS).
             p_l1 = T.alloc_l1((2, block_q, block_k), dtype)
             ds_l1 = T.alloc_l1((2, block_q, block_k), dtype)
-            # Dual-slot L0A / L0B operand banks (64 KiB each; even-MMAD alternation).
+            # Dual-slot L0A / L0B operand banks (64 KiB each; parity-alternated across all 5 MMADs).
             a_l0 = T.alloc_l0a((2, block_k, reduction_chunk), dtype)
             b_l0 = T.alloc_l0b((2, block_k, reduction_chunk), dtype)
-            # Independent L0C accumulators (256 KiB total):
-            # FIX_M 0 owns qk_c, 1/2 own dq_c[0/1], 3 owns dp_c; dv_c/dk_c write at tail.
-            qk_c = T.alloc_l0c((block_q, block_k), "float32")
-            dp_c = T.alloc_l0c((block_q, block_k), "float32")
+            # L0C accumulators (256 KiB exact):
+            # Resident dk_c (64 KiB) + dv_c (64 KiB) + shared 2-slot tmp_c[2] (128 KiB)
+            # ping-ponged across QK, dP, and dQ (FIX_M 0/1 own tmp_c[0/1]).
             dk_c = T.alloc_l0c((block_k, head_dim), "float32")
             dv_c = T.alloc_l0c((block_k, head_dim), "float32")
-            dq_c = T.alloc_l0c((2, block_q, head_dim), "float32")
-            # AIV UB buffers (each of the 2 sub-cores handles vec_q = 32 rows).
+            tmp_c = T.alloc_l0c((2, block_q, head_dim), "float32")
+            # AIV UB buffers (each of the 2 sub-cores handles vec_q = 64 rows, ~193.5 KiB <= 256 KiB).
             qk_ub = T.alloc_shared((2, vec_q, block_k), "float32")
             dp_ub = T.alloc_shared((2, vec_q, block_k), "float32")
             p_ub = T.alloc_shared((vec_q, block_k), dtype)
@@ -232,9 +235,9 @@ def dense_attention_bwd_kernel(
                 ds_nz: make_ascend_compact_nz_layout(ds_nz),
             })
 
-            # Seed L0A/L0B ownership tokens once per kernel. Every task segment
-            # executes an even number of MMADs (2 per forward step + 4 per backward
-            # step), so both tokens remain live across every KV-task and section boundary.
+            # Seed L0A/L0B ownership tokens once per kernel. Each step alternates
+            # b0 = step % 2 across all 5 MMADs (b0 -> b1 -> b0 -> b1 -> b0 -> next b1),
+            # preserving both M_MTE1 0/1 tokens cleanly across every KV-task and section.
             with T.Cube():
                 T.ascend_set_flag("M_MTE1", 0)
                 T.ascend_set_flag("M_MTE1", 1)
@@ -365,8 +368,6 @@ def dense_attention_bwd_kernel(
                         with T.Cube():
                             T.ascend_set_flag("FIX_M", 0)
                             T.ascend_set_flag("FIX_M", 1)
-                            T.ascend_set_flag("FIX_M", 2)
-                            T.ascend_set_flag("FIX_M", 3)
                             for s in T.unroll(4):
                                 T.ascend_set_flag("MTE1_MTE2", s)
                             for slot in T.unroll(2):
@@ -415,9 +416,14 @@ def dense_attention_bwd_kernel(
                                 v_pf_q = 0
                                 v_pf_h = v_pf_h + 1
 
-                        # --- Steady-state flat-head pipeline: score(i) || vector(i) || grad(i-1) ---
+                        # --- Steady-state flat-head pipeline: 5 full 128x128x128 MMADs ---
+                        # Order: QK(b0) -> dP(b1) -> dQ(b0, FIXP->GM) -> dV(b1, dv_c) -> dK(b0, dk_c)
+                        # with b0 = step % 2, b1 = 1 - b0 for BOTH L0A/L0B and tmp_c[2].
                         for step in range(total_local + 1):
                             with T.Cube():
+                                b0 = step % 2
+                                b1 = 1 - b0
+
                                 # 1) Prefetch Q/dO for step + 1 into the 4-slot L1 ring.
                                 if step + 1 < total_local:
                                     next_qslot = (step + 1) % 4
@@ -439,79 +445,105 @@ def dense_attention_bwd_kernel(
                                         c_pf_q = 0
                                         c_pf_h = c_pf_h + 1
 
-                                # 2) Forward recompute GEMMs for step: QK^T -> qk_ub, dOV^T -> dp_ub.
+                                # 2) Forward recompute GEMMs for step: QK -> tmp_c[b0], dP -> tmp_c[b1].
                                 if step < total_local:
-                                    slot = step % 2
+                                    slot = b0
                                     qslot = step % 4
-                                    T.ascend_wait_flag("M_MTE1", 0)
+                                    T.ascend_wait_flag("M_MTE1", b0)
                                     T.ascend_wait_flag("MTE2_MTE1", qslot)
-                                    T.copy(q_l1[qslot, :, :], a_l0[0, :block_q, :])
-                                    T.copy(k_l1, b_l0[0, :, :])
-                                    _manual_sync("MTE1_M", 0)
-                                    T.ascend_wait_flag("FIX_M", 0)
+                                    T.copy(q_l1[qslot, :, :], a_l0[b0, :, :])
+                                    T.copy(k_l1, b_l0[b0, :, :])
+                                    _manual_sync("MTE1_M", b0)
+                                    T.ascend_wait_flag("FIX_M", b0)
                                     T.gemm(
-                                        a_l0[0, :block_q, :],
-                                        b_l0[0, :, :],
-                                        qk_c,
+                                        a_l0[b0, :, :],
+                                        b_l0[b0, :, :],
+                                        tmp_c[b0, :, :],
                                         transpose_B=True,
                                         clear_accum=True,
                                     )
-                                    T.ascend_set_flag("M_MTE1", 0)
-                                    _manual_sync("M_FIX", 0)
+                                    T.ascend_set_flag("M_MTE1", b0)
+                                    _manual_sync("M_FIX", b0)
                                     _manual_pair_wait("PIPE_FIX", 8 + slot)
-                                    T.dual_copy(qk_c, qk_ub[slot, :, :])
+                                    T.dual_copy(tmp_c[b0, :, :], qk_ub[slot, :, :])
                                     _manual_pair_set("PIPE_FIX", slot)
-                                    T.ascend_set_flag("FIX_M", 0)
+                                    T.ascend_set_flag("FIX_M", b0)
 
-                                    T.ascend_wait_flag("M_MTE1", 1)
+                                    T.ascend_wait_flag("M_MTE1", b1)
                                     T.ascend_wait_flag("MTE2_MTE1", 4 + qslot)
-                                    T.copy(do_l1[qslot, :, :], a_l0[1, :block_q, :])
-                                    T.copy(v_l1, b_l0[1, :, :])
-                                    _manual_sync("MTE1_M", 1)
-                                    T.ascend_wait_flag("FIX_M", 3)
+                                    T.copy(do_l1[qslot, :, :], a_l0[b1, :, :])
+                                    T.copy(v_l1, b_l0[b1, :, :])
+                                    _manual_sync("MTE1_M", b1)
+                                    T.ascend_wait_flag("FIX_M", b1)
                                     T.gemm(
-                                        a_l0[1, :block_q, :],
-                                        b_l0[1, :, :],
-                                        dp_c,
+                                        a_l0[b1, :, :],
+                                        b_l0[b1, :, :],
+                                        tmp_c[b1, :, :],
                                         transpose_B=True,
                                         clear_accum=True,
                                     )
-                                    T.ascend_set_flag("M_MTE1", 1)
-                                    _manual_sync("M_FIX", 3)
-                                    T.dual_copy(dp_c, dp_ub[slot, :, :])
+                                    T.ascend_set_flag("M_MTE1", b1)
+                                    _manual_sync("M_FIX", b1)
+                                    T.dual_copy(tmp_c[b1, :, :], dp_ub[slot, :, :])
                                     _manual_pair_set("PIPE_FIX", 2 + slot)
-                                    T.ascend_set_flag("FIX_M", 3)
+                                    T.ascend_set_flag("FIX_M", b1)
 
-                                # 3) Backward gradient GEMMs for step - 1: dV += P^T dO, dK += dS^T Q, dQ += dS K.
+                                # 3) Backward gradient GEMMs for step - 1: dQ FIRST, then dV, dK.
+                                #    Hides dQ FIXPIPE writeback behind 3 full 128x128x128 MMADs (dV, dK, next QK).
                                 if step > 0:
-                                    prev = (step - 1) % 2
+                                    prev = b1
                                     prev_qslot = (step - 1) % 4
                                     old_head = head_base + c_old_h
                                     old_qi = q_lo + c_old_q
                                     clear = step == 1
 
-                                    # dV += P^T @ dO (early tail writeback at step == total_local).
-                                    T.ascend_wait_flag("M_MTE1", 0)
+                                    # dQ = dS @ K (single full 128x128x128 MMAD -> tmp_c[b0] -> FIXP GM atomic-add).
+                                    T.ascend_wait_flag("M_MTE1", b0)
+                                    _manual_pair_wait("PIPE_MTE1", 6 + prev)
+                                    T.copy(ds_l1[prev, :, :], a_l0[b0, :, :])
+                                    T.copy(kt_l1, b_l0[b0, :, :])
+                                    _manual_sync("MTE1_M", b0)
+                                    T.ascend_wait_flag("FIX_M", b0)
+                                    T.gemm(
+                                        a_l0[b0, :, :],
+                                        b_l0[b0, :, :],
+                                        tmp_c[b0, :, :],
+                                        transpose_B=True,
+                                        clear_accum=True,
+                                    )
+                                    T.ascend_set_flag("M_MTE1", b0)
+                                    # HOOK: custom gradient epilogue (dQ atomic writeback)
+                                    _manual_sync("M_FIX", b0)
+                                    T.set_atomic("add", "float32")
+                                    T.copy(
+                                        tmp_c[b0, :, :],
+                                        dQ[bz, old_head, old_qi * block_q : (old_qi + 1) * block_q, :],
+                                    )
+                                    T.set_atomic_none()
+                                    T.ascend_set_flag("FIX_M", b0)
+
+                                    # dV += P^T @ dO -> resident dv_c (early tail writeback at step == total_local).
+                                    T.ascend_wait_flag("M_MTE1", b1)
                                     T.copy(
                                         do_l1[prev_qslot, :, :],
-                                        b_l0[0, :head_dim, :block_q],
+                                        b_l0[b1, :, :],
                                         transpose=True,
                                     )
                                     _manual_pair_wait("PIPE_MTE1", 4 + prev)
                                     T.copy(
                                         p_l1[prev, :, :],
-                                        a_l0[0, :, :block_q],
+                                        a_l0[b1, :, :],
                                         transpose=True,
                                     )
-                                    _manual_sync("MTE1_M", 0)
+                                    _manual_sync("MTE1_M", b1)
                                     T.gemm(
-                                        a_l0[0, :, :block_q],
-                                        b_l0[0, :head_dim, :block_q],
+                                        a_l0[b1, :, :],
+                                        b_l0[b1, :, :],
                                         dv_c,
                                         transpose_B=True,
                                         clear_accum=clear,
                                     )
-                                    T.ascend_set_flag("M_MTE1", 0)
+                                    T.ascend_set_flag("M_MTE1", b1)
                                     if step == total_local:
                                         # HOOK: custom gradient epilogue (dV writeback)
                                         _manual_sync("M_FIX", 2)
@@ -528,30 +560,30 @@ def dense_attention_bwd_kernel(
                                             )
                                             T.set_atomic_none()
 
-                                    # dK += dS^T @ Q (early tail writeback at step == total_local).
-                                    T.ascend_wait_flag("M_MTE1", 1)
+                                    # dK += dS^T @ Q -> resident dk_c (early tail writeback at step == total_local).
+                                    T.ascend_wait_flag("M_MTE1", b0)
                                     T.copy(
                                         q_l1[prev_qslot, :, :],
-                                        b_l0[1, :head_dim, :block_q],
+                                        b_l0[b0, :, :],
                                         transpose=True,
                                     )
-                                    _manual_pair_wait("PIPE_MTE1", 6 + prev)
                                     T.copy(
                                         ds_l1[prev, :, :],
-                                        a_l0[1, :, :block_q],
+                                        a_l0[b0, :, :],
                                         transpose=True,
                                     )
-                                    # Release Q/dO L1 ring slot immediately after dK operands are loaded.
+                                    # Release Q/dO L1 ring slot and P/dS L1 slots immediately after dK operands are loaded.
                                     T.ascend_set_flag("MTE1_MTE2", prev_qslot)
-                                    _manual_sync("MTE1_M", 1)
+                                    _manual_pair_set("PIPE_MTE1", 10 + prev)
+                                    _manual_sync("MTE1_M", b0)
                                     T.gemm(
-                                        a_l0[1, :, :block_q],
-                                        b_l0[1, :head_dim, :block_q],
+                                        a_l0[b0, :, :],
+                                        b_l0[b0, :, :],
                                         dk_c,
                                         transpose_B=True,
                                         clear_accum=clear,
                                     )
-                                    T.ascend_set_flag("M_MTE1", 1)
+                                    T.ascend_set_flag("M_MTE1", b0)
                                     if step == total_local:
                                         # HOOK: custom gradient epilogue (dK writeback)
                                         _manual_sync("M_FIX", 2)
@@ -567,44 +599,6 @@ def dense_attention_bwd_kernel(
                                                 dK[bz, kv_head, k_start : k_start + block_k, :],
                                             )
                                             T.set_atomic_none()
-
-                                    # dQ += dS @ K split into two 64-K halves on double-buffered dq_c[prev].
-                                    T.ascend_wait_flag("M_MTE1", 0)
-                                    T.copy(ds_l1[prev, :, :block_q], a_l0[0, :block_q, :block_q])
-                                    T.copy(kt_l1[:, :block_q], b_l0[0, :head_dim, :block_q])
-                                    _manual_sync("MTE1_M", 0)
-                                    T.ascend_wait_flag("FIX_M", 1 + prev)
-                                    T.gemm(
-                                        a_l0[0, :block_q, :block_q],
-                                        b_l0[0, :head_dim, :block_q],
-                                        dq_c[prev, :, :],
-                                        transpose_B=True,
-                                        clear_accum=True,
-                                    )
-                                    T.ascend_set_flag("M_MTE1", 0)
-
-                                    T.ascend_wait_flag("M_MTE1", 1)
-                                    T.copy(ds_l1[prev, :, block_q:], a_l0[1, :block_q, :block_q])
-                                    T.copy(kt_l1[:, block_q:], b_l0[1, :head_dim, :block_q])
-                                    _manual_sync("MTE1_M", 1)
-                                    _manual_pair_set("PIPE_MTE1", 10 + prev)
-                                    T.gemm(
-                                        a_l0[1, :block_q, :block_q],
-                                        b_l0[1, :head_dim, :block_q],
-                                        dq_c[prev, :, :],
-                                        transpose_B=True,
-                                        clear_accum=False,
-                                    )
-                                    T.ascend_set_flag("M_MTE1", 1)
-                                    # HOOK: custom gradient epilogue (dQ atomic writeback)
-                                    _manual_sync("M_FIX", 1)
-                                    T.set_atomic("add", "float32")
-                                    T.copy(
-                                        dq_c[prev, :, :],
-                                        dQ[bz, old_head, old_qi * block_q : (old_qi + 1) * block_q, :],
-                                    )
-                                    T.set_atomic_none()
-                                    T.ascend_set_flag("FIX_M", 1 + prev)
 
                                 c_old_h = c_cur_h
                                 c_old_q = c_cur_q
@@ -763,8 +757,6 @@ def dense_attention_bwd_kernel(
                         with T.Cube():
                             T.ascend_wait_flag("FIX_M", 0)
                             T.ascend_wait_flag("FIX_M", 1)
-                            T.ascend_wait_flag("FIX_M", 2)
-                            T.ascend_wait_flag("FIX_M", 3)
                             for s in T.unroll(4):
                                 T.ascend_wait_flag("MTE1_MTE2", s)
                             for slot in T.unroll(2):
@@ -1083,16 +1075,16 @@ def _run_cpu_ref_test() -> None:
     sched_cases = [
         # (B, Hq, Hkv, Sq, Sk, core_count, l2_budget_bytes, expect_sections)
         (1, 8, 2, 128, 256, 32, DEFAULT_L2_BUDGET_BYTES, False),   # num_tasks=4 < core_count
-        (1, 8, 2, 128, 128, 32, DEFAULT_L2_BUDGET_BYTES, False),   # total=32 == core_count
-        (1, 2, 2, 64, 128, 32, DEFAULT_L2_BUDGET_BYTES, False),    # total=2 < core_count (idle cores)
+        (1, 8, 2, 256, 128, 32, DEFAULT_L2_BUDGET_BYTES, False),   # total=16 < core_count
+        (1, 2, 2, 128, 128, 32, DEFAULT_L2_BUDGET_BYTES, False),   # total=2 < core_count (idle cores)
         (1, 8, 8, 256, 512, 32, DEFAULT_L2_BUDGET_BYTES, False),   # num_tasks=32 divisible
-        (2, 12, 3, 192, 640, 7, DEFAULT_L2_BUDGET_BYTES, False),   # non-divisible tasks & odd cores
+        (2, 12, 3, 384, 640, 7, DEFAULT_L2_BUDGET_BYTES, False),   # non-divisible tasks & odd cores
         (1, 8, 2, 256, 512, 1, DEFAULT_L2_BUDGET_BYTES, False),    # single core
         # Force sectioned mode with g_sec == groups, 1 < g_sec < groups, and g_sec == 1:
         (1, 8, 2, 256, 512, 32, 1024 * 1024, True),                # sectioned, g_sec=2 (1 < g_sec < 4)
         (2, 8, 2, 256, 640, 7, 512 * 1024, True),                  # sectioned, g_sec=1, non-divisible
         (1, 8, 2, 256, 512, 32, 2 * 1024 * 1024, True),            # sectioned, g_sec=4 == groups
-        (2, 12, 4, 192, 512, 32, 300 * 1024, True),                # sectioned GQA=3, g_sec=1
+        (2, 12, 4, 384, 512, 32, 300 * 1024, True),                # sectioned GQA=3, g_sec=1
     ]
     for b, hq, hkv, sq, sk, cores, l2_b, expect_sec in sched_cases:
         res = _simulate_dense_schedule(b, hq, hkv, sq, sk, cores, l2_budget_bytes=l2_b)
@@ -1182,8 +1174,8 @@ def _audit_asc_source(code: str, label: str) -> dict[str, Any]:
     assert vexp_count >= 2 and vld_x2_count >= 3, (
         f"[{label}] Missing 256B SimdVF vector ops (vexp={vexp_count}, vld_x2={vld_x2_count})"
     )
-    assert mmad_count == 6, (
-        f"[{label}] Expected exactly 6 asc_mmad calls (QK, dP, dV, dK, 2x dQ), got {mmad_count}"
+    assert mmad_count == 5, (
+        f"[{label}] Expected exactly 5 full 128x128x128 asc_mmad calls (QK, dP, dQ, dV, dK), got {mmad_count}"
     )
     assert has_seq_q and has_seq_k, (
         f"[{label}] Dynamic seq_q/seq_k missing from kernel signature: {sig!r}"

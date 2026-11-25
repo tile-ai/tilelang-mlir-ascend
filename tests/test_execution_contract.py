@@ -31,12 +31,15 @@ class ExecutionContractTest(unittest.TestCase):
         return self.store.reference(path)
 
     def setup_pipeline(self, bad=False, controlled=False, stage='develop',
-                       performance='absolute', diagnostics=False, verify_diag=True):
+                       performance='absolute', diagnostics=False, verify_diag=True,
+                       mode=None, parent=None, backend='cpu', adapter_extra='', cases=None, source_code=None):
         if controlled:
             authority = self.file('authority.md', 'Fixture CPU budget')
             self.f.apply('control-init', step_limit=4,
                          budgets={'cpu': {'unit': 'seconds', 'limit': 10}}, authority=authority)
-        source = self.file('candidate.py', 'def run(x):\n    return x * ' + ('3' if bad else '2') + '\n')
+        if parent:
+            self.f.candidate(parent)
+        source = self.file('candidate.py', source_code or 'def run(x):\n    return x * ' + ('3' if bad else '2') + '\n')
         reference = self.file('reference.py', "def run(state):\n    return state['x'] * 2\n")
         comparator = self.file('comparator.py', "def compare(actual, expected, case):\n    return {'out': actual == expected}\n")
         verifier_code = "\ndef verify_diagnostics(capture, case):\n    assert capture['evidence']['sha256']\n" if verify_diag else ""
@@ -63,76 +66,49 @@ def synchronize(state):
 def diagnostics(state, case, output, context):
     emission.save(output / 'raw.json', {'observed': run(state)})
     return {'evidence': emission.diagnostics(context, output / 'index.json', emission.files(context['workspace_root'], output))}
-''' + verifier_code)
+''' + verifier_code + adapter_extra)
         inputs = {key: self.store.reference(self.file(key + '.txt', key))
                   for key in ('requirements', 'cases', 'protocol', 'environment')}
         inputs.update(reference=self.store.reference(reference), comparator=self.store.reference(comparator))
         plan = {'schema': 'operator-harness/evaluation-plan@1', 'project_id': 'example', 'run_id': 'd',
                 'inputs': inputs, 'performance_kind': performance, 'statistic': 'mean',
-                'cases': [{'id': 'one', 'x': 7, 'outputs': ['out'], 'min_samples': 2, 'max_latency_ms': 100}],
-                'execution': {'adapter': self.store.reference(adapter), 'backend': 'cpu', 'timeout_seconds': 5}}
+                'cases': cases or [{'id': 'one', 'x': 7, 'outputs': ['out'], 'min_samples': 2, 'max_latency_ms': 100}],
+                'execution': {'adapter': self.store.reference(adapter), 'backend': backend, 'timeout_seconds': 5}}
         plan_path = self.file('plan.json', json.dumps(plan))
         fields = {'contract': 'operator-harness/node-task@4', 'project_id': 'example', 'run_id': 'd',
                   'node': stage, 'search_node_id': 'N0',
-                  'operation': 'initial-and-validate' if stage == 'develop' else 'port-and-validate',
+                  'operation': mode or ('initial-and-validate' if stage == 'develop' else 'port-and-validate'),
                   'performance_required': 'false' if performance == 'none' else 'true',
                   'diagnostics_required': str(diagnostics).lower(), 'evaluation_plan': plan_path,
                   'initial_design': self.file('design.md', 'Multiply input by two'), 'aicpu_policy': 'forbidden'}
         task = self.file('TASK.md', render('Task', fields))
-        self.f.apply('run', id='d', stage=stage, candidate_id=None, search_node_id='N0', task=task, legacy=False)
+        self.f.apply('run', id='d', stage=stage, candidate_id=parent, search_node_id='N0', task=task, legacy=False)
         self.manifest = evaluate.candidate(
             self.store, 'd', 'C1', source,
-            self.file('build.json', '{}'), self.file('launch.json', '{}'), None)['candidate']
+            self.file('build.json', '{}'), self.file('launch.json', '{}'), parent)['candidate']
         self.reservation = {'pool': 'cpu', 'amount': 5} if controlled else None
 
     def execute_pipeline(self, request='cpu-1'):
         return evaluate.evaluate(self.store, 'd', self.manifest, request, self.reservation)
 
-    def setup_run(self, mode='implement-and-validate', performance_kind='absolute', diagnostics=False):
-        inputs = {key: self.store.reference(self.f.write(self.prefix + key + '.txt', 'synthetic ' + key))
-                  for key in ('requirements', 'reference', 'comparator', 'cases', 'protocol', 'environment')}
-        self.plan = {'schema': 'operator-harness/evaluation-plan@1', 'project_id': 'example', 'run_id': 'd',
-                     'performance_kind': performance_kind, 'statistic': 'mean', 'inputs': inputs,
-                     'cases': [{'id': 'small', 'outputs': ['out', 'count'], 'min_samples': 2, 'max_latency_ms': 2.0}]}
-        self.plan_ref = self.write_json('plan.json', self.plan)
-        self.artifacts = {key: self.store.reference(self.f.write(self.prefix + key + '.bin', 'synthetic ' + key))
-                          for key in ('source', 'build', 'launch')}
-        parent = 'C0' if mode == 'implement-and-validate' else None
-        if parent:
-            self.f.candidate(parent)
-        candidate = self.f.write(self.prefix + 'CANDIDATE.md',
-            '- contract: operator-harness/candidate@2\n- project_id: example\n- candidate_id: C1\n'
-            f'- search_node_id: N0\n- parent_candidate: {parent or "not_applicable"}\n' + ''.join(
-                f'- {key}_sha256: {ref["sha256"]}\n' for key, ref in self.artifacts.items()))
-        self.f.apply('candidate', id='C1', search_node_id='N0', parent_candidate=parent, manifest=candidate)
-        self.candidate_ref = self.store.reference(candidate)
-        required = 'false' if performance_kind == 'none' else 'true'
-        self.task_text = ('- contract: operator-harness/node-task@4\n- project_id: example\n- run_id: d\n'
-                         '- node: develop\n- search_node_id: N0\n' + f'- operation: {mode}\n'
-                         f'- performance_required: {required}\n- diagnostics_required: {str(diagnostics).lower()}\n'
-                         f'- evaluation_plan: {self.plan_ref["path"]}\n')
-        if mode == 'initial-and-validate':
-            design = self.f.write(self.prefix + 'design.md', 'Synthetic initial algorithm plan')
-            self.task_text += f'- initial_design: {design}\n'
-        self.task = self.f.write(self.prefix + 'TASK.md', self.task_text)
-        self.f.apply('run', id='d', search_node_id='N0', stage='develop',
-                     candidate_id=None if mode == 'initial-and-validate' else parent or 'C1',
-                     task=self.task, legacy=False)
-        self.receipt = {'schema': 'operator-harness/execution-receipt@1', 'project_id': 'example', 'run_id': 'd',
-                        'candidate_id': 'C1', 'request_id': 'job1', 'status': 'exited',
-                        'exit_codes': {'worker': 0, 'transport': 0}, 'valid': True,
-                        'artifacts': self.artifacts, 'evaluation_plan': self.plan_ref}
-        common = {'project_id': 'example', 'run_id': 'd', 'candidate_id': 'C1', 'case_id': 'small',
-                  'request_id': 'job1', 'artifacts': self.artifacts, 'evaluation_plan': self.plan_ref,
-                  'raw_files': [self.store.reference(self.f.write(self.prefix + 'raw.bin', 'synthetic output'))]}
-        self.accuracy = dict(common, schema='operator-harness/accuracy@1', outputs={'out': True, 'count': True})
-        self.performance = dict(common, schema='operator-harness/performance@1', samples_ms=[1.0, 1.5])
-        self.report = {'schema': 'operator-harness/validation@1', 'project_id': 'example', 'run_id': 'd',
-                       'candidate_id': 'C1', 'candidate': self.candidate_ref, 'artifacts': self.artifacts,
-                       'evaluation_plan': self.plan_ref, 'cases': [], 'receipts': [], 'diagnostics': []}
-        self.analysis = self.f.write(self.prefix + 'ANALYSIS_DATA.md',
-            '- project_id: example\n- run_id: d\n- candidate_id: C1\n- status: ready\n')
-        self.refresh()
+    def setup_run(self, mode='implement-and-validate', performance_kind='absolute', diagnostics=False, slow=False):
+        source = 'import time\ndef run(x):\n    time.sleep(0.005)\n    return x * 2\n' if slow else None
+        self.setup_pipeline(mode=mode, parent='C0' if mode == 'implement-and-validate' else None,
+            performance=performance_kind, diagnostics=diagnostics, source_code=source,
+            cases=[{'id': 'small', 'x': 7, 'outputs': ['out'], 'min_samples': 2, 'max_latency_ms': 2.0}])
+        output = self.execute_pipeline('job1')
+        self.assertEqual(output['status'], 'complete')
+        run = self.store.load()['runs']['d']
+        self.plan_ref = run['evaluation_plan']
+        self.plan = json.loads(self.store.local(self.plan_ref['path']).read_text())
+        self.report = json.loads(self.store.local(output['validation']).read_text())
+        self.receipt = self.report['receipts'][0]
+        self.accuracy = self.report['cases'][0]['accuracy']
+        self.performance = self.report['cases'][0].get('performance')
+        self.artifacts = self.report['artifacts']
+        self.candidate_ref = self.report['candidate']
+        self.analysis = metadata(self.store.local(output['result']).read_text())['analysis_data']
+        self.refresh(performance='failed' if slow else 'passed', cause='idea' if slow else 'none')
 
     def refresh(self, accuracy='passed', performance='passed', cause='none'):
         self.report['cases'] = [{'id': 'small', 'accuracy': self.accuracy, 'performance': self.performance}]
@@ -174,7 +150,7 @@ def diagnostics(state, case, output, context):
         result_file.write_text(result_file.read_text() + '\nUser reviewed notes.\n')
         self.assertEqual(self.execute_pipeline(), output)
         self.assertIn('User reviewed notes.', result_file.read_text())
-        self.assertEqual((self.store.records / 'calls').read_text(), 'prepare\n')
+        self.assertEqual((self.store.records / 'calls').read_text(), 'prepare\nprepare\n')
         with self.assertRaisesRegex(search.Invalid, 'different artifacts'):
             evaluate.candidate(self.store, 'd', 'C1', self.file('other.py', 'x=1\n'),
                                self.file('build.json', '{}'), self.file('launch.json', '{}'), None)
@@ -257,11 +233,11 @@ def diagnostics(state, case, output, context):
         with self.assertRaisesRegex(search.Invalid, 'identity mismatch'):
             self.accept()
         self.accuracy['candidate_id'] = 'C1'
-        self.accuracy['outputs']['count'] = False
+        self.accuracy['outputs']['out'] = False
         self.refresh()
         with self.assertRaisesRegex(search.Invalid, 'disagrees'):
             self.accept()
-        self.accuracy['outputs']['count'] = True
+        self.accuracy['outputs']['out'] = True
         for samples in ([1.0], [float('nan'), 1.0], [0.0, 1.0], [9.0, 9.0]):
             self.performance['samples_ms'] = samples
             self.refresh()
@@ -277,9 +253,7 @@ def diagnostics(state, case, output, context):
             self.receipt = old
 
     def test_slow_idea_and_code_only_accept_without_promotion_eligibility(self):
-        self.setup_run()
-        self.performance['samples_ms'] = [3.0, 4.0]
-        self.refresh(performance='failed', cause='idea')
+        self.setup_run(slow=True)
         self.accept()
         with self.assertRaisesRegex(search.Invalid, 'passing evidence'):
             self.f.apply('promote-candidate', run_id='d', reason='must not promote slow result')
@@ -295,6 +269,8 @@ def diagnostics(state, case, output, context):
                     'inputs': {key: inputs[key] for key in ('requirements', 'cases', 'protocol', 'environment')},
                     'cases': [{'id': 'one', 'outputs': ['out'], 'min_samples': 2, 'max_latency_ms': 2.0}]}
             plan['inputs'].update(reference=inputs['baseline'], comparator=inputs['protocol'])
+            plan['execution'] = {'backend': 'cpu', 'adapter': self.store.reference(
+                self.file(member['id'] + '-adapter.py', '# Admission-only fixture\n')), 'timeout_seconds': 5}
             ref = self.write_json(member['id'] + '-plan.json', plan)
             task = self.store.local(member['task'])
             task.write_text('- contract: operator-harness/node-task@4\n' + task.read_text() +
@@ -356,6 +332,8 @@ def diagnostics(state, case, output, context):
             self.assertTrue(status['orphaned'])
             self.assertEqual(runctl.control_state({'status': 'timed_out'}, directory), 'unknown')
         self.assertEqual(runctl.control_state({'status': 'timed_out'}, directory), 'cancelled')
+        self.assertEqual(runctl.control_state({'status': 'failed_to_start'}, directory), 'cancelled')
+        (directory / 'state.json').unlink()
         self.assertEqual(runctl.control_state({'status': 'failed_to_start'}, directory), 'not_submitted')
 
 

@@ -39,7 +39,7 @@ description: 根据已明确的算子契约编写、修复或优化昇腾 TileLa
 
 使用 [TileLang 开发与定位](references/tilelang-workflow.md)，以环境中绑定的 TileLang 仓库/revision、Ascend dialect、目标架构及后端为依据查 API 和示例。首批语言来源是 tile-ai/tilelang；不要默用旧 NPUIR 分支、OpenTile 方言或其他后端同名 API。
 
-同时读取 [算子生成补充](../tilelang-ascend-generation/SKILL.md)，将适用的阶段拆分、VF 选择、存储预算和流水方法用于候选；在现有 RESULT 中对应到源码/生成代码，说明相关方法未采用的具体原因。
+同时读取 [算子知识库索引](../tilelang-ascend-knowledge/INDEX.md)（按需加载编写范式、对应微架构模式卡与物理防呆评测铁律）与 [算子生成补充](../tilelang-ascend-generation/SKILL.md)，将适用的阶段拆分、VF 选择、存储预算和流水方法用于候选；在现有 RESULT 中对应到源码/生成代码，说明相关方法未采用的具体原因。
 
 先实现覆盖契约的最小版本。资源布局、尾部 mask、同步、Cube/Vector 分工和 launch 参数都必须与所选目标一致。一次优化围绕一个可验证假设，记录父候选、改变和预期影响。重试受任务预算限制；只有新证据或条件变化时才重复失败路线。
 
@@ -83,7 +83,7 @@ RESULT 同时交付实现与测试结果，分别标注编译、精度、性能�
 
 ## 初版构建与程序验收
 
-没有候选且无适用高性能源码时，允许 `initial-and-validate`：先有独立正确性参考、有限来源调查结果和明确的绝对/模型目标，固定 initial_design，再构建最小初版；无需虚构已有候选分析或性能源码移植。遵守同样的 TileLang/AICPU、预检、完整精度、测量与诊断要求。初版实现符合方案且精度/测量有效时，目标未达可带差距进入 analysis；不能将实现或测量错误归入该例外。已有候选仍使用常规 implement-and-validate。
+没有候选且无适用高性能源码时，允许 `initial-and-validate`：先有独立正确性参考、有限来源调查结果和明确的绝对/模型目标；仅精度任务明确 performance_kind=none。固定 initial_design，再构建最小初版；无需虚构已有候选分析或性能源码移植。遵守同样的 TileLang/AICPU、预检、完整精度、测量与诊断要求。初版实现符合方案且精度/测量有效时，目标未达可带差距进入 analysis；不能将实现或测量错误归入该例外。已有候选仍使用常规 implement-and-validate。
 
 新 TASK/RESULT 按 [结构化验收](../harness-resume/references/execution-control.md) 使用 @4，注册前固定 evaluation_plan。使用 [评测入口](references/evaluation-runner.md) 执行冻结适配器，自动生成逐 case 证据和 RESULT 草稿。正式接收前核对程序检查、科学内容、job/资源及未测边界。范围变化需要新任务时先安全 close-run，不能改冻结任务或把失败称为通过。
 

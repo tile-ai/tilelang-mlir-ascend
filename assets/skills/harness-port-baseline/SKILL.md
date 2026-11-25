@@ -16,7 +16,7 @@ description: 将已选定标杆的算法与实现策略移植为 TileLang 初版
 ## 从参考到可执行方案
 
 1. 绑定实测参考的源码、分派分支、适配包装与完整调用边界，核对全部输出、排序/稳定性、容量、padding、别名、状态与同步语义。源码不能对应测量包时明确限制。
-2. 分析算法阶段、数据布局、并行划分、融合、同步和中间存储，映射到项目所选 TileLang/后端的实际能力。可复用既有参考研究，不为走流程重新调查全部实现。
+2. 编码前先读 [算子知识库索引](../tilelang-ascend-knowledge/INDEX.md)（按算子族加载对应 Playbook、[编写范式与存储预算](../tilelang-ascend-knowledge/foundations/writing-paradigms.md) 与 [评测铁律](../tilelang-ascend-knowledge/foundations/eval-invariants.md)）及 [算子生成补充](../tilelang-ascend-generation/SKILL.md)；分析算法阶段、数据布局、并行划分、融合、同步和中间存储，映射到项目所选 TileLang/后端的实际能力。可复用既有参考研究，不为走流程重新调查全部实现。
 3. 在 [PORTING.md](assets/templates/porting.md) 记录参考步骤到候选源码的对应关系、替代方案、正确性风险与验证 case。移植实现策略，不机械翻译 API；不把尚无实测的推断写为候选瓶颈。
 4. 完成初版及必要修复，不在本节点持续探索多种性能优化方向。每次尝试固定独立 candidate 身份与证据；达到节点交付条件后交给 analysis。
 

@@ -46,6 +46,7 @@
       "path": "{{frozen_adapter.py}}",
       "sha256": "{{sha256}}"
     },
-    "timeout_seconds": null
+    "timeout_seconds": null,
+    "metric": "{{cpu_wall_ms / mean_device_busy_union_ms}}"
   }
 }

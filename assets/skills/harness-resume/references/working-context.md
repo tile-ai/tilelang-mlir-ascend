@@ -10,7 +10,7 @@
 2. `REQUIREMENTS.md`：语义、case、精度与性能验收；执行前读取 PROJECT 的适用契约修订，按需展开 ROADMAP。
 3. `DECISIONS.md`：已回答的问题、作用域、来源及替代关系；没有新决定时不创建空文件。
 4. `ENVIRONMENT.md`：执行阶段到确切环境修订的绑定、本项目使用约定；development/device 可共用 onboard 描述，仿真按其独立约定。
-5. `RESOURCE_USAGE.md`：首次预留资源前建立的预留、消耗、未结算作业账本。
+5. `RESOURCE_USAGE.md`：control 启用后的资源投影与事件水位；实际预留、消耗和未结作业读取 search/tree.json。未启用的旧任务继续读取原手工账本。
 6. `EXPERIMENTS.md`：只展开与当前任务有关的实验和证据。
 7. `BASELINE.md`（相关时）：标杆索引，解析到确切 run 的参考/测量记录与摘要。
 8. `AUTOMATIC.md`（如有）：当前自动批次、协调者、已用步数、全部 in_flight_steps 与停止原因，避免重复协调。

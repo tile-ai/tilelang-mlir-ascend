@@ -38,13 +38,13 @@ resume 继续提供读取、TASK/RESULT、接收与共享记录规则。三入�
 
 ## 4. 决策与推进
 
-按当前任务选取相关记录，实际证据优先于陈旧的“下一步”文字。先处理在途/未知作业及未接收交付，再判断目标达成、缺失选择、环境缺口、相对性能所需标杆的建立/更新、缺少候选时的标杆移植与初版验证、候选构造、精度/性能测试及后续kernel问题分析。默认循环为analysis → develop → analysis；已接收分析按输入身份复用，精度/实现/测量失败留在原 port-baseline/develop 修复；初版差距可交 analysis，develop 的退化须排除实现问题再交接，目标完成则停止。只检查当前目标必需的条件：静态交付不用等待设备，旧 trace 分析不用重建仿真环境，可选仿真不用强行执行。
+按当前任务选取相关记录，实际证据优先于陈旧的“下一步”文字。先处理在途/未知作业及未接收交付，再判断目标达成、缺失选择、环境缺口、相对性能所需标杆的建立/更新、缺少候选时按参考可用性选择移植或 initial-and-validate、候选构造、精度/性能测试及后续kernel问题分析。默认循环为analysis → develop → analysis；已接收分析按输入身份复用，精度/实现/测量失败留在原 port-baseline/develop 修复；初版差距可交 analysis，develop 的退化须排除实现问题再交接，目标完成则停止。只检查当前目标必需的条件：静态交付不用等待设备，旧 trace 分析不用重建仿真环境，可选仿真不用强行执行。
 
 缺少 STATE 或任务歧义：status 报告缺口与建议；next 直接开始必要的初始化/澄清；automatic 在明确范围前问必要选择，不默认执行整个路线图。已有准备好的 TASK 也须检查身份和范围，不能因文件存在就执行。
 
 next 一步含节点内部的编译/比较/采样及接收，不按工具调用计数。若已有结果未接收，接收就是本步。若有作业运行，等待/恢复该作业就是本步，不能重复提交。用户只要求精度时不添性能。
 
-automatic 单方案使用独立上下文子 agent，多个适用分析方案按 [并行开发契约](../../assets/skills/harness-resume/references/parallel-develop.md) 分配独立 worktree 的 develop，默认最多并行 2 个，每个成员独立计步；派发只给根目录和 TASK 路径；主 agent 记录实际 agent/run/job、等待产物并接收，不在“已派发”时就结束并宣称完成。工具不可用时明确 inline，保持相同节点记录和边界。独立调度服务不是当前实现的一部分。
+automatic 使用独立上下文子 agent。search@2 按 [依赖队列](../../assets/skills/harness-resume/references/task-queue.md) 逐项准入 analysis/develop，默认总槽位 2，开发任务独占 worktree，每个 run 独立计步；search@1 保留 [旧批次契约](../../assets/skills/harness-resume/references/parallel-develop.md)；派发只给根目录和 TASK 路径；主 agent 记录实际 agent/run/job、等待产物并接收，不在“已派发”时就结束并宣称完成。工具不可用时明确 inline，保持相同节点记录和边界。独立调度服务不是当前实现的一部分。
 
 ## 5. 有界自动运行
 
@@ -56,7 +56,9 @@ automatic 单方案使用独立上下文子 agent，多个适用分析方案按 
 
 ## 6. 控制记录
 
-automatic 按 [控制模板](../../assets/skills/harness-automatic/assets/templates/automatic.md) 建立 `.workspace/<project>/AUTOMATIC.md`，STATE 链接它。内容包括批次 ID、任务范围、协调者、执行策略、状态、max_steps/steps_used、全部 in_flight_steps 及各自 run/agent/job、步进日志、等待问题与恢复方式。
+automatic 按 [控制模板](../../assets/skills/harness-automatic/assets/templates/automatic.md) 建立 `.workspace/<project>/AUTOMATIC.md`，STATE 链接它。内容包括批次 ID、任务范围、协调者、执行策略、状态、宿主 max_steps/steps_used、全部 in_flight_steps 及各自 run/agent/job、步进日志、等待问题与恢复方式；另引用 control 的程序 run 计数与事件水位。
+
+程序 control 限制准入 run，宿主计数还包含独立问询/接收/恢复。协调者同时检查两个上限，保持已用量与对应关系；原步骤收尾不重复计数。详细语义见 [执行控制](../../assets/skills/harness-resume/references/execution-control.md#控制账本)。
 
 NODE TASK/RESULT、候选、独立环境约定继续使用六份节点模板；不把全部实验数据复制到控制记录。status 从这些记录投影报告，不另存一份可能漂移的 status 文件。next 不需要为普通一次推进新建 automatic 批次。
 
@@ -107,4 +109,4 @@ status 不改变正在进行的 automatic，普通查询报告后继续原工作
 
 无人值守后台服务、npm 命令、定时触发、独立并行调优调度服务、分布式锁、通用硬件适配器。不因新增自动模式宣称四种执行组合已支持。
 
-并行控制使用 automatic@2 的 in_flight_steps 保存全部成员状态，恢复旧 current_step 时保留原步数；暂停和转 next 必须处理所有成员，不能只覆盖最后一个。一个成员失败不抹掉其他结果，组合实现后新建候选重新验证。
+并行控制使用 automatic@2 的 in_flight_steps 保存全部成员状态，并引用 search@2 的占用及控制水位；恢复旧 current_step 时保留原步数；暂停和转 next 必须处理所有成员，不能只覆盖最后一个。一个成员失败不抹掉其他结果，组合实现后新建候选重新验证。

@@ -38,19 +38,32 @@ def encode(value):
     return (json.dumps(value, sort_keys=True, ensure_ascii=False, indent=2) + '\n').encode()
 
 
-def metadata(root):
-    path = root / '.agents/.harness'
-    for component in (root / '.agents', path):
+def workspace_path(root, relative):
+    """Validate a write destination without creating or following path aliases."""
+    relative = Path(relative)
+    if relative.is_absolute() or '..' in relative.parts:
+        raise ValueError('installation target escapes workspace')
+    path = root / relative
+    for component in (path, *path.parents):
+        if component == root:
+            break
         if component.is_symlink():
-            raise ValueError('installation metadata cannot traverse symlinks')
+            raise ValueError('source-linked development workspace: installation targets must not traverse symlinks')
+    if not path.resolve().is_relative_to(root):
+        raise ValueError('installation target escapes workspace')
     return path
+
+
+def metadata(root):
+    return workspace_path(root, '.agents/.harness')
 
 
 @contextmanager
 def lock(root):
     directory = metadata(root)
+    path = workspace_path(root, '.agents/.harness/lock')
     directory.mkdir(parents=True, exist_ok=True)
-    with (directory / 'lock').open('a') as stream:
+    with path.open('a') as stream:
         fcntl.flock(stream, fcntl.LOCK_EX)
         yield
 
@@ -58,7 +71,8 @@ def lock(root):
 def managed_skill(name):
     # Retain the previous name so managed upgrades can remove/restore its files.
     return name.startswith('harness-') or name in {
-        'ascend950-simulation', 'tilelang-ascend-generation', 'ascend-mfu', 'ascend-roofline',
+        'ascend950-simulation', 'tilelang-ascend-generation', 'tilelang-ascend-knowledge',
+        'ascend-mfu', 'ascend-roofline',
     }
 
 
@@ -67,12 +81,7 @@ def target(root, relative):
     if relative != 'AGENTS.md' and (len(parts) < 4 or parts[:2] != ('.agents', 'skills')
                                      or not managed_skill(parts[2])):
         raise ValueError('unmanaged upgrade target')
-    path = root / relative
-    if not path.resolve().is_relative_to(root) or '..' in Path(relative).parts:
-        raise ValueError('upgrade target escapes workspace')
-    if any(p.is_symlink() for p in (path, *path.parents) if p != root.parent):
-        raise ValueError('source-linked development workspace: update assets directly; managed upgrades require copied files')
-    return path
+    return workspace_path(root, relative)
 
 
 def block(data):
@@ -97,7 +106,7 @@ def manifest(files, entry):
 
 
 def record_install(root, source, names, entry):
-    path = metadata(root) / 'manifest.json'
+    path = workspace_path(root, '.agents/.harness/manifest.json')
     data = manifest(inventory(source, names), entry)
     if path.exists() and json.loads(path.read_text()) != data:
         raise ValueError('installed manifest differs; use an upgrade plan')
@@ -105,7 +114,7 @@ def record_install(root, source, names, entry):
 
 
 def prepare(root, source, names, entry):
-    path = metadata(root) / 'manifest.json'
+    path = workspace_path(root, '.agents/.harness/manifest.json')
     if not path.exists():
         raise ValueError('no managed installation manifest; verify/adopt the matching old bundle first')
     before_manifest = json.loads(path.read_text())
@@ -131,8 +140,10 @@ def prepare(root, source, names, entry):
     after = before.replace(old_block, entry, 1)
     if before != after:
         operations.append({'path': 'AGENTS.md', 'before': before, 'after': after})
+    history = workspace_path(root, '.agents/.harness/transactions')
     public = {'before_manifest': digest(encode(before_manifest)), 'after_manifest': digest(encode(after_manifest)),
-              'history': {p.name: digest(p.read_bytes()) for p in sorted((metadata(root) / 'transactions').glob('*.json'))},
+              'history': {p.name: digest(workspace_path(root, str(p.relative_to(root))).read_bytes())
+                          for p in sorted(history.glob('*.json'))},
               'changes': [{'path': op['path'], 'before': digest(op['before']), 'after': digest(op['after'])}
                           for op in operations]}
     public['id'] = digest(encode(public))
@@ -142,13 +153,14 @@ def prepare(root, source, names, entry):
 def transaction(root, transaction_id, rollback=False):
     if len(transaction_id) != 64 or any(c not in '0123456789abcdef' for c in transaction_id):
         raise ValueError('invalid transaction ID')
-    path = metadata(root) / 'transactions' / (transaction_id + '.json')
+    path = workspace_path(root, '.agents/.harness/transactions/' + transaction_id + '.json')
     journal = json.loads(path.read_text())
     rollback = rollback or journal.get('status') == 'rolling_back'
     before_key, after_key = ('after', 'before') if rollback else ('before', 'after')
     before_manifest = journal[before_key + '_manifest']
     after_manifest = journal[after_key + '_manifest']
-    current_manifest = json.loads((metadata(root) / 'manifest.json').read_text())
+    manifest_path = workspace_path(root, '.agents/.harness/manifest.json')
+    current_manifest = json.loads(manifest_path.read_text())
     if current_manifest not in (before_manifest, after_manifest):
         raise ValueError('another version was installed; refuse stale transaction')
     if journal.get('status') == 'rolled_back' and not rollback:
@@ -170,7 +182,7 @@ def transaction(root, transaction_id, rollback=False):
             file.unlink(missing_ok=True)
         else:
             atomic(file, new)
-    atomic(metadata(root) / 'manifest.json', encode(after_manifest))
+    atomic(manifest_path, encode(after_manifest))
     journal['status'] = 'rolled_back' if rollback else 'completed'
     atomic(path, encode(journal))
     return {'id': transaction_id, 'status': journal['status']}
@@ -180,7 +192,7 @@ def upgrade(root, source, names, entry, plan_id):
     public, operations, before, after = prepare(root, source, names, entry)
     if public['id'] != plan_id:
         raise ValueError('upgrade plan changed; review the new plan')
-    path = metadata(root) / 'transactions' / (plan_id + '.json')
+    path = workspace_path(root, '.agents/.harness/transactions/' + plan_id + '.json')
     journal = {'schema': 'operator-harness/install-transaction@1', 'status': 'prepared',
                'before_manifest': before, 'after_manifest': after,
                'operations': [{key: base64.b64encode(value).decode() if isinstance(value, bytes) else value

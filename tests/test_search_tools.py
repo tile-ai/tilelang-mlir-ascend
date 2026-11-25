@@ -115,6 +115,42 @@ class SearchToolsTest(unittest.TestCase):
         with patch("sys.stderr"), self.assertRaisesRegex(search.Invalid, "successor"):
             self.apply("use-cooled", search_node_id="N0", artifact=artifact, reason="reuse")
 
+    def test_missing_or_corrupt_bound_cooled_keeps_status_and_check_readable(self):
+        self.hot()
+        artifact = self.store.promote(self.decision(), "knowledge/cooled")
+        self.apply("use-cooled", search_node_id="N0", artifact=artifact, reason="matching scope")
+        path = self.store.local(artifact)
+        original = path.read_text()
+        for contents in (None, "{", "[]", '{"other": true}'):
+            with self.subTest(contents=contents):
+                if contents is None:
+                    path.unlink()
+                else:
+                    path.write_text(contents)
+                shown = self.cli("show")
+                self.assertEqual(shown.returncode, 0, shown.stderr)
+                state = json.loads(shown.stdout)
+                self.assertEqual(state["project_id"], "example")
+                self.assertTrue(any(warning["artifact"] == artifact for warning in state["cooled_warnings"]))
+                checked = self.cli("check")
+                self.assertEqual(checked.returncode, 1, checked.stderr)
+                diagnosis = json.loads(checked.stdout)
+                self.assertFalse(diagnosis["valid"])
+                self.assertTrue(diagnosis["corrupted_artifacts"])
+                self.assertTrue(diagnosis["cooled_warnings"])
+                reconciled = json.loads(self.cli("reconcile").stdout)
+                self.assertTrue(reconciled["cooled_warnings"])
+                path.write_text(original)
+
+    def test_reconcile_reports_bound_cooled_successor_without_hash_damage(self):
+        self.hot()
+        artifact = self.store.promote(self.decision(), "knowledge/cooled")
+        self.apply("use-cooled", search_node_id="N0", artifact=artifact, reason="matching scope")
+        self.store.invalidate_cooled(artifact, "needs_revalidation", "v2", "new toolchain")
+        result = self.store.reconcile()
+        self.assertFalse(result["corrupted_artifacts"])
+        self.assertTrue(any("successor" in item["reason"] for item in result["cooled_warnings"]))
+
     def test_hot_evidence_snapshots_survive_live_result_changes(self):
         live = self.write(".workspace/example/runs/live/RESULT.md", "checkpoint one")
         values = dict(id="H1", kind="observation", statement="partial observation",

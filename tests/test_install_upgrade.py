@@ -1,5 +1,7 @@
 """Managed upgrade/rollback and interruption checks in isolated installations."""
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -83,6 +85,78 @@ class InstallUpgradeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'source-linked'):
             installer.install(linked)
         self.assertFalse((linked / '.agents/.harness/manifest.json').exists())
+
+    def test_initial_install_rejects_symlinked_ancestors_before_any_writes(self):
+        import install_codex_skills as installer
+        for relative in ('.agents', '.agents/skills'):
+            for location in ('outside', 'inside', 'dangling'):
+                with self.subTest(relative=relative, location=location), tempfile.TemporaryDirectory() as temporary:
+                    base = Path(temporary)
+                    workspace = base / 'workspace'
+                    workspace.mkdir()
+                    shared = workspace / 'shared' if location == 'inside' else base / 'shared'
+                    if location != 'dangling':
+                        shared.mkdir()
+                    link = workspace / relative
+                    link.parent.mkdir(parents=True, exist_ok=True)
+                    link.symlink_to(shared, target_is_directory=True)
+                    before = {str(p.relative_to(base)) for p in base.rglob('*')}
+                    result = subprocess.run([sys.executable, installer.__file__, '--workspace', str(workspace)],
+                                            capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn('symlink', result.stderr)
+                    self.assertEqual({str(p.relative_to(base)) for p in base.rglob('*')}, before)
+
+    def test_initial_install_rejects_linked_output_files_before_copying(self):
+        import install_codex_skills as installer
+        for relative in ('AGENTS.md', '.gitignore', '.agents/.harness/manifest.json', '.agents/.harness/lock'):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary)
+                workspace = base / 'workspace'
+                workspace.mkdir()
+                external = base / 'external'
+                external.write_text('user content\n')
+                link = workspace / relative
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(external)
+                before = {str(p.relative_to(base)) for p in base.rglob('*')}
+                result = subprocess.run([sys.executable, installer.__file__, '--workspace', str(workspace)],
+                                        capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn('symlink', result.stderr)
+                self.assertEqual(external.read_text(), 'user content\n')
+                self.assertEqual({str(p.relative_to(base)) for p in base.rglob('*')}, before)
+
+    def test_initial_install_checks_nested_managed_paths(self):
+        import install_codex_skills as installer
+        workspace = self.root / 'nested-links'
+        skills = workspace / '.agents/skills'
+        shutil.copytree(installer.SOURCE, skills, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        references = skills / 'harness-new-project/references'
+        outside = self.root / 'shared-references'
+        references.rename(outside)
+        references.symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            installer.install(workspace)
+        self.assertFalse((workspace / 'AGENTS.md').exists())
+        self.assertFalse((workspace / '.gitignore').exists())
+        self.assertFalse((workspace / '.agents/.harness').exists())
+
+    def test_upgrade_and_rollback_reject_aliased_transaction_history(self):
+        plan = self.prepare()
+        self.apply(plan)
+        history = self.workspace / '.agents/.harness/transactions'
+        outside = self.root / 'shared-transactions'
+        history.rename(outside)
+        history.symlink_to(outside, target_is_directory=True)
+        contents = {p.name: p.read_bytes() for p in outside.iterdir()}
+        installed = (self.workspace / self.name).read_bytes()
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            self.prepare()
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            bundle.transaction(self.workspace, plan['id'], rollback=True)
+        self.assertEqual({p.name: p.read_bytes() for p in outside.iterdir()}, contents)
+        self.assertEqual((self.workspace / self.name).read_bytes(), installed)
 
     def test_changed_bundle_invalidates_reviewed_plan(self):
         plan = self.prepare()

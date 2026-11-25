@@ -1,6 +1,6 @@
 ---
 name: harness-analysis
-description: 分析已有 TileLang 算子的精度/实现缺陷与性能瓶颈，读取上板 trace、aicMetric 和指标表，结合源码提出优化实验并融合探索树机制历史。用于 Operator Harness 的 analysis 节点；无候选先移植标杆。
+description: 分析已有 TileLang 算子的精度/实现缺陷与性能瓶颈，读取上板 trace、aicMetric 和指标表，结合源码提出优化实验并融合探索树机制历史。用于 Operator Harness 的 analysis 节点；无候选先移植或构建初版。
 ---
 
 # Harness Analysis
@@ -11,17 +11,17 @@ description: 分析已有 TileLang 算子的精度/实现缺陷与性能瓶颈�
 
 按 [节点契约](../harness-resume/references/node-contract.md) 执行收到的 TASK；直接交互先用 resume 补齐任务。节点写所属产物，协调者接收并更新共享记录。
 
-默认流程是 `establish-baseline → port-baseline → analysis → develop → analysis …`；已有适用候选时跳过移植。目标已达成或用户要求停止时收尾，不为循环新增分析。读取 `.workspace/<project>/STATE.md`、TASK 固定的候选、标杆和最近测试结果，明确当前实现的待解释问题。
+已有候选按 analysis → develop → analysis 迭代；无候选时根据参考源码可用性选择 port-baseline 或 develop initial-and-validate。目标已达成或用户要求停止时收尾，不为循环新增分析。读取 `.workspace/<project>/STATE.md`、TASK 固定的候选、标杆和最近测试结果，明确当前实现的待解释问题。
 
 ## 输入必须有实际候选
 
 绑定实际 TileLang 候选、case/输出契约、确切 BASELINE 身份及最新测试结果。新生成的初版同时读取 PORTING，了解参考阶段与候选的对应、能力替代（尤其 AICPU）及性能差距。已接入的现有候选没有移植记录是正常情况，直接核对实际实现与证据，不补造历史。
 
-没有候选时推荐 [标杆移植](../harness-port-baseline/SKILL.md)，不把只研究参考算子写成本节点已完成当前 kernel 诊断。标杆用于对照解释候选，不再单独承担初版方案生成；仍可在本节点读取参考源码、比较布局/划分/同步/融合策略。当前相对性能判断需要的标杆缺失/失效时交接 establish-baseline，已授权的离线候选分析可以继续并注明限制。
+没有候选且有适用参考源码时推荐 [标杆移植](../harness-port-baseline/SKILL.md)；无适用性能源码时先固定独立参考/目标，再由 develop initial-and-validate 构建初版。仅研究参考的结论保留为对应材料，不计为当前候选诊断。标杆用于对照解释候选，不再单独承担初版方案生成；仍可在本节点读取参考源码、比较布局/划分/同步/融合策略。当前相对性能判断需要的标杆缺失/失效时交接 establish-baseline，已授权的离线候选分析可以继续并注明限制。
 
 ## 定位当前 kernel 的问题
 
-形成优化方案时参考 [算子生成补充](../tilelang-ascend-generation/SKILL.md) 中适用的阶段、VF 与流水方法，将具体修改和验证条件交给 develop。需要建立 Cube/Vector Roofline、计算 MFU/BWU 或核对 CSV 瓶颈证据时，使用 [ascend-roofline](../ascend-roofline/SKILL.md)。
+形成优化方案时先查 [算子知识库索引](../tilelang-ascend-knowledge/INDEX.md)（按瓶颈症状加载 1–3 张微架构模式卡、已证伪反例卡与对应算子族 Playbook，避免重踩已知死胡同），并结合 [算子生成补充](../tilelang-ascend-generation/SKILL.md) 中适用的阶段、VF 与流水方法，将具体修改和验证条件交给 develop。需要建立 Cube/Vector Roofline、计算 MFU/BWU 或核对 CSV 瓶颈证据时，使用 [ascend-roofline](../ascend-roofline/SKILL.md)。
 
 按 [算子缺陷与优化空间](references/operator-diagnosis.md) 对齐需求、完整调用、参考算法、TileLang/生成代码和逐 case 结果，区分精度/实现、测量/采集、性能机制与原因未明。每个问题给出触发条件、预期/实际行为、源码位置、证据强度及最小验证办法；按阶段核算工作量、资源与并行度，形成针对当前瓶颈的优化方向。诊断失败实现或新发现反例时保留原验收状态，交原 develop 修复/重验，不以分析报告替代正确性门槛。
 

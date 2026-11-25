@@ -4,9 +4,9 @@
 
 ## 1. 摘要
 
-目前项目已提供初始化、接入与接续流程，但环境、标杆建立、算子编写、上板测试和仿真分析之间缺少明确交接。下一位 agent 容易重复询问环境，或把配置存在、编译成功和目标算子验证混为一谈。
+五节点分别承担环境准备、标杆建立、标杆移植、已有候选分析和开发验证。TASK/RESULT 固定交接身份与执行范围，程序依据证据接收，协调者解释结果并选择下一步。当前能力与验证边界见 [能力表](../capabilities.md)。
 
-本设计提供五个节点，以一次有上下文的环境问询准备后续实验，分别保存开发、上板、仿真约定并验证必要能力。允许同一会话连续推进多个节点，同时要求项目记录足以让无历史继承的全新 agent 恢复任务、读取自己的约定并接续执行。skills 负责方法与交接，执行工具生成证据，searchctl 负责接收和账本检查。代价是每项节点工作需要写清任务和输入，并在交接或收尾时检查结果；首次环境准备仍需要真正的小型探针。
+环境准备通过已有记录和必要问询确定后续实验条件，保存 onboard/simulator 描述及 development/device/simulation 绑定，验证实际需要的能力。允许同一会话连续推进多个节点，同时要求项目记录足以让无历史继承的全新 agent 恢复任务、读取自己的约定并接续执行。skills 负责方法与交接，执行工具生成证据，searchctl 负责接收和账本检查。代价是每项节点工作需要写清任务和输入，并在交接或收尾时检查结果；首次环境准备仍需要真正的小型探针。
 
 ## 2. 背景与范围
 
@@ -22,7 +22,9 @@
 flowchart TD
     R[明确需求] --> E[准备环境]
     E --> B[建立标杆]
-    B -->|无适用候选| P[port-baseline：移植并验证初版]
+    B -->|无候选，有适用性能源码| P[port-baseline：移植并验证初版]
+    B -->|无候选，无适用性能源码| I[develop initial-and-validate：固定方案并验证初版]
+    I --> C
     B -->|已有适用候选| C{检查证据与目标}
     P --> C
     C -->|需优化| A[analysis：诊断当前 TileLang kernel]
@@ -53,17 +55,17 @@ simulator 完整接入另行设计，已有仿真约定与证据保留原语义�
 
 从用户来源与适用实现调查候选版本，核对完整语义和必要适配开销；记录调查范围、排除理由和停止条件。“最快”只针对可复查的范围与条件，不以最新版本、文档数字或最快单次取代比较。参考、case、协议、统一实现或逐 case 分派规则先固定；每个候选对拟承担范围先完成精度检查，再采样，最终选择必须覆盖全部必选 case。
 
-输出 run 内的 BASELINE、参考/适配与 case/协议快照、原始输出/样本、复测命令及 RESULT。协调者验收后发布 `.workspace/<project>/BASELINE.md` 索引，下游固定具体修订；draft/ready/stale 与节点 completed 分开。环境、参考、case 或协议变化时只重建受影响证据，保留旧标杆。标杆 ready 通常推荐 analysis 分析实现思路；已有有效分析按输入身份复用并遵循统一路由；缺少环境能力推荐 prepare-environment 的具体补齐动作。
+输出 run 内的 BASELINE、参考/适配与 case/协议快照、原始输出/样本、复测命令及 RESULT。协调者验收后发布 `.workspace/<project>/BASELINE.md` 索引，下游固定具体修订；draft/ready/stale 与节点 completed 分开。环境、参考、case 或协议变化时只重建受影响证据，保留旧标杆。标杆就绪后按输入选择下一步：已有候选进入分析或验证；无候选且有参考源码进入 port-baseline；无适用性能源码时固定独立参考和 absolute/model/none 目标，进入 develop initial-and-validate。已有有效分析按输入身份复用，缺少环境能力则补齐相应能力。
 
 ### 4.3 标杆移植
 
-入口为 [harness-port-baseline](../../assets/skills/harness-port-baseline/SKILL.md)。无适用 TileLang 候选时读取确切标杆源码/适配和契约，移植其算法、布局、并行、同步及融合策略，在同一节点完成 PRECHECK、全部必选精度、正式性能和任务要求的诊断采集；复用 develop 的验证方法与脚本。PORTING 记录对应关系、替代与限制。
+入口为 [harness-port-baseline](../../assets/skills/harness-port-baseline/SKILL.md)。无适用 TileLang 候选时读取确切标杆源码/适配和契约，移植其算法、布局、并行、同步及融合策略，在同一节点完成 PRECHECK、全部必选精度及 TASK 要求的性能和诊断采集；复用 develop 的验证方法与脚本。PORTING 记录对应关系、替代与限制。
 
 TileLang 候选不引入 AICPU；本节点自行寻找 AIC/AIV 替代并核对全调用链，不新增 AICPU 支持，也不隐藏 host 回退或删除候选的必需计算计时。替代无法满足语义/融合等要求时保留未验收检查点。初版符合移植方案、精度通过且测量有效，可将性能差距交给 analysis，不要求证明优化思路失败；已有候选或初版达标则跳过不必要的后续工作。
 
 ### 4.4 分析
 
-入口为 [harness-analysis](../../assets/skills/harness-analysis/SKILL.md)。绑定实际 TileLang 候选、测试结果与移植差异（若有），对照标杆实现分析缺陷；无候选时先进入 port-baseline，不以仅研究参考代替候选诊断。
+入口为 [harness-analysis](../../assets/skills/harness-analysis/SKILL.md)。绑定实际 TileLang 候选、测试结果与移植差异（若有），对照标杆实现分析缺陷；无候选时根据参考源码可用性进入 port-baseline 或 initial-and-validate；analysis 只诊断实际候选。
 
 后续绑定当前候选与最新测试结果，解释精度反例、构建失败或性能差距，按需执行仿真和流水分析。分析已充分的问题可简短交接，不强制重复采集；静态推断不能冒称动态瓶颈。已有分析按输入身份复用，标杆/候选/契约变化只重查受影响部分。
 
@@ -81,15 +83,15 @@ develop 还按 TASK 的 diagnostics_required 交付 ANALYSIS_DATA：真实 kerne
 
 ### 4.6 多方案并行
 
-多个 analysis 的独立方案，或同一 analysis 中独立编号的方案，可按 [并行开发契约](../../assets/skills/harness-resume/references/parallel-develop.md) 分配多个 develop。每个成员使用独立注册 worktree、分支、缓存及本地/远端输出；固定同一父候选、需求、基线、case、协议和环境比较约定。
+新项目按 [search@2 依赖队列](../../assets/skills/harness-resume/references/task-queue.md) 逐项准入 analysis/develop。每项固定候选、问题、依赖及独占工作空间；是否等待全部方案由显式依赖决定。比较分组另固定共同父候选和比较契约，队列并存本身不构成可比性。
 
-searchctl 的 develop-batch 在一次原子操作内登记不同 open 策略的成员，检查分析归属、输入摘要和真实 worktree 隔离。宿主负责实际派发与资源预留；同一设备测量按约定排队。成员各计一步，可以乱序完成，协调者统一接收与选择候选。并行不把不同方案的通过标记拼成合并版本的通过；集成后重新验证。
+宿主负责实际派发与设备排队；每个准入 run 独立计步，analysis 同样占执行槽。成员乱序接收，核实 writer/job 已停止后独立释放工作空间；组合方案产生新候选并重验。旧 search@1 在途项目继续使用 [develop-batch 契约](../../assets/skills/harness-resume/references/parallel-develop.md) 的全批屏障，安全边界再升级。
 
 ### 4.7 一次完整交接示例
 
 以一个包含非对齐尾部的逐元素算子为例，需求先确定 shape/dtype/stride、参考和测量范围。环境访谈确认开发在本地 host、实卡在远端 Docker、仿真在另一台 host；这些是示例选择，不是产品默认值。
 
-环境准备分别建立三份约定并执行所需探针。标杆节点调查适用实现、验证参考并按固定协议建立 B0，port-baseline 读取 B0 并保存移植对应、候选 C1 与固定 case，在同一任务内按 device 绑定的编译链产生 B1，精度通过后采样。后续 TASK 绑定该标杆与候选证据。需继续改进时，analysis在自己的仿真约定下产生S1，检查输出和trace后提出尾部访存假设。交给develop修改成C2，在同一 develop 内重编译与验证，不能复用 C1 的通过标记。
+环境准备建立上板描述、开发/设备绑定和所需 simulator 约定并执行探针。此例描述目标执行链，simulator 的正式工具接入仍待建设。标杆节点调查适用实现、验证参考并按固定协议建立 B0，port-baseline 读取 B0 并保存移植对应、候选 C1 与固定 case，在同一任务内按 device 绑定的编译链产生 B1，精度通过后采样。后续 TASK 绑定该标杆与候选证据。需继续改进时，analysis在自己的仿真约定下产生S1，检查输出和trace后提出尾部访存假设。交给develop修改成C2，在同一 develop 内重编译与验证，不能复用 C1 的通过标记。
 
 中途只更换仿真镜像时，simulation 约定递增修订并重验受影响能力；device 结果仍保留原身份有效性。若两者实际依赖的 SDK 实体都更新，则分别失效。整个过程中不再重问已确定的机器与约束。
 
@@ -105,7 +107,7 @@ searchctl 的 develop-batch 在一次原子操作内登记不同 open 策略的�
 
 优先保留两个独立执行约定，避免统一许可对象带来的误继承。代价是同一机器的部分事实会出现在两份快照中，但可复用探测实现和版本引用，不能复用未经验证的结论。
 
-本阶段用可编辑 Markdown 模板与版本化字段契约完成交接，沿用轻量 GSD 思路；程序级校验仍待执行适配阶段实现。现在不为每次调参创建完整阶段或 PR，也不先实现通用调度服务。
+Markdown 保存节点解释与交接，@4 结构化检查约束候选身份、必选输出、样本和回执。比较器的科学正确性、归因、PROJECT 自然语言规则及实际授权由协调者核验。每次调参沿用节点范围，无需另建阶段或 PR。
 
 ### 4.9 同会话工作与独立接续
 
@@ -117,7 +119,7 @@ searchctl 的 develop-batch 在一次原子操作内登记不同 open 策略的�
 
 协调/执行是职责而非必须不同的身份。委派时子 agent 只交付所属产物，由主 agent 接收、问询中继并更新共享记录；单 agent 时当前 agent 顺序完成同样的节点工作、问询和汇总。普通暂停或补充答案可以继续原 run；范围改变或新的尝试才建立新 TASK，不因换 agent 自动重跑。
 
-详细入口、字段与生命周期统一在 [节点交接契约](../../assets/skills/harness-resume/references/node-contract.md)。环境余额放独立 RESOURCE_USAGE，约定保存政策/上限；所有执行方式均保留 unknown 作业占用并防止重复提交。
+详细入口、字段与生命周期统一在 [节点交接契约](../../assets/skills/harness-resume/references/node-contract.md)。环境约定保存政策/上限；control 启用后余额以程序账本为准，RESOURCE_USAGE 记录投影和水位，未启用的旧任务沿用原账本。unknown 保留占用并查询原请求。
 
 ## 5. 不变量与要求
 
@@ -148,15 +150,15 @@ searchctl 的 develop-batch 在一次原子操作内登记不同 open 策略的�
 | `.workspace/<project>/runs/<run-id>/` | 本次请求、候选与约定快照、原始结果、摘要 |
 | `.workspace/<project>/EXPERIMENTS.md` | 成功、失败与无收益实验索引 |
 | `.workspace/<project>/DECISIONS.md` | 问题 ID、真实用户回答、作用域与替代关系，主 agent 维护 |
-| `.workspace/<project>/RESOURCE_USAGE.md` | 额度预留/结算、未决作业占用，主 agent 维护 |
+| `.workspace/<project>/RESOURCE_USAGE.md` | control 的资源投影与事件水位；未启用的旧任务保留原手工账本 |
 
-当前 TASK/RESULT/CANDIDATE/BASELINE、环境索引/单环境约定使用 [六份模板](../../assets/skills/harness-resume/references/node-contract.md#2-六份模板与位置)，全部随安装器分发。模板字段区分必填、条件必填、未知与不适用，并区分冻结输入 snapshot 和持续更新的导航/决定/账本 live 记录；接收检查是当前 agent 流程，不宣称已存在自动 schema 校验。
+当前 TASK/RESULT/CANDIDATE/BASELINE、环境索引/单环境约定使用 [六份模板](../../assets/skills/harness-resume/references/node-contract.md#2-六份模板与位置)，全部随安装器分发。模板字段区分必填、条件必填、未知与不适用，并区分冻结输入 snapshot 和持续更新的导航/决定/账本 live 记录；@4 程序检查稳定字段、输入身份及适用证据；协调者继续检查科学解释和外部授权。
 
-记录格式见 [环境约定](../../assets/skills/harness-prepare-environment/references/environment-contract.md) 与 [证据记录](../../assets/skills/harness-resume/references/execution-records.md)，单处维护以免漂移。当前 `.workspace/` 遵循项目记录惯例；清理运行产物不能连带删除环境约定与在用证据。迁移需显式携带记录，安装清单/发布配置的持久化位置留在 M3，不混作实验输出。
+记录格式见 [环境约定](../../assets/skills/harness-prepare-environment/references/environment-contract.md) 与 [证据记录](../../assets/skills/harness-resume/references/execution-records.md)，单处维护以免漂移。当前 `.workspace/` 遵循项目记录惯例；清理运行产物不能连带删除环境约定与在用证据。迁移需显式携带记录，安装清单已保存于 `.agents/.harness/`；发布配置按 M3/M5 扩展，与实验产物分开。
 
-### 6.2 未来执行适配器的最小契约
+### 6.2 通用设备适配器的目标契约
 
-下面是内部语义，不冻结 CLI 拼写或语言 SDK；Onboard 可先直连，simulator 的 MCP 映射同一语义。
+下表定义通用设备后端的目标语义。已有本地 runctl/evaluate 的接口见相应契约；设备 ABI、传输和 simulator 接入在此基础上扩展，CLI 拼写及语言 SDK 按实际后端确定。
 
 | 操作 | 输入 | 输出与约束 |
 | --- | --- | --- |
@@ -199,7 +201,7 @@ searchctl 的 develop-batch 在一次原子操作内登记不同 open 策略的�
 
 没有通用自动重试次数。环境准备明确连接/等待上限，任务需求明确实验次数和总设备/仿真预算；不具备上限时不启动依赖该预算的长作业。重试只处理已辨识的暂态失败，并计入预算；确定性编译/数值错误需修改原因后再试。
 
-预算约定固定计数单位、一次包含阶段及扣减政策；实时额度由主 agent 在 RESOURCE_USAGE 中派发前预留、接收后结算，TASK 固定本次 reservation。unknown 作业保持占用，恢复节点引用原 job/预留。余额变化不递增环境修订，政策变化才更新约定并检查影响。
+预算约定固定单位、计量范围及扣减政策。control 启用后通过程序账本预留、观察与结算，RESOURCE_USAGE 仅引用其余额和水位；旧任务未启用时继续维护原手工账本。TASK 固定本次分配范围。unknown 作业保持占用，恢复节点引用原 job/预留。余额变化不递增环境修订，政策变化才更新约定并检查影响。
 
 约定变更不原地替换运行中的快照。禁用或撤回权限阻止新提交，并按该环境约定处理在途作业；取消失败继续标 unknown/运行中并说明，不能假装资源已释放。多个故障并存时分别保留原因，优先确认作业和资源归属，不因解析失败掩盖运行失败。
 
@@ -228,22 +230,22 @@ searchctl 的 develop-batch 在一次原子操作内登记不同 open 策略的�
 - **AC-13**：委派子 agent 仅生成所属产物，协调角色检查后发布共享索引；单 agent 完成同样检查可自行发布，无须另开会话或审批。
 
 - **AC-14**：不可比或正确性失败的快实现不得入选；离线调查可完成但无实测不能为 ready，跨环境旧时间不被复用。
-- **AC-15**：需要相对性能且无可用基线时路由到 establish-baseline；ready 且无适用候选时进入 port-baseline，再按 analysis → develop → analysis 循环；已有候选跳过移植，节点最终回复明确给出一个主推荐及停止边界。
+- **AC-15**：需要相对性能且无可用基线时路由到 establish-baseline；ready 且无候选时根据参考源码可用性进入 port-baseline 或 initial-and-validate，再按 analysis → develop → analysis 循环；已有候选跳过移植，节点最终回复明确给出一个主推荐及停止边界。
 
-- **AC-16**：无候选时由 port-baseline 生成并验证初版；AICPU 依赖在节点内替代，精度/实现/测量失败不接收，已验证但较慢的初版可交 analysis。已有候选的静态分析不因仿真未启用阻塞。
+- **AC-16**：无候选且有参考源码时由 port-baseline 生成验证初版；无适用性能源码时由 initial-and-validate 落实固定初版方案；AICPU 依赖在节点内替代，精度/实现/测量失败不接收，已验证但较慢的初版可交 analysis。已有候选的静态分析不因仿真未启用阻塞。
 - **AC-17**：精度失败和实现问题在 develop 内修复；思路问题带精度通过与性能退化证据交回 analysis；已接收且适用的分析进入develop，新候选在 develop 内验证；目标达成不强制再分析。旧simulate任务保留原范围，不冒充首次方案已完成。
 
 ## 10. 验证方式
 
-基础验证包含文档/技能检查、安装到隔离项目与重复安装验证、引用/技能元数据检查、环境隔离与失败情景演练。本次 review 以无历史继承的节点 agent 从记录入口做冷启动演练，检查模板能否恢复目标与方法（AC-10）；另检查同会话继续和单 agent 职责兼容性（AC-11–13）。演练是隔离的离线材料，不代表真实执行链或硬件验收。此类检查只证明方法和包装，不证明执行器会自动拦截或硬件支持。
+基础验证包含文档/技能引用、隔离安装、真实 CPU 子进程评测与故障回归。协议测试证明相应程序路径；冷启动任务还需全新 agent 仅凭记录完成接续，硬件能力则由具体设备闭环验证。
 
-后续适配器实现用假执行后端覆盖：角色越权拒绝（INV-1、AC-2）、漂移与证据身份（INV-3/4、AC-3）、精度 gate（INV-5、AC-4/5）、丢失提交响应和取消（INV-7、AC-6）。技能情景演练覆盖复用与最小问询（INV-2、AC-1）及片段 trace 结论边界（INV-6、AC-7）。
+执行适配的正反例应持续覆盖：角色越权拒绝（INV-1、AC-2）、漂移与证据身份（INV-3/4、AC-3）、精度 gate（INV-5、AC-4/5）、丢失提交响应和取消（INV-7、AC-6）。技能情景演练覆盖复用与最小问询（INV-2、AC-1）及片段 trace 结论边界（INV-6、AC-7）。
 
 真实验收先选择一个明确算子与可用设备组合完成 M2，再逐格扩展仿真/设备矩阵（AC-9）。用包含边界 case 的正确候选和已知错误候选验证正反路径；所有设备性能结论先有正确性证据。安装 smoke 对应 AC-8，不能替代 AC-1–7/9 的运行时验收。
 
 ## 11. 风险与取舍
 
-- Markdown 模板与稳定字段便于独立恢复，但不是程序约束。当前由主 agent 接收检查，后续适配器对版本化契约增加 schema/gate，不另设平行事实源。
+- @4 的结构化身份与证据由程序检查；Markdown 的解释、语义范围和外部授权仍由协调者核验。两者分别说明依据，保持同一事实源。
 - 上游 skills 的示例可能绑定不同后端或工具。按 [来源评估](skill-sources.md) 选择方法，实际命令跟随环境版本验证。
 - Onboard 和 simulator 的远程/Docker 支持仍需适配。保留各自能力状态，不能把包装成功当作矩阵完成。
 - 运行记录被 Git 忽略，迁移或误清理会丢证据。明确保留/复制约定与引用产物；跨项目自动环境注册表不属于当前设计范围。
@@ -261,7 +263,7 @@ searchctl 的 develop-batch 在一次原子操作内登记不同 open 策略的�
 ## 并行与合并节点的验收场景
 
 - 两个独立方案从同一父候选启动，各自 worktree 实现并测试；乱序接收后仍保留正确的策略与候选谱系。
-- 重用 worktree、分支漂移、分析未接收、候选不一致或 TASK 身份错误，批次登记失败且不留下半批记录。
+- 重复占用 worktree、分支漂移、分析未接收、候选不一致或 TASK 身份错误，search@2 准入失败且不留下部分占用；search@1 批次登记同样保持原子性。
 - 一个成员精度失败，另一个成功：前者保留反例并在自身节点修复、不得接收，后者按完整协议接收；不因失败删除兄弟结果。
 - 暂停/断线恢复保存全部成员、原请求与设备占用，不重新派发 unknown job，不重扣原步骤。
 - 旧测试记录可查阅和接收，安装包中没有独立测试 skill。新 develop 的精度与性能未运行时不得报告已验证。

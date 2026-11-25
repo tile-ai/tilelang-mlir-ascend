@@ -1,0 +1,4 @@
+interface:
+  display_name: "TileLang Ascend Knowledge Base"
+  short_description: "按算子族与瓶颈症状渐进检索 TileLang 昇腾编写范式、微架构模式、反例与 Playbook"
+  default_prompt: "先阅读 $tilelang-ascend-knowledge 的 INDEX.md，根据当前算子族或瓶颈症状只加载最相关的 1-3 张卡片，不要全量读取。"

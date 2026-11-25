@@ -9,6 +9,8 @@ import statistics
 
 from projectctl import Invalid
 
+METRICS = {"cpu": "cpu_wall_ms", "torch_npu": "mean_device_busy_union_ms"}
+
 
 def require(condition, message):
     if not condition:
@@ -81,11 +83,13 @@ def plan(store, ref):
             "evaluation plan needs frozen requirements/reference/comparator/cases/protocol/environment")
     for item in data["inputs"].values():
         freeze(store, item, dependencies)
-    if data.get("execution"):
-        execution = data["execution"]
-        require(execution.get("backend") in ("cpu", "torch_npu"), "unsupported execution backend")
-        freeze(store, execution["adapter"], dependencies)
-        require(number(execution.get("timeout_seconds"), positive=True), "invalid execution timeout")
+    execution = data.get("execution")
+    require(isinstance(execution, dict) and bool(execution), "evaluation plan needs a frozen execution adapter")
+    require(execution.get("backend") in METRICS, "unsupported execution backend")
+    require(execution.get("metric", METRICS[execution["backend"]]) == METRICS[execution["backend"]],
+            "execution metric does not match backend")
+    freeze(store, execution["adapter"], dependencies)
+    require(number(execution.get("timeout_seconds"), positive=True), "invalid execution timeout")
     cases = data.get("cases")
     require(isinstance(cases, list) and bool(cases), "evaluation plan needs mandatory cases")
     ids = []
@@ -108,7 +112,89 @@ def plan(store, ref):
 def comparison_identity(data):
     comparison = {key: data[key] for key in ("cases", "performance_kind", "statistic")}
     comparison["inputs"] = {key: ref["sha256"] for key, ref in data["inputs"].items()}
+    backend = data["execution"]["backend"]
+    comparison["measurement"] = {"backend": backend, "metric": METRICS[backend]}
     return hashlib.sha256(json.dumps(comparison, sort_keys=True).encode()).hexdigest()
+
+
+def previous_comparison_identity(data):
+    """Exact pre-metric identity, used only to recognize frozen historical records."""
+    comparison = {key: data[key] for key in ("cases", "performance_kind", "statistic")}
+    comparison["inputs"] = {key: ref["sha256"] for key, ref in data["inputs"].items()}
+    return hashlib.sha256(json.dumps(comparison, sort_keys=True).encode()).hexdigest()
+
+
+def matches_best_comparison(store, tree, comparison):
+    best = tree["best"]
+    if best["comparison"] == comparison:
+        return True
+    run = tree["runs"].get(best["run_id"], {})
+    accepted = run.get("acceptance", {}).get("validation", {})
+    if not (run.get("result") and run.get("evaluation_plan") and accepted.get("eligible") is True
+            and accepted.get("candidate_id") == best["candidate_id"]
+            and accepted.get("comparison") == best["comparison"]):
+        return False
+    # Check original evidence integrity and its frozen execution contract. This
+    # does not run a new evaluator or change the historical acceptance decision.
+    store.verify_run(tree, best["run_id"])
+    data, _ = plan(store, run["evaluation_plan"])
+    return (best["comparison"] == previous_comparison_identity(data)
+            and comparison_identity(data) == comparison)
+
+
+def device_receipt(store, ref, context, worker_result, dependencies):
+    """Validate a final device observation; callers must obtain it from their guard."""
+    receipt = checked(store, ref, dependencies)
+    require(receipt.get("schema") == "operator-harness/device-receipt@1", "unsupported device receipt")
+    for key in ("project_id", "run_id", "candidate_id", "request_id", "artifacts", "evaluation_plan"):
+        require(receipt.get(key) == context[key], "device receipt identity mismatch: " + key)
+    require(receipt.get("worker_result") == worker_result, "device receipt worker result mismatch")
+    freeze(store, worker_result, dependencies)
+    exits = receipt.get("exit_codes")
+    require(receipt.get("status") == "released" and receipt.get("conflicts") == [],
+            "device guard is pending or conflicted")
+    require(isinstance(exits, dict) and "guard" in exits and
+            all(isinstance(key, str) and key and type(value) is int and value == 0
+                for key, value in exits.items()), "device guard/layer did not exit successfully")
+    files = receipt.get("raw_files")
+    require(isinstance(files, list) and bool(files), "device receipt needs raw guard observations")
+    for item in files:
+        freeze(store, item, dependencies)
+    device_usage(store, context, receipt)
+    return receipt
+
+
+def device_usage(store, context, receipt):
+    """A device reservation covers the guard lifetime, not only the local worker."""
+    control = store.load().get("control")
+    if control is None:
+        return None
+    job = control["jobs"].get(context["request_id"])
+    require(job and job["run_id"] == context["run_id"] and job["status"] == "exited",
+            "device finalization needs the matching exited process job")
+    key = job["reservation_id"]
+    reservation = control["reservations"][key]
+    pool = control["budgets"][reservation["pool"]]
+    usage = receipt.get("resource_usage")
+    require(isinstance(usage, dict) and set(usage) == {"pool", "unit", "used"} and
+            usage["pool"] == reservation["pool"] and usage["unit"] == pool["unit"] and
+            number(usage["used"], positive=True), "device receipt needs actual matching resource usage")
+    if pool["unit"] == "executions":
+        require(type(usage["used"]) is int and usage["used"] == 1,
+                "one started device request consumes one execution")
+    elif pool["unit"] == "seconds":
+        path = store.records / "runs" / context["run_id"] / "jobs" / context["request_id"] / "process-receipt.json"
+        process = json.loads(path.read_text())
+        require(all(process.get(key) == context[key] for key in ("project_id", "run_id", "request_id")) and
+                process.get("status") == "exited" and process.get("exit_codes") == {"process": 0} and
+                number(process.get("elapsed_seconds")), "device usage needs the original successful process receipt")
+        require(usage["used"] >= process["elapsed_seconds"],
+                "guard lifetime usage cannot be shorter than the observed process duration")
+    else:
+        require(False, "unsupported device resource unit")
+    if reservation["settled"]:
+        require(reservation["used"] == usage["used"], "device usage disagrees with prior settlement")
+    return {"id": key, "used": usage["used"], "settled": reservation["settled"]}
 
 
 def validation(store, run, result):
@@ -163,14 +249,19 @@ def validation(store, run, result):
         require(receipt.get("status") == "exited" and isinstance(exits, dict) and bool(exits)
                 and all(type(x) is int and x == 0 for x in exits.values()), "job not successfully exited")
         require(receipt.get("valid") is True, "receipt not validated by execution adapter")
-        if data.get("execution"):
-            require(receipt.get("producer") == "evaluate@1" and
-                    receipt.get("backend") == data["execution"]["backend"], "execution backend/producer mismatch")
-            process = checked(store, receipt["process"], dependencies)
-            require(process.get("schema") == "operator-harness/process-receipt@1" and
-                    process.get("project_id") == store.project_id and process.get("run_id") == run_id and
-                    process.get("request_id") == request and process.get("status") == "exited" and
-                    process.get("exit_codes") == receipt["exit_codes"], "process receipt mismatch")
+        require(receipt.get("producer") == "evaluate@1" and
+                receipt.get("backend") == data["execution"]["backend"], "execution backend/producer mismatch")
+        process = checked(store, receipt["process"], dependencies)
+        require(process.get("schema") == "operator-harness/process-receipt@1" and
+                process.get("project_id") == store.project_id and process.get("run_id") == run_id and
+                process.get("request_id") == request and process.get("status") == "exited" and
+                process.get("exit_codes") == receipt["exit_codes"], "process receipt mismatch")
+        if data["execution"]["backend"] == "torch_npu":
+            require(receipt.get("device_receipt") and receipt.get("worker_result"), "missing final device receipt")
+            device_receipt(store, receipt["device_receipt"], receipt, receipt["worker_result"], dependencies)
+            produced = checked(store, receipt["worker_result"], dependencies)
+            require(produced.get("status") == "complete" and produced.get("cases") == report.get("cases")
+                    and produced.get("diagnostics") == report.get("diagnostics"), "device worker evidence mismatch")
         require(receipt.get("artifacts") == artifacts and receipt.get("evaluation_plan") == run["evaluation_plan"],
                 "receipt execution/evaluator identity mismatch")
     rows = report.get("cases")
@@ -202,6 +293,8 @@ def validation(store, run, result):
                         and all(type(x) is bool for x in outputs.values()), "mandatory output coverage mismatch")
                 accuracy_passed = accuracy_passed and all(outputs.values())
             else:
+                require(raw.get("metric") == METRICS[data["execution"]["backend"]],
+                        "performance metric does not match execution backend")
                 samples = raw.get("samples_ms")
                 require(isinstance(samples, list) and len(samples) >= case["min_samples"]
                         and all(number(x, positive=True) for x in samples), "invalid/insufficient performance samples")
@@ -253,6 +346,23 @@ def limited_validation(store, run, result):
                 "empty diagnostic inventory")
         for item in report["artifacts"]:
             freeze(store, item, dependencies)
+        if run.get("evaluation_plan"):
+            data, plan_dependencies = plan(store, run["evaluation_plan"])
+            dependencies.update(plan_dependencies)
+            if data["execution"]["backend"] == "torch_npu":
+                require(report.get("device_receipt") and report.get("worker_result"), "missing final device receipt")
+                context = dict(report, candidate_id=candidate_id, evaluation_plan=run["evaluation_plan"],
+                               artifacts={key: store.reference(store.value(candidate, key))
+                                          for key in ("source", "build", "launch")})
+                device_receipt(store, report["device_receipt"], context, report["worker_result"], dependencies)
+                produced = checked(store, report["worker_result"], dependencies)
+                require(produced.get("status") == "complete" and produced.get("diagnostics") == report["artifacts"],
+                        "device worker evidence mismatch")
+                process = checked(store, report["process"], dependencies)
+                require(process.get("schema") == "operator-harness/process-receipt@1" and
+                        process.get("project_id") == store.project_id and process.get("run_id") == context["run_id"] and
+                        process.get("request_id") == context["request_id"] and process.get("status") == "exited" and
+                        process.get("exit_codes") == {"process": 0}, "process receipt mismatch")
         requests = [report["request_id"]] if report.get("request_id") else []
         manifest = ref
     return {"dependencies": dependencies, "candidate": candidate, "candidate_id": candidate_id,

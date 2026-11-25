@@ -1,6 +1,6 @@
 # 项目记录
 
-项目记录直接使用 Markdown，用户和 agent 都可以编辑。项目流程产物放在工作目录的 `.workspace/<project>/`，与 harness 仓库自身的开发文档 `docs/` 分开。
+计划和导航记录使用 Markdown，由授权的协调者维护；已冻结的 TASK、输入快照和终态证据保留原内容，变更按节点契约建立新修订。项目流程产物放在工作目录的 `.workspace/<project>/`，与 harness 仓库自身的开发文档 `docs/` 分开。
 
 | 文件 | 内容 |
 | --- | --- |
@@ -14,8 +14,8 @@
 | `ENVIRONMENT.md` | 环境准备后建立的执行阶段绑定与项目使用约定；开发/上板可共用环境描述 |
 | 工作目录 `.workspace/environments/onboard/<id>/` | 共享上板环境的描述修订与证据；项目只引用事实，另保留本项目授权和资源约定 |
 | `DECISIONS.md` | 实际用户回答、问题 ID、作用域、日期与替代关系；主 agent 维护 |
-| `AUTOMATIC.md` | 自动模式启用时的批次、控制步数、协调者与停止原因，status 只读，普通项目无需空建 |
-| `RESOURCE_USAGE.md` | 资源额度预留、消耗与未知作业占用；与环境约定修订分离 |
+| `AUTOMATIC.md` | 宿主控制步骤、模式与停止原因，以及程序 run 计数/水位的引用；status 只读，普通项目无需空建 |
+| `RESOURCE_USAGE.md` | control 启用后的余额/占用投影与事件水位；未启用的旧任务沿用原手工账本 |
 | `codebase/MAP.md` | 已有项目的代码现状与有用的文件入口，由 onboard 维护 |
 | `runs/<run-id>/PRECHECK.md` | develop 的实际低成本检查、输入身份与日志；计划仍在 PROJECT |
 | `deliveries/<delivery-id>/DELIVERY.md` | 最终发布版与实测版的差异、证据覆盖、补测/未验证项及发布动作 |

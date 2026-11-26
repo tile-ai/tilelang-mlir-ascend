@@ -1,0 +1,77 @@
+name: A5 test wheel for MLIR PR 274
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, reopened, synchronize]
+    paths: ['.github/workflows/pr274-wheel.yml']
+  push:
+    branches: ['ci/qa-wheel-pr274-225198a9']
+
+permissions:
+  contents: read
+
+jobs:
+  wheel:
+    if: github.repository == 'tile-ai/tilelang-mlir-ascend'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out the merged source
+        uses: actions/checkout@v7
+        with:
+          ref: 225198a9ae32b1d8da38c55e406df87e6798a8fa
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify the source revision
+        run: test "$(git rev-parse HEAD)" = 225198a9ae32b1d8da38c55e406df87e6798a8fa
+
+      - name: Build the Linux x86_64 Ascend wheel
+        uses: pypa/cibuildwheel@v4.3
+        env:
+          CIBW_BUILD: cp312-manylinux_x86_64
+          CIBW_BEFORE_ALL_LINUX: 'true'
+          CIBW_BEFORE_BUILD_LINUX: git config --global --add safe.directory /project
+          CIBW_ENVIRONMENT_LINUX: USE_ASCEND=ON USE_CUDA=OFF USE_ROCM=OFF NO_VERSION_LABEL=OFF NO_GIT_VERSION=OFF CMAKE_BUILD_PARALLEL_LEVEL=4
+          CIBW_TEST_SKIP: '*'
+        with:
+          output-dir: wheelhouse
+
+      - name: Set up Python for the installation check
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Verify the installed wheel and record its checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheels=(wheelhouse/*.whl)
+          test "${#wheels[@]}" -eq 1
+          test -f "${wheels[0]}"
+          python -m venv "${RUNNER_TEMP}/wheel-test"
+          source "${RUNNER_TEMP}/wheel-test/bin/activate"
+          python -m pip install 'torch==2.10.0+cpu' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install "${wheels[0]}"
+          python -I - <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import tilelang
+
+          installed = Path(tilelang.__file__).resolve().parent
+          assert installed.is_relative_to(Path(sys.prefix))
+          assert "git225198a9" in version("tilelang")
+          src = Path("src/tl_templates/ascend")
+          for name in ("cann_compat.h", "cann_compat_names.h", "simt_math.h"):
+              assert (installed / src / name).read_bytes() == (src / name).read_bytes()
+          PY
+          git rev-parse HEAD > wheelhouse/SOURCE_COMMIT.txt
+          (cd wheelhouse && sha256sum -- *.whl > SHA256SUMS)
+
+      - name: Upload the wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: tilelang-ascend-linux-x86_64-225198a9
+          path: wheelhouse/
+          if-no-files-found: error

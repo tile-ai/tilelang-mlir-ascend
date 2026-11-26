@@ -20,12 +20,18 @@ def TL_AddressSpaceGM : I32EnumAttrCase<"GM", 0, "gm">;
 def TL_AddressSpaceUB : I32EnumAttrCase<"UB", 1, "ub">;
 def TL_AddressSpaceL1 : I32EnumAttrCase<"L1", 2, "l1">;
 def TL_AddressSpaceL0 : I32EnumAttrCase<"L0", 3, "l0">;
+def TL_AddressSpaceL0A : I32EnumAttrCase<"L0A", 4, "l0a">;
+def TL_AddressSpaceL0B : I32EnumAttrCase<"L0B", 5, "l0b">;
+def TL_AddressSpaceL0C : I32EnumAttrCase<"L0C", 6, "l0c">;
 
 def TL_AddressSpace : TL_I32Enum<"AddressSpace", "TileLang buffer address space", [
   TL_AddressSpaceGM,
   TL_AddressSpaceUB,
   TL_AddressSpaceL1,
-  TL_AddressSpaceL0
+  TL_AddressSpaceL0,
+  TL_AddressSpaceL0A,
+  TL_AddressSpaceL0B,
+  TL_AddressSpaceL0C
 ]>;
 
 def TL_AddressSpaceAttr : TL_I32EnumAttr<"address_space", TL_AddressSpace>;
@@ -64,5 +70,32 @@ def TL_ReduceMode : TL_I32Enum<"ReduceMode", "TileLang reduce operation mode", [
 ]>;
 
 def TL_ReduceModeAttr : TL_I32EnumAttr<"reduce_mode", TL_ReduceMode>;
+def TL_PipeS    : I32EnumAttrCase<"PIPE_S", 0, "pipe_s">;
+def TL_PipeV    : I32EnumAttrCase<"PIPE_V", 1, "pipe_v">;
+def TL_PipeM    : I32EnumAttrCase<"PIPE_M", 2, "pipe_m">;
+def TL_PipeMTE1 : I32EnumAttrCase<"PIPE_MTE1", 3, "pipe_mte1">;
+def TL_PipeMTE2 : I32EnumAttrCase<"PIPE_MTE2", 4, "pipe_mte2">;
+def TL_PipeMTE3 : I32EnumAttrCase<"PIPE_MTE3", 5, "pipe_mte3">;
+def TL_PipeALL  : I32EnumAttrCase<"PIPE_ALL", 6, "pipe_all">;
+def TL_PipeMTE4 : I32EnumAttrCase<"PIPE_MTE4", 7, "pipe_mte4">;
+def TL_PipeMTE5 : I32EnumAttrCase<"PIPE_MTE5", 8, "pipe_mte5">;
+def TL_PipeV2   : I32EnumAttrCase<"PIPE_V2", 9, "pipe_v2">;
+def TL_PipeFIX  : I32EnumAttrCase<"PIPE_FIX", 10, "pipe_fix">;
+
+def TL_Pipe : TL_I32Enum<"Pipe", "TileLang sync pipe", [
+  TL_PipeS,
+  TL_PipeV,
+  TL_PipeM,
+  TL_PipeMTE1,
+  TL_PipeMTE2,
+  TL_PipeMTE3,
+  TL_PipeALL,
+  TL_PipeMTE4,
+  TL_PipeMTE5,
+  TL_PipeV2,
+  TL_PipeFIX
+]>;
+
+def TL_PipeAttr : TL_I32EnumAttr<"pipe", TL_Pipe>;
 
 #endif // TILELANGIR_DIALECT_TL_TLATTRS_TD

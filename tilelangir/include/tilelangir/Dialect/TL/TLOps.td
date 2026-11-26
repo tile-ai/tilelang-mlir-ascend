@@ -29,6 +29,26 @@ def TL_CopyOp : TL_Op<"copy", [MemoryEffects<[MemRead, MemWrite]>]> {
   let hasVerifier = 1;
 }
 
+def TL_VBitcastOp : TL_Op<"vbitcast", [MemoryEffects<[MemRead]>]> {
+  let summary = "Reinterpret the bits of a tile buffer as a different element type";
+  let description = [{
+    Bitcasts a memref to a new element type, preserving the underlying bit
+    pattern and shape. Source and result element types must have the same
+    bit width.
+
+    Unlike `tl.add`/`tl.sub`, this op produces a new SSA value rather than
+    writing into a destination operand.
+
+    Example:
+      %r = tl.vbitcast %src : memref<64xf32> to memref<64xi32>
+  }];
+  let arguments = (ins AnyMemRef:$source);
+  let results = (outs AnyMemRef:$result);
+  let assemblyFormat =
+      "$source attr-dict `:` type($source) `to` type($result)";
+  let hasVerifier = 1;
+}
+
 def TL_AddOp : TL_Op<"add", [
     MemoryEffects<[MemRead, MemWrite]>,
     AllTypesMatch<["lhs", "rhs", "out"]>
@@ -42,6 +62,122 @@ def TL_AddOp : TL_Op<"add", [
   let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out);
   let assemblyFormat =
       "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` attr-dict `:` type($lhs)";
+  let hasVerifier = 1;
+}
+
+
+def TL_SortOp : TL_Op<"sort", [
+    MemoryEffects<[MemRead, MemWrite]>
+]> {
+  let summary = "Sort a tile buffer along an axis, producing sorted values and indices";
+  let description = [{
+    Destination-style vector sort. Sorts the sort_axis of src in ascending
+    or descending order, writing the sorted values into dst_value and the
+    original indices of each sorted element into dst_index. Mirrors
+    HIVM's hivm.hir.vsort op (and tl.npuir_sort at the TIR level).
+
+    Constraints:
+      - src and dst_value must have the same shape and element type.
+      - src and dst_index must have the same shape.
+      - dst_index must have an integer element type.
+
+    Example:
+      tl.sort ins(%src) outs(%dst_value, %dst_index)
+          descending = false sort_axis = -1
+          : memref<64xf32>, memref<64xf32>, memref<64xi32>
+  }];
+  let arguments = (ins AnyMemRef:$src,
+                       AnyMemRef:$dst_value,
+                       AnyMemRef:$dst_index,
+                       DefaultValuedAttr<BoolAttr, "false">:$descending,
+                       DefaultValuedAttr<I64Attr, "-1">:$sort_axis);
+  let assemblyFormat = [{
+    `ins` `(` $src `)` `outs` `(` $dst_value `,` $dst_index `)`
+    `descending` `=` $descending `sort_axis` `=` $sort_axis
+    attr-dict `:` type($src) `,` type($dst_value) `,` type($dst_index)
+  }];
+  let hasVerifier = 1;
+}
+
+def TL_CastOp : TL_Op<"cast", [
+    MemoryEffects<[MemRead, MemWrite]>
+]> {
+  let summary = "Elementwise type conversion of a tile buffer";
+  let description = [{
+    Destination-style vector cast: dst = cast(src, round_mode). src and dst
+    share shape but may differ in element type (that is the point of a
+    cast); legal src/dst dtype pairs are constrained by the HIVM vcast
+    hardware op, not by this verifier. round_mode is one of:
+    round/rint/floor/ceil/trunc/odd, matching the set accepted by
+    tilelang.language.customize_npuir.npuir_cast on the Python side (a
+    strict subset of HIVM's RoundMode enum, which also has
+    truncwithoverflow).
+    Example:
+      tl.cast ins(%a) outs(%c) round_mode("rint") : memref<64xf32>, memref<64xf16>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst, StrAttr:$round_mode);
+  let assemblyFormat =
+      "`ins` `(` $src `)` `outs` `(` $dst `)` `round_mode` `(` $round_mode `)` attr-dict `:` type($src) `,` type($dst)";
+  let hasVerifier = 1;
+  }
+def TL_ShrOp : TL_Op<"shr", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["lhs", "rhs", "out"]>
+]> {
+  let summary = "Elementwise right-shift of a tile buffer, with optional rounding";
+  let description = [{
+    Destination-style vector shift-right: out = lhs >> rhs (arithmetic,
+    with optional rounding). lhs, rhs and out share shape and element type
+    (integer only: i16/i32/i64, per HIVM vshr constraints).
+
+    KNOWN LIMITATION: rhs is modeled here as a tensor operand (not scalar),
+    matching what the existing NpuirShr/npuir_shr TIR call layer actually
+    supports today. This does NOT match HIVM vshr's true ScalarOnlyHWTrait
+    on its second operand; conversion to HIVM is only correct when rhs is,
+    in practice, a single-element buffer. Full scalar-rhs support requires
+    fixing NpuirShr's C++ constructor and the npuir_shr Python wrapper,
+    which is out of scope here.
+    Example:
+      tl.shr ins(%a, %shift) outs(%c) round(true) : memref<64xi32>
+  }];
+  let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out,
+      DefaultValuedAttr<BoolAttr, "true">:$round);
+  let assemblyFormat =
+      "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` `round` `(` $round `)` attr-dict `:` type($lhs)";
+       let hasVerifier = 1;
+}
+def TL_ShlOp : TL_Op<"shl", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["lhs", "out"]>
+]> {
+  let summary = "Elementwise left-shift of a tile buffer by a scalar";
+  let description = [{
+    Destination-style vector shift-left: out = lhs << rhs. lhs and out share
+    shape and element type (integer only: i16/i32/i64, per HIVM vshl
+    constraints). rhs is a scalar shift amount, not a tile buffer, matching
+    the HIVM ScalarOnlyHWTrait constraint on vshl's second operand.
+    Example:
+      tl.shl ins(%a, %shift) outs(%c) : memref<64xi32>, i32
+  }];
+  let arguments = (ins AnyMemRef:$lhs, AnyType:$rhs, AnyMemRef:$out);
+  let assemblyFormat =
+      "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` attr-dict `:` type($lhs) `,` type($rhs)";
+  let hasVerifier = 1;
+}
+
+def TL_PrintOp : TL_Op<"print", [MemoryEffects<[MemRead]>]> {
+  let summary = "Debug-print a scalar or tile buffer (device-side)";
+  let description = [{
+    ...
+  }];
+  let arguments = (ins
+    AnyType:$src,
+    StrAttr:$prefix,
+    BoolAttr:$hex
+  );
+  let results = (outs);
+  let assemblyFormat =
+      "$src `prefix` $prefix `hex` $hex attr-dict `:` type($src)";
   let hasVerifier = 1;
 }
 
@@ -70,6 +206,16 @@ class TL_BinaryOp<string mnemonic> : TL_Op<mnemonic, [
   let arguments = (ins AnyMemRef:$lhs, AnyMemRef:$rhs, AnyMemRef:$out);
   let assemblyFormat =
     "`ins` `(` $lhs `,` $rhs `)` `outs` `(` $out `)` attr-dict `:` type($lhs)";
+  let hasVerifier = 1;
+}
+
+class TL_UnaryOp<string mnemonic> : TL_Op<mnemonic, [
+  MemoryEffects<[MemRead, MemWrite]>,
+  AllTypesMatch<["src", "out"]>
+]> {
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$out);
+  let assemblyFormat =
+    "`ins` `(` $src `)` `outs` `(` $out `)` attr-dict `:` type($src)";
   let hasVerifier = 1;
 }
 
@@ -112,4 +258,232 @@ def TL_ReduceOp : TL_Op<"reduce", [
       "`ins` `(` $src `)` `outs` `(` $dst `)` $mode `dims` `=` $reduce_dims attr-dict `:` type($src) `,` type($dst)";
   let hasVerifier = 1;
 }
+def TL_LnOp : TL_UnaryOp<"ln"> {
+  let summary = "Elementwise natural logarithm of a tile buffer";
+  let description = [{ Destination-style vector ln: out = ln(src). Lowers to hivm.hir.vln, which requires f16/f32 operands. }];
+}
+def TL_SetFlagOp : TL_Op<"set_flag", []> {
+  let summary = "Set a cross-pipe synchronization flag";
+  let description = [{
+    Signals an event on `set_pipe` so that a consumer on `wait_pipe` can
+    synchronize against it with a matching `tl.wait_flag` (or the HIVM
+    `wait_flag` it lowers to). `event_id` is the numeric flag/event id and is
+    widened to i64 during lowering, matching `hivm.hir.set_flag`.
+
+    Example:
+      tl.set_flag[#tl.pipe<pipe_mte2>, #tl.pipe<pipe_v>, %event_id] : i64
+  }];
+  let arguments = (ins TL_PipeAttr:$set_pipe, TL_PipeAttr:$wait_pipe,
+                       AnySignlessInteger:$event_id);
+  let assemblyFormat =
+      "`[` $set_pipe `,` $wait_pipe `,` $event_id `]` attr-dict `:` type($event_id)";
+}
+
+def TL_WaitFlagOp : TL_Op<"wait_flag", []> {
+  let summary = "Wait on a cross-pipe synchronization flag";
+  let description = [{
+    Blocks `wait_pipe` until the matching `tl.set_flag` on `set_pipe` has
+    signaled `event_id`. Lowers to `hivm.hir.wait_flag`.
+
+    Example:
+      tl.wait_flag[#tl.pipe<pipe_mte2>, #tl.pipe<pipe_v>, %event_id] : i64
+  }];
+  let arguments = (ins TL_PipeAttr:$set_pipe, TL_PipeAttr:$wait_pipe,
+                       AnySignlessInteger:$event_id);
+  let assemblyFormat =
+      "`[` $set_pipe `,` $wait_pipe `,` $event_id `]` attr-dict `:` type($event_id)";
+}
+
+def TL_ExpOp : TL_UnaryOp<"exp"> {
+  let summary = "Elementwise exponential of a tile buffer";
+  let description = [{ Destination-style vector exp: out = exp(src). Lowers to hivm.hir.vexp, which requires f16/f32 operands. }];
+}
+
+def TL_RecOp : TL_UnaryOp<"rec"> {
+  let summary = "Elementwise reciprocal of a tile buffer";
+  let description = [{ Destination-style vector reciprocal: out = 1 / src. Lowers to hivm.hir.vrec, which requires f16/f32 operands. }];
+}
+
+def TL_AtomicAddOp : TL_Op<"atomic_add", [
+    MemoryEffects<[MemRead, MemWrite]>
+]> {
+  let summary = "Atomic elementwise add into a tile buffer (dst += src)";
+  let description = [{
+    Atomic destination-style vector add: dst += src, lowered to
+    `hivm.hir.store ... atomic = <add>`. Operands must share shape and
+    element type, but (unlike `tl.add`) their address spaces may differ:
+    `src` is typically UB and `dst` GM, so no round-trip copy back out of
+    UB is needed.
+
+    Example:
+      tl.atomic_add %src -> %dst : memref<64xf32, #tl.address_space<ub>>, memref<64xf32, #tl.address_space<gm>>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst);
+  let assemblyFormat =
+      "$src `->` $dst attr-dict `:` type($src) `,` type($dst)";
+  let hasVerifier = 1;
+}
+
+def TL_VErfOp : TL_Op<"verf", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["src", "dst"]>
+]> {
+  let summary = "Vector error function (erf) approximation";
+  let description = [{
+    Destination-style unary op: dst = erf(src), computed as a polynomial
+    approximation when lowered to HIVM. src and dst share shape and element
+    type.
+
+    Example:
+      tl.verf ins(%a) outs(%b) : memref<64xf32>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst);
+    let assemblyFormat =
+      "`ins` `(` $src `)` `outs` `(` $dst `)` attr-dict `:` type($src)";
+  let hasVerifier = 1;
+ }  
+ 
+def TL_PadOp : TL_Op<"pad", [MemoryEffects<[MemRead, MemWrite]>,
+    AttrSizedOperandSegments]> {
+  let summary = "Pad a tile buffer along one dimension";
+  let description = [{
+    Destination-style pad: writes `src` into `dst`, filling the padded
+    region with the scalar `pad_value`. Per-dimension static padding
+    amounts are recorded in `static_low`/`static_high` (one entry per rank
+    of `src`); any dimension whose low/high padding amount is only known
+    at runtime instead contributes a value to the variadic `low`/`high`
+    operands, with the corresponding `static_low`/`static_high` entry set
+    to the dynamic-size sentinel (`ShapedType::kDynamic`).
+
+    Mirrors `tvm::tl::NpuirPad` / `hivm::VPadOp` one-to-one.
+  }];
+
+  let arguments = (ins
+    AnyMemRef:$src,
+    AnyMemRef:$dst,
+    AnyType:$pad_value,
+    Variadic<Index>:$low,
+    Variadic<Index>:$high,
+    DenseI64ArrayAttr:$static_low,
+    DenseI64ArrayAttr:$static_high
+  );
+
+  let assemblyFormat = [{
+    `ins` `(` $src `)` `outs` `(` $dst `)`
+    `pad_value` `(` $pad_value `:` type($pad_value) `)`
+    `low` `(` $low `)` `high` `(` $high `)`
+    attr-dict `:` type($src) `,` type($dst)
+  }];
+
+  let hasVerifier = 1;
+}
+
+def TL_RsqrtOp : TL_UnaryOp<"rsqrt"> {
+  let summary = "Elementwise reciprocal square root of a tile buffer";
+  let description = [{ Destination-style vector rsqrt: out = 1 / sqrt(src). Lowers to hivm.hir.vrsqrt, which requires f16/f32 operands. }];
+}
+
+def TL_SqrtOp : TL_UnaryOp<"sqrt"> {
+  let summary = "Elementwise square root of a tile buffer";
+  let description = [{ Destination-style vector sqrt: out = sqrt(src). Lowers to hivm.hir.vsqrt, which requires f16/f32 operands. }];
+}
+
+def TL_AbsOp : TL_UnaryOp<"abs"> {
+  let summary = "Elementwise absolute value of a tile buffer";
+  let description = [{ Destination-style vector abs: out = abs(src). Lowers to hivm.hir.vabs. }];
+}
+
+def TL_NotOp : TL_UnaryOp<"not"> {
+  let summary = "Elementwise logical/bitwise not of a tile buffer";
+  let description = [{ Destination-style vector not: out = not(src). Lowers to hivm.hir.vnot. }];
+}
+
+def TL_FlipOp : TL_Op<"flip", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    AllTypesMatch<["src", "dst"]>
+]> {
+  let summary = "Flip a tile buffer along an axis";
+  let description = [{
+    Destination-style vector flip: reverses `src` along `axis` and writes the
+    result to `dst`. `src` and `dst` share shape and element type.
+
+    Example:
+      tl.flip ins(%a) outs(%b) {axis = 1 : ui64} : memref<128x256xf16>
+  }];
+  let arguments = (ins AnyMemRef:$src, AnyMemRef:$dst, UI64Attr:$axis);
+  let assemblyFormat =
+      "`ins` `(` $src `)` `outs` `(` $dst `)` attr-dict `:` type($src)";
+  let hasVerifier = 1;
+}
+def TL_ConcatOp : TL_Op<"concat", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Concatenate tile buffers along a given axis";
+  let description = [{
+    Destination-style concat: writes the variadic `srcs` into `dst`,
+    laid out contiguously along dimension `axis`. All `srcs` and `dst`
+    must share rank and element type; every non-axis dimension must
+    match across all operands, and the axis-dimension sizes of `srcs`
+    must sum to `dst`'s axis-dimension size.
+    Example:
+      tl.concat ins(%a, %b) outs(%dst) axis(1) : memref<8x4xf32>, memref<8x4xf32> -> memref<8x8xf32>
+  }];
+  let arguments = (ins Variadic<AnyMemRef>:$srcs, AnyMemRef:$dst, I64Attr:$axis);
+  let assemblyFormat =
+      "`ins` `(` $srcs `)` `outs` `(` $dst `)` `axis` `(` $axis `)` attr-dict `:` type($srcs) `->` type($dst)";
+  let hasVerifier = 1;
+}
+def TL_ArangeOp : TL_Op<"arange", [MemoryEffects<[MemWrite]>]> {
+  let summary = "Fill a tile buffer with a strided index sequence";
+  let description = [{
+    Destination-style vector arange: fills `dst` with
+    offset, offset + stride0, offset + stride0 + stride1, ... with one
+    stride per dimension of `dst`. Mirrors `hivm.hir.varange`.
+    Example:
+      tl.arange outs(%dst) offset(%off) strides(%s0, %s1) : memref<8x8xf32>
+  }];
+  let arguments = (ins AnyMemRef:$dst, Index:$offset, Variadic<Index>:$strides);
+  let assemblyFormat =
+      "`outs` `(` $dst `)` `offset` `(` $offset `)` `strides` `(` $strides `)` attr-dict `:` type($dst)";
+  let hasVerifier = 1;
+}
+def TL_PowOp : TL_BinaryOp<"pow"> {
+  let summary = "Elementwise power of two tile buffers";
+  let description = [{ Destination-style vector pow: out = pow(lhs, rhs). Lowers to hivm.hir.vpow, which requires i32 operands. }];
+}
+  
+def TL_XorOp : TL_BinaryOp<"xor"> {
+  let summary = "Elementwise bitwise XOR of two tile buffers";
+  let description = [{ Destination-style vector xor: out = lhs ^ rhs. }];
+}
+
+def TL_OrOp : TL_BinaryOp<"or"> {
+  let summary = "Elementwise bitwise OR of two tile buffers";
+  let description = [{ Destination-style vector or: out = lhs | rhs. }];
+ }
+  
+def TL_AndOp : TL_BinaryOp<"and"> {
+  let summary = "Elementwise bitwise AND of two tile buffers";
+  let description = [{ Destination-style vector and: out = lhs & rhs. }];
+}
+
+def TL_ReshapeOp : TL_Op<"reshape", [Pure]> {
+  let summary = "Reinterpret a tile buffer under a new static shape";
+  let description = [{
+    Pure view op: result = reshape(src). src and result must share the
+    same element type and the same total element count, but may differ
+    in shape and rank. Unlike tl.add/tl.cast this is not destination-
+    passing: there is no pre-allocated dst operand, because reshape never
+    moves data -- it is lowered to a contiguous memref.reinterpret_cast
+    of src, matching what ReshapeCodegen already does on the NPUIR path.
+    Example:
+      %view = tl.reshape %a : memref<8x16xf16> to memref<16x8xf16>
+  }];
+  let arguments = (ins AnyMemRef:$src);
+  let results = (outs AnyMemRef:$result);
+  let assemblyFormat =
+      "$src attr-dict `:` type($src) `to` type($result)";
+  let hasVerifier = 1;
+}
+
+
 #endif // TILELANGIR_DIALECT_TL_TLOPS_TD
+

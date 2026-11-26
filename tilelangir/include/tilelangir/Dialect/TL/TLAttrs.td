@@ -20,12 +20,18 @@ def TL_AddressSpaceGM : I32EnumAttrCase<"GM", 0, "gm">;
 def TL_AddressSpaceUB : I32EnumAttrCase<"UB", 1, "ub">;
 def TL_AddressSpaceL1 : I32EnumAttrCase<"L1", 2, "l1">;
 def TL_AddressSpaceL0 : I32EnumAttrCase<"L0", 3, "l0">;
+def TL_AddressSpaceL0A : I32EnumAttrCase<"L0A", 4, "l0a">;
+def TL_AddressSpaceL0B : I32EnumAttrCase<"L0B", 5, "l0b">;
+def TL_AddressSpaceL0C : I32EnumAttrCase<"L0C", 6, "l0c">;
 
 def TL_AddressSpace : TL_I32Enum<"AddressSpace", "TileLang buffer address space", [
   TL_AddressSpaceGM,
   TL_AddressSpaceUB,
   TL_AddressSpaceL1,
-  TL_AddressSpaceL0
+  TL_AddressSpaceL0,
+  TL_AddressSpaceL0A,
+  TL_AddressSpaceL0B,
+  TL_AddressSpaceL0C
 ]>;
 
 def TL_AddressSpaceAttr : TL_I32EnumAttr<"address_space", TL_AddressSpace>;

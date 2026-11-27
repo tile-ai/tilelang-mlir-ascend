@@ -95,6 +95,8 @@ private:
   mlir::Value ToIndex(mlir::Value v);
   template <typename TLOpT, typename NpuirOpT>
   void EmitBinary(const CallNode *op);
+  mlir::tl::ReduceMode StringToReduceMode(const std::string &mode);
+  void EmitReduce(const CallNode *op);
   void EmitSetFlag(const CallNode *op);
   void EmitWaitFlag(const CallNode *op);
   mlir::tl::Pipe PipeFromString(const std::string &pipe);

@@ -60,6 +60,18 @@ hivm::TFuncCoreType convertFuncCoreType(tl::CoreType core) {
   return hivm::TFuncCoreType::AIV;
 }
 
+hivm::ReduceOperation convertReduceMode(tl::ReduceMode mode) {
+  switch (mode) {
+  case tl::ReduceMode::Sum:
+    return hivm::ReduceOperation::sum;
+  case tl::ReduceMode::Max:
+    return hivm::ReduceOperation::max;
+  case tl::ReduceMode::Min:
+    return hivm::ReduceOperation::min;
+  }
+  return hivm::ReduceOperation::sum;
+}
+  
 hivm::PIPE convertPipe(tl::Pipe pipe) {
   switch (pipe) {
   case tl::Pipe::PIPE_S:
@@ -233,6 +245,21 @@ struct ConvertSub : public OpConversionPattern<tl::SubOp> {
   }
 };
 
+struct ConvertReduce : public OpConversionPattern<tl::ReduceOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tl::ReduceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto arith = hivm::ReduceOpAttr::get(getContext(),
+                                         convertReduceMode(adaptor.getMode()));
+    rewriter.replaceOpWithNewOp<hivm::VReduceOp>(
+        op, TypeRange{}, adaptor.getSrc(), ValueRange{adaptor.getDst()}, arith,
+        adaptor.getReduceDimsAttr());
+        return success();
+  }
+};
+  
 struct ConvertVErf : public OpConversionPattern<tl::VErfOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -555,6 +582,7 @@ struct ConvertTLToHIVMPass : impl::ConvertTLToHIVMBase<ConvertTLToHIVMPass> {
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertPrint>(converter,
                                                                       ctx);
     patterns.add<ConvertAlloc, ConvertCopy, ConvertAdd, ConvertSub,
+                 ConvertReduce, 
                  ConvertVBitcast,ConvertConcat, ConvertArange,
                  ConvertBinary<tl::MulOp, hivm::VMulOp>,
                  ConvertBinary<tl::DivOp, hivm::VDivOp>,

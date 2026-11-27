@@ -287,6 +287,29 @@ void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
                          GetBufferValue(bin.Dst().GetBuffer()));
 }
 
+mlir::tl::ReduceMode
+CodeGenTileLangTLIR::StringToReduceMode(const std::string &mode) {
+  if (mode == "sum")
+    return ::mlir::tl::ReduceMode::Sum;
+  if (mode == "max")
+    return ::mlir::tl::ReduceMode::Max;
+  if (mode == "min")
+    return ::mlir::tl::ReduceMode::Min;
+  LOG(FATAL) << "CodeGenTileLangTLIR: unsupported reduce_mode \"" << mode
+             << "\" (only sum/max/min are supported in this PR)";
+  return ::mlir::tl::ReduceMode::Sum;
+}
+
+void CodeGenTileLangTLIR::EmitReduce(const CallNode *op) {
+  tvm::tl::NpuirReduce reduce(op->args, vmap_);
+  auto mode_attr = ::mlir::tl::ReduceModeAttr::get(
+      &context_, StringToReduceMode(reduce.reduce_mode));
+  auto dims_attr = builder_.getDenseI64ArrayAttr(reduce.reduce_dims);
+  builder_.create<::mlir::tl::ReduceOp>(
+      builder_.getUnknownLoc(), GetBufferValue(reduce.src),
+      GetBufferValue(reduce.dst), mode_attr, dims_attr);
+}
+
 mlir::tl::Pipe CodeGenTileLangTLIR::PipeFromString(const std::string &pipe) {
   const auto &pipe_map = PipeNameMap();
   auto it = pipe_map.find(pipe);
@@ -549,6 +572,11 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_reduce"))) {
+    EmitReduce(op);
+    return {};
+  }
+  
   if (op->op.same_as(Op::Get("tl.npuir_ln"))) {
     EmitUnary<::mlir::tl::LnOp, tvm::tl::NpuirLn>(op);
     return {};

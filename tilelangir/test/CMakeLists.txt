@@ -170,6 +170,18 @@ add_test(
 )
 
 add_test(
+  NAME tilelangir-tl-alloc-var-local-shared-ub
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-var-local-shared-ub.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-var-local-shared-ub.mlir\""
+)
+
+add_test(
+  NAME tilelangir-convert-tl-to-hivm-alloc-var-local-shared-ub
+  COMMAND /bin/bash -c
+    "$<TARGET_FILE:tilelangir-opt> --tilelangir-convert-tl-to-hivm \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-var-local-shared-ub.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Conversion/TLToHIVM/alloc-var-local-shared-ub.mlir\""
+ )
+ 
+ add_test( 
   NAME tilelangir-tl-alloc-copy-cos
   COMMAND /bin/bash -c
     "$<TARGET_FILE:tilelangir-opt> \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-cos.mlir\" | \"${_filecheck}\" \"${CMAKE_CURRENT_SOURCE_DIR}/Dialect/TL/alloc-copy-cos.mlir\""

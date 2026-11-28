@@ -23,7 +23,7 @@ description: 通过连续追问帮助用户明确新的昇腾 TileLang 算子项
 
 ## 建立项目记录
 
-与用户敲定稳定 project_id 和展示名称，核对重名与保留名。用项目管理契约的 projectctl create 建立元数据和本会话 owner；按需使用 add-repo 为每个可写源码仓库创建项目独立分支/worktree，依赖与构建归项目所有。已有源仓库的未提交改动不会自动带入，先明确需要导入的范围。
+与用户敲定稳定 project_id 和展示名称，核对重名与保留名。用项目管理契约的 projectctl create 建立元数据和本会话 owner；若当前目录是 Git 仓库且 `.workspace/` 尚未被忽略，引导用户通过 `echo ".workspace/" >> .git/info/exclude` 本地忽略（不静默改动共享 `.gitignore`）。按需使用 add-repo 为每个可写源码仓库创建项目独立分支/worktree，依赖与构建归项目所有。已有源仓库的未提交改动不会自动带入，先明确需要导入的范围。
 
 按 [项目契约](references/project-contract.md) 使用 [PROJECT 模板](assets/templates/project.md) 建立 `.workspace/<project>/PROJECT.md`：记录目标、仓库规范来源、依赖能力、早期检查、必需/诊断证据与发布授权引用。能从目标仓库读取的规则自行核实，不让用户填写固定问卷。模板按实际范围填写，不适用说明原因，未知项写影响与下一步；ready 只表示计划契约完整，不代表环境或算子已验证。
 

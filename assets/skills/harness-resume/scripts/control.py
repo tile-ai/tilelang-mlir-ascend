@@ -42,7 +42,7 @@ def admission(tree, operation):
 
 def observation(store, ref, run_id, request_id, status):
     store.verify_ref(ref)
-    data = json.loads(store.local(ref["path"]).read_text())
+    data = json.loads(store.local(ref["path"]).read_text(encoding="utf-8"))
     require(data.get("schema") == "operator-harness/job-observation@1" and
             data.get("project_id") == store.project_id and data.get("run_id") == run_id and
             data.get("request_id") == request_id and data.get("status") == status,

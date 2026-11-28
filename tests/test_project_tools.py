@@ -205,7 +205,7 @@ class ProjectTest(unittest.TestCase):
         source = self.repo()
         nested = source / 'workspace'
         nested.mkdir()
-        command = [sys.executable, str(ROOT / 'scripts/install_codex_skills.py'), '--workspace', str(nested)]
+        command = ['node', str(ROOT / 'bin/tilelang-harness.js'), 'init', '--local', '--dir', str(nested)]
         for _ in range(2):
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -244,8 +244,8 @@ class ProjectTest(unittest.TestCase):
         entry = self.root / 'AGENTS.md'
         old = '# Keep user notes\n<!-- operator-harness -->\nRead .workspace/STATE.md\n<!-- /operator-harness -->\n'
         entry.write_text(old)
-        result = subprocess.run([sys.executable, str(ROOT / 'scripts/install_codex_skills.py'),
-                                 '--workspace', str(self.root)], capture_output=True, text=True)
+        result = subprocess.run(['node', str(ROOT / 'bin/tilelang-harness.js'), 'init',
+                                 '--local', '--dir', str(self.root)], capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('AGENTS block differs', result.stderr)
         self.assertEqual(entry.read_text(), old)

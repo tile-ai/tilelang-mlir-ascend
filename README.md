@@ -11,7 +11,7 @@
 
 </div>
 
-> **项目状态：核心工作流与三层知识库已可用，通用评测/执行接口与工作流分级严格度持续演进中。** 已提供面向 Codex 的项目管理、五节点工作流、`status/next/automatic` 推进入口、Roofline/MFU 工具、Ascend950 仿真 trace 增强脚本、三层可扩展算子知识库（`tilelang-ascend-knowledge`）及受管安装/升级/回滚工具。当前能力边界见 [能力表](docs/capabilities.md)，后续规划见 [路线图](docs/ROADMAP.md)。
+> **项目状态：核心工作流与三层知识库已可用，通用评测/执行接口与工作流分级严格度持续演进中。** 已提供跨平台 CLI（`tilelang-harness`，支持 Codex / Antigravity / Claude Code / 通用 `.agent` 的 Global/Local 安装、体检、升级、回滚与卸载）、项目管理、五节点工作流、`status/next/automatic` 推进入口、Roofline/MFU 工具、Ascend950 仿真 trace 增强脚本与三层可扩展算子知识库（`tilelang-ascend-knowledge`）。当前能力边界见 [能力表](docs/capabilities.md)，后续规划见 [路线图](docs/ROADMAP.md)。
 
 ## 什么是 Operator Harness
 
@@ -22,31 +22,49 @@ Operator Harness 把昇腾算子开发中的**需求契约、硬件验证纪律�
 - **实战经验可持续沉淀**：通过三层可扩展知识库（通用范式与铁律 → 微架构模式/反例卡 → 算子族 Playbook）按需检索，并在算子交付后持续反哺新项目。
 - **迭代可恢复、多项目隔离**：通过独立源码 worktree 与落盘产物支持跨会话接续和并行开发。
 
-首批语言面向用户指定版本的 [tile-ai/tilelang](https://github.com/tile-ai/tilelang)（Ascend 后端），首个宿主为 Codex；其他语言与宿主保留后续扩展空间。
+首批语言面向用户指定版本的 [tile-ai/tilelang](https://github.com/tile-ai/tilelang)（Ascend 后端），已支持 Codex、Antigravity、Claude Code 与通用 `.agent` 四类宿主；其他语言与宿主保留后续扩展空间。
 
 ---
 
 ## 快速上手
 
-### 1. 安装到你的算子工作区
+### 1. 安装（支持 Windows / macOS / Linux，要求 Node.js >= 18）
 
-从本仓库根目录运行安装脚本（需要 Python 3），将全部随包技能安装到目标工作目录：
+直接通过 `npx` 从本仓库 `harness` 分支启动交互式安装向导（推荐选择 **Global** 全局安装一次，之后在任意算子仓库均可直接使用）：
 
 ```bash
-python3 scripts/install_codex_skills.py --workspace /path/to/your-operator-workspace
+# 启动交互式向导（先选 Global / Local，再勾选宿主）
+npx github:tile-ai/tilelang-mlir-ascend#harness
 ```
 
-安装器会：
-1. 将 `assets/skills/` 中的受管技能复制到目标工作区的 `.agents/skills/`；
-2. 在目标工作区 `AGENTS.md` 中追加 Harness 接续区块（保留你原有内容）；
-3. 在 `.gitignore` 中加入 `.workspace/`；
-4. 在 `.agents/.harness/manifest.json` 记录受管文件摘要，供后续安全升级与回滚。
+> 若所用 npm 版本禁用了 Git 来源并提示 `EALLOWGIT`，加上 `--allow-git=all` 即可：
+> `npx --allow-git=all github:tile-ai/tilelang-mlir-ascend#harness`
 
-> 重复安装具有幂等性；检测到冲突或用户本地修改时会提前拒绝并保留原文件。升级、中断恢复与回滚命令见 [安装与升级说明](docs/installation-upgrades.md)。若直接在本仓库内开发，`.agents/skills/` 已通过软链接指向 `assets/skills/`，无需再运行安装器。
+也支持非交互式命令（适合脚本、CI 或指定单个宿主）：
+
+```bash
+# 全局安装一次（四个宿主路径互不重叠，可一次全选）
+npx github:tile-ai/tilelang-mlir-ascend#harness init --global --host codex,claude-code
+
+# 仅安装到指定项目目录
+npx github:tile-ai/tilelang-mlir-ascend#harness init --local --dir /path/to/repo --host codex
+
+# 检查安装完整性与本机 Node / Python 运行时
+npx github:tile-ai/tilelang-mlir-ascend#harness doctor
+```
+
+| `--host` | 别名 | Global（`--global`，推荐） | Local（`--local`） |
+| --- | --- | --- | --- |
+| `codex`（默认） | - | `~/.codex/skills/` + `~/.codex/AGENTS.md` | `.agents/skills/` + `AGENTS.md` |
+| `antigravity` | `agy` | `~/.gemini/config/skills/` + `~/.gemini/GEMINI.md` | `.agents/skills/` + `AGENTS.md` |
+| `claude-code` | `claude` | `~/.claude/skills/` + `~/.claude/CLAUDE.md` | `.claude/skills/` + `CLAUDE.md` |
+| `agent` | `.agent`, `generic` | `~/.agent/skills/` + `~/.agent/AGENTS.md` | `.agent/skills/` + `AGENTS.md` |
+
+安装器只负责复制受管技能、追加宿主指令区块并记录 `manifest.json`，**不会提前绑定或创建 `.workspace/`，也不会静默修改共享 `.gitignore`**。重复安装具有幂等性；检测到冲突或用户本地修改时会提前拒绝并保留原文件。升级、中断恢复、回滚与卸载命令见 [安装与升级说明](docs/installation-upgrades.md)。若直接在本仓库内开发，`.agents/skills/` 已通过软链接指向 `assets/skills/`，无需再运行安装器。
 
 ### 2. 开启第一个算子任务
 
-在目标工作区打开 Codex（若刚安装完未看到新技能，先重启会话），按场景选择入口：
+在目标算子仓库打开你的 coding agent（若刚安装完未看到新技能，先重启会话），按场景选择入口（各节点会在当前仓库下独立管理 `.workspace/`；首次在 Git 仓库创建 `.workspace/` 时，推荐执行 `echo ".workspace/" >> .git/info/exclude` 做本地忽略，避免污染团队共享 `.gitignore`）：
 
 - **从零开发新算子**：
   ```text
@@ -179,7 +197,7 @@ python3 assets/skills/tilelang-ascend-knowledge/scripts/validate_kb.py
 | **知识库与编写/分析能力** | 三层算子知识库、Roofline/MFU、Ascend950 仿真、自动流水与微架构模式 | 骨架、校验器与首批 Attention/Decode/GQA/GEMM/Conv 实卡经验已落地；对照样例与标杆移植门槛持续补齐 |
 | **工作流、控制与评测框架** | 五节点交接、多项目管理、`search@2` 依赖队列、CPU 评测与安装升级回滚 | 核心工具与 158 项 CPU/mock 回归已就绪；强/弱模型分级模式见 [Issue #271](https://github.com/tile-ai/tilelang-mlir-ascend/issues/271) |
 | **入口、环境与评测能力** | 集中问答、环境复用/探针/日落、通用环境脚手架模板与薄防呆评测/可插拔执行接口 | 近期重点推进 |
-| **标准化分发与远期扩展** | 执行包与 ABI 导出、npm CLI、全执行矩阵/MCP、多语言与新宿主 | 中长期按需演进 |
+| **标准化分发与远期扩展** | 执行包与 ABI 导出、跨平台 CLI、全执行矩阵/MCP、多语言与新宿主 | `tilelang-harness` 跨平台 CLI（Global/Local、4 宿主、升级/回滚/卸载）已就绪，可通过 Git 分支 `npx` 安装；其余按需演进 |
 
 完整任务清单与验收条件见 [路线图](docs/ROADMAP.md)，当前已验证范围见 [能力表](docs/capabilities.md)。
 
@@ -203,8 +221,8 @@ python3 assets/skills/tilelang-ascend-knowledge/scripts/validate_kb.py
 ## 参与开发
 
 - 开发限定在 `harness` 分支及其派生分支；对外交付技能维护在 `assets/skills/`，本仓库 `.agents/skills/` 通过相对软链接引用同一份源码。
-- 产品资源不得包含私人机器路径、项目内部运行记录或写死的外部仓库 commit；运行前可通过 `pytest`（含知识库校验与独立安装回归）检查：
+- 产品资源不得包含私人机器路径、项目内部运行记录或写死的外部仓库 commit；运行前可通过 `npm test`（CLI 与打包回归）与 `pytest`（知识库校验、控制面与独立安装回归）检查：
 
 ```bash
-python3 -m pytest -q
+npm test && python3 -m pytest -q
 ```

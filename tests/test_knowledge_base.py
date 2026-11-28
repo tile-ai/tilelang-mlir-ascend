@@ -87,7 +87,7 @@ class KnowledgeBaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
             proc = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / "install_codex_skills.py"), "--workspace", str(workspace)],
+                ["node", str(ROOT / "bin" / "tilelang-harness.js"), "init", "--local", "--dir", str(workspace)],
                 cwd=workspace,
                 capture_output=True,
                 text=True,

@@ -27,6 +27,27 @@
 namespace tvm {
 namespace codegen {
 
+namespace {
+constexpr uint8_t kFlagIdBits = 64;
+
+const std::unordered_map<std::string, ::mlir::tl::Pipe> &PipeNameMap() {
+  static const std::unordered_map<std::string, ::mlir::tl::Pipe> kMap{
+      {"PIPE_S", ::mlir::tl::Pipe::PIPE_S},
+      {"PIPE_V", ::mlir::tl::Pipe::PIPE_V},
+      {"PIPE_M", ::mlir::tl::Pipe::PIPE_M},
+      {"PIPE_MTE1", ::mlir::tl::Pipe::PIPE_MTE1},
+      {"PIPE_MTE2", ::mlir::tl::Pipe::PIPE_MTE2},
+      {"PIPE_MTE3", ::mlir::tl::Pipe::PIPE_MTE3},
+      {"PIPE_ALL", ::mlir::tl::Pipe::PIPE_ALL},
+      {"PIPE_MTE4", ::mlir::tl::Pipe::PIPE_MTE4},
+      {"PIPE_MTE5", ::mlir::tl::Pipe::PIPE_MTE5},
+      {"PIPE_V2", ::mlir::tl::Pipe::PIPE_V2},
+      {"PIPE_FIX", ::mlir::tl::Pipe::PIPE_FIX},
+  };
+  return kMap;
+}
+} // namespace
+
 CodeGenTileLangTLIR::CodeGenTileLangTLIR() : builder_(&context_) {
   context_.loadDialect<::mlir::func::FuncDialect, ::mlir::memref::MemRefDialect,
                        ::mlir::arith::ArithDialect, ::mlir::tl::TLDialect>();
@@ -55,8 +76,12 @@ CodeGenTileLangTLIR::ScopeToAddressSpace(const std::string &scope) {
     return ::mlir::tl::AddressSpace::UB;
   if (scope == "local.var")
     return ::mlir::tl::AddressSpace::UB;
+  if (scope == "wmma.matrix_a")
+    return ::mlir::tl::AddressSpace::L0A;
+  if (scope == "wmma.matrix_b")
+    return ::mlir::tl::AddressSpace::L0B;
   if (scope == "wmma.accumulator")
-    return ::mlir::tl::AddressSpace::L0;
+    return ::mlir::tl::AddressSpace::L0C;
   return ::mlir::tl::AddressSpace::UB;
 }
 
@@ -130,6 +155,50 @@ void CodeGenTileLangTLIR::EmitAdd(const CallNode *op) {
                                      GetBufferValue(add.Dst().GetBuffer()));
 }
 
+void CodeGenTileLangTLIR::EmitSort(const CallNode *op) {
+  tvm::tl::NpuirSort sort(op->args, vmap_);
+  builder_.create<::mlir::tl::SortOp>(
+      builder_.getUnknownLoc(), GetBufferValue(sort.src),
+      GetBufferValue(sort.dst_value), GetBufferValue(sort.dst_index),
+      sort.descending, sort.sort_axis);
+      }
+void CodeGenTileLangTLIR::EmitCast(const CallNode *op) {
+  tvm::tl::NpuirCast cast(op->args, vmap_);
+  builder_.create<::mlir::tl::CastOp>(
+      builder_.getUnknownLoc(), GetBufferValue(cast.src),
+      GetBufferValue(cast.dst), builder_.getStringAttr(cast.round_mode));
+      }
+void CodeGenTileLangTLIR::EmitShr(const CallNode *op) {
+  tvm::tl::NpuirShr shr(op->args, vmap_);
+  auto round_attr = builder_.getBoolAttr(shr.round);
+  builder_.create<::mlir::tl::ShrOp>(
+      builder_.getUnknownLoc(), GetBufferValue(shr.src0),
+      GetBufferValue(shr.src1), GetBufferValue(shr.dst), round_attr);
+      }
+void CodeGenTileLangTLIR::EmitShl(const CallNode *op) {
+  tvm::tl::NpuirShl shl(op->args, vmap_);
+  ICHECK(shl.Src0().IsTensor() && shl.Dst().IsTensor())
+      << "CodeGenTileLangTLIR: tl.npuir_shl requires tensor lhs/out";
+  ICHECK(shl.Src1().IsScalar()) << "CodeGenTileLangTLIR: tl.npuir_shl requires "
+                                   "a scalar rhs (shift amount)";
+  mlir::Value rhs_val = VisitExpr(shl.Src1().GetExpr());
+  builder_.create<::mlir::tl::ShlOp>(
+      builder_.getUnknownLoc(), GetBufferValue(shl.Src0().GetBuffer()), rhs_val,
+      GetBufferValue(shl.Dst().GetBuffer()));
+      }
+void CodeGenTileLangTLIR::EmitPrintVar(const CallNode *op) {
+  tvm::tl::NpuirDevicePrintVar print(op->args, vmap_);
+  builder_.create<::mlir::tl::PrintOp>(
+      builder_.getUnknownLoc(), VisitExpr(print.src),
+      builder_.getStringAttr(print.prefix), builder_.getBoolAttr(print.hex));
+}
+
+void CodeGenTileLangTLIR::EmitPrintBuf(const CallNode *op) {
+  tvm::tl::NpuirDevicePrintBuf print(op->args, vmap_);
+  builder_.create<::mlir::tl::PrintOp>(
+      builder_.getUnknownLoc(), GetBufferValue(print.src),
+      builder_.getStringAttr(print.prefix), builder_.getBoolAttr(print.hex));
+      }
 void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
   tvm::tl::NpuirSub sub(op->args, vmap_);
   ICHECK(sub.Src0().IsTensor() && sub.Src1().IsTensor() && sub.Dst().IsTensor())
@@ -138,6 +207,76 @@ void CodeGenTileLangTLIR::EmitSub(const CallNode *op) {
                                      GetBufferValue(sub.Src0().GetBuffer()),
                                      GetBufferValue(sub.Src1().GetBuffer()),
                                      GetBufferValue(sub.Dst().GetBuffer()));
+}
+
+mlir::Value CodeGenTileLangTLIR::EmitBitcast(const CallNode *op) {
+  tvm::tl::NpuirBitcast bitcast(op->args, vmap_);
+
+  auto dl_dtype = tvm::runtime::String2DLDataType(bitcast.dtype);
+  auto tir_dtype = DataType(dl_dtype);
+
+  mlir::Value src = GetBufferValue(bitcast.src);
+  auto src_type = llvm::cast<::mlir::MemRefType>(src.getType());
+  auto res_type =
+      ::mlir::MemRefType::get(src_type.getShape(), DTypeToMLIRType(tir_dtype),
+                              src_type.getLayout(), src_type.getMemorySpace());
+
+  auto vbitcast_op = builder_.create<::mlir::tl::VBitcastOp>(
+      builder_.getUnknownLoc(), res_type, src);
+  return vbitcast_op.getResult();
+}
+void CodeGenTileLangTLIR::EmitVErf(const CallNode *op) {
+  tvm::tl::NpuirVErf verf(op->args, vmap_);
+  ICHECK_EQ(verf.srcs.size(), 1u)
+      << "CodeGenTileLangTLIR: tl.npuir_verf currently requires exactly one "
+         "source operand";
+  builder_.create<::mlir::tl::VErfOp>(builder_.getUnknownLoc(),
+                                      GetBufferValue(verf.srcs[0]),
+                                      GetBufferValue(verf.dst));
+}
+void CodeGenTileLangTLIR::EmitPad(const CallNode *op) {
+  tvm::tl::NpuirPad pad(op->args, vmap_);
+  mlir::Location loc = builder_.getUnknownLoc();
+
+  mlir::Value src = GetBufferValue(pad.src);
+  mlir::Value dst = GetBufferValue(pad.dst);
+  mlir::Value pad_value = VisitExpr(pad.pad_value);
+
+  llvm::SmallVector<mlir::Value> low, high;
+  for (const PrimExpr &l : pad.low) {
+    mlir::Value v = VisitExpr(l);
+    if (!v.getType().isa<mlir::IndexType>())
+      v = builder_.create<mlir::arith::IndexCastOp>(loc,
+                                                    builder_.getIndexType(), v);
+    low.push_back(v);
+  }
+  for (const PrimExpr &h : pad.high) {
+    mlir::Value v = VisitExpr(h);
+    if (!v.getType().isa<mlir::IndexType>())
+      v = builder_.create<mlir::arith::IndexCastOp>(loc,
+                                                    builder_.getIndexType(), v);
+    high.push_back(v);
+  }
+
+  // Mirror CodeGenTileLangNPUIRAPI::VpadCodegen: when a dimension's
+  // low/high padding amount is dynamic, its static_low/static_high entry
+  // must carry the dynamic-size sentinel rather than a stale static value.
+  if (!low.empty()) {
+    pad.s_low[pad.pad_dim] = mlir::ShapedType::kDynamic;
+  }
+  if (!high.empty()) {
+    pad.s_high[pad.pad_dim] = mlir::ShapedType::kDynamic;
+  }
+
+  builder_.create<::mlir::tl::PadOp>(loc, src, dst, pad_value, low, high,
+                                     builder_.getDenseI64ArrayAttr(pad.s_low),
+                                     builder_.getDenseI64ArrayAttr(pad.s_high));
+ }
+void CodeGenTileLangTLIR::EmitFlip(const CallNode *op) {
+  tvm::tl::NpuirFlip flip(op->args, vmap_);
+  builder_.create<::mlir::tl::FlipOp>(builder_.getUnknownLoc(),
+                                      GetBufferValue(flip.src),
+                                      GetBufferValue(flip.dst), flip.axis);
 }
 
 template <typename TLOpT, typename NpuirOpT>
@@ -150,6 +289,139 @@ void CodeGenTileLangTLIR::EmitBinary(const CallNode *op) {
                          GetBufferValue(bin.Src0().GetBuffer()),
                          GetBufferValue(bin.Src1().GetBuffer()),
                          GetBufferValue(bin.Dst().GetBuffer()));
+}
+
+mlir::tl::ReduceMode
+CodeGenTileLangTLIR::StringToReduceMode(const std::string &mode) {
+  if (mode == "sum")
+    return ::mlir::tl::ReduceMode::Sum;
+  if (mode == "max")
+    return ::mlir::tl::ReduceMode::Max;
+  if (mode == "min")
+    return ::mlir::tl::ReduceMode::Min;
+  LOG(FATAL) << "CodeGenTileLangTLIR: unsupported reduce_mode \"" << mode
+             << "\" (only sum/max/min are supported in this PR)";
+  return ::mlir::tl::ReduceMode::Sum;
+}
+
+void CodeGenTileLangTLIR::EmitReduce(const CallNode *op) {
+  tvm::tl::NpuirReduce reduce(op->args, vmap_);
+  auto mode_attr = ::mlir::tl::ReduceModeAttr::get(
+      &context_, StringToReduceMode(reduce.reduce_mode));
+  auto dims_attr = builder_.getDenseI64ArrayAttr(reduce.reduce_dims);
+  builder_.create<::mlir::tl::ReduceOp>(
+      builder_.getUnknownLoc(), GetBufferValue(reduce.src),
+      GetBufferValue(reduce.dst), mode_attr, dims_attr);
+}
+
+mlir::tl::Pipe CodeGenTileLangTLIR::PipeFromString(const std::string &pipe) {
+  const auto &pipe_map = PipeNameMap();
+  auto it = pipe_map.find(pipe);
+  ICHECK(it != pipe_map.end())
+      << "CodeGenTileLangTLIR: unknown pipe name " << pipe;
+  return it->second;
+}
+
+mlir::Value CodeGenTileLangTLIR::GetEventID(PrimExpr id) {
+  DataType raw_type = id.dtype();
+  ICHECK(raw_type.is_int() || raw_type.is_uint())
+      << "CodeGenTileLangTLIR: event_id must be an integer";
+  mlir::Value origin_id = VisitExpr(id);
+  if (raw_type.bits() >= kFlagIdBits)
+    return origin_id;
+  mlir::Location unknown_loc = builder_.getUnknownLoc();
+  mlir::IntegerType i64_type = builder_.getI64Type();
+  if (raw_type.is_int())
+    return builder_.create<::mlir::arith::ExtSIOp>(unknown_loc, i64_type,
+                                                   origin_id);
+  return builder_.create<::mlir::arith::ExtUIOp>(unknown_loc, i64_type,
+                                                 origin_id);
+}
+
+void CodeGenTileLangTLIR::EmitSetFlag(const CallNode *op) {
+  tvm::tl::NpuirSetFlag sync_op(op->args, vmap_);
+  auto set_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe1));
+  auto wait_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe2));
+  mlir::Value event_id = GetEventID(sync_op.event_id);
+  builder_.create<::mlir::tl::SetFlagOp>(builder_.getUnknownLoc(), set_pipe,
+                                         wait_pipe, event_id);
+}
+
+void CodeGenTileLangTLIR::EmitWaitFlag(const CallNode *op) {
+  tvm::tl::NpuirWaitFlag sync_op(op->args, vmap_);
+  auto set_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe1));
+  auto wait_pipe =
+      ::mlir::tl::PipeAttr::get(&context_, PipeFromString(sync_op.pipe2));
+  mlir::Value event_id = GetEventID(sync_op.event_id);
+  builder_.create<::mlir::tl::WaitFlagOp>(builder_.getUnknownLoc(), set_pipe,
+                                          wait_pipe, event_id);
+}
+void CodeGenTileLangTLIR::EmitAtomicAdd(const CallNode *op) {
+  tvm::tl::NpuirAtomicAdd atomic_add(op->args, vmap_);
+  builder_.create<::mlir::tl::AtomicAddOp>(builder_.getUnknownLoc(),
+                                           GetBufferValue(atomic_add.src),
+                                           GetBufferValue(atomic_add.dst));
+}
+
+template <typename TLOpT, typename NpuirOpT>
+void CodeGenTileLangTLIR::EmitUnary(const CallNode *op) {
+  NpuirOpT un(op->args, vmap_);
+  builder_.create<TLOpT>(builder_.getUnknownLoc(), GetBufferValue(un.src),
+                         GetBufferValue(un.dst));
+}
+
+template <typename TLOpT, typename NpuirOpT>
+void CodeGenTileLangTLIR::EmitUnaryVariadic(const CallNode *op) {
+  NpuirOpT un(op->args, vmap_);
+  ICHECK_EQ(un.srcs.size(), 1U)
+      << "EmitUnaryVariadic only supports a single source operand";
+  builder_.create<TLOpT>(builder_.getUnknownLoc(), GetBufferValue(un.srcs[0]),
+                         GetBufferValue(un.dst));
+}
+
+void CodeGenTileLangTLIR::EmitConcat(const CallNode *op) {
+  tvm::tl::NpuirConcat concat(op->args, vmap_);
+
+  llvm::SmallVector<::mlir::Value> srcs;
+  srcs.reserve(concat.srcs.size());
+  for (const Buffer &src : concat.srcs)
+    srcs.push_back(GetBufferValue(src));
+
+  builder_.create<::mlir::tl::ConcatOp>(builder_.getUnknownLoc(), srcs,
+                                        GetBufferValue(concat.dst),
+                                        builder_.getI64IntegerAttr(concat.dim));
+}
+
+mlir::Value CodeGenTileLangTLIR::ToIndex(mlir::Value v) {
+  if (v.getType().isIndex())
+    return v;
+  return builder_.create<::mlir::arith::IndexCastOp>(
+      builder_.getUnknownLoc(), builder_.getIndexType(), v);
+}
+
+void CodeGenTileLangTLIR::EmitArange(const CallNode *op) {
+  tvm::tl::NpuirArange arange(op->args, vmap_);
+  mlir::Value dst = GetBufferValue(arange.dst);
+  mlir::Value offset = ToIndex(VisitExpr(arange.offset));
+
+  llvm::SmallVector<::mlir::Value> strides;
+  strides.reserve(arange.strides.size());
+  for (const PrimExpr &stride : arange.strides)
+    strides.push_back(ToIndex(VisitExpr(stride)));
+
+  builder_.create<::mlir::tl::ArangeOp>(builder_.getUnknownLoc(), dst, offset,
+                                        strides);
+}
+
+void CodeGenTileLangTLIR::EmitReshape(const CallNode *op) {
+  tvm::tl::NpuirReshape reshape(op->args, vmap_);
+  mlir::Value result = builder_.create<::mlir::tl::ReshapeOp>(
+      builder_.getUnknownLoc(), BufferToMemRefType(reshape.dst),
+      GetBufferValue(reshape.src));
+  var_map_[reshape.dst->data.get()] = result;
 }
 
 void CodeGenTileLangTLIR::AddFunction(const GlobalVar &gvar,
@@ -253,8 +525,48 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitAdd(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_sort"))) {
+    EmitSort(op);
+      return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_cast"))) {
+    EmitCast(op);
+      return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_shr"))) {
+    EmitShr(op);
+      return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_shl"))) {
+    EmitShl(op);
+      return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_debug_print_var"))) { 
+    EmitPrintVar(op);
+    return {};
+  }
+  if (op->op.same_as(
+          Op::Get("tl.npuir_debug_print_buffer_value"))) { 
+    EmitPrintBuf(op);
+      return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_sub"))) {
     EmitSub(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_bitcast"))) {
+    return EmitBitcast(op);
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_verf"))) {
+    EmitVErf(op);
+     return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_pad"))) {
+    EmitPad(op);
+     return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_flip"))) {
+    EmitFlip(op);
     return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_mul"))) {
@@ -271,6 +583,82 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_min"))) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_vcos"))) {
+    EmitUnaryVariadic<::mlir::tl::CosOp, tvm::tl::NpuirVCos>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_reduce"))) {
+    EmitReduce(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_ln"))) {
+    EmitUnary<::mlir::tl::LnOp, tvm::tl::NpuirLn>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_set_flag"))) {
+    EmitSetFlag(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_wait_flag"))) {
+    EmitWaitFlag(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_exp"))) {
+    EmitUnary<::mlir::tl::ExpOp, tvm::tl::NpuirExp>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_rec"))) {
+    EmitUnary<::mlir::tl::RecOp, tvm::tl::NpuirRec>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_atomic_add"))) {
+    EmitAtomicAdd(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_rsqrt"))) {
+    EmitUnary<::mlir::tl::RsqrtOp, tvm::tl::NpuirRsqrt>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_sqrt"))) {
+    EmitUnary<::mlir::tl::SqrtOp, tvm::tl::NpuirSqrt>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_abs"))) {
+    EmitUnary<::mlir::tl::AbsOp, tvm::tl::NpuirAbs>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_not"))) {
+    EmitUnary<::mlir::tl::NotOp, tvm::tl::NpuirNot>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_concat"))) {
+    EmitConcat(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_arange"))) {
+    EmitArange(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_reshape"))) {
+    EmitReshape(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_pow"))) {
+    EmitBinary<::mlir::tl::PowOp, tvm::tl::NpuirPow>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_xor"))) {
+    EmitBinary<::mlir::tl::XorOp, tvm::tl::NpuirXor>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_or"))) {
+    EmitBinary<::mlir::tl::OrOp, tvm::tl::NpuirOr>(op);
+    return {};
+  }
+  if (op->op.same_as(Op::Get("tl.npuir_and"))) {
+    EmitBinary<::mlir::tl::AndOp, tvm::tl::NpuirAnd>(op);
     return {};
   }
   LOG(FATAL) << "CodeGenTileLangTLIR: unsupported call " << op->op;
@@ -304,6 +692,10 @@ void CodeGenTileLangTLIR::VisitStmt_(const ForNode *op) {
 }
 
 void CodeGenTileLangTLIR::VisitStmt_(const LetStmtNode *op) {
+  mlir::Value value = VisitExpr(op->value);
+  if (value) {
+    var_map_[op->var.get()] = value;
+  }
   VisitStmt(op->body);
 }
 

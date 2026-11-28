@@ -16,7 +16,7 @@ class InstalledPipelineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
             installed = subprocess.run(
-                [sys.executable, str(ROOT / 'scripts/install_codex_skills.py'), '--workspace', str(workspace)],
+                ['node', str(ROOT / 'bin/tilelang-harness.js'), 'init', '--local', '--dir', str(workspace)],
                 cwd=workspace, capture_output=True, text=True)
             self.assertEqual(installed.returncode, 0, installed.stderr)
             skills = workspace / '.agents/skills'

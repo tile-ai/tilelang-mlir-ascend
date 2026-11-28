@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Project records and cooperative ownership; stdlib, POSIX, no device execution.
+"""Project records and cooperative ownership; stdlib, cross-platform, no device execution.
 
 Locks serialize tool calls, not arbitrary editor writes. Owner and checkpoint
 claims must come from the host; this tool cannot authenticate sessions or jobs.
@@ -8,7 +8,11 @@ claims must come from the host; this tool cannot authenticate sessions or jobs.
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+    import msvcrt
 import hashlib
 import json
 import os
@@ -51,17 +55,18 @@ def atomic(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".pending-")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
             json.dump(data, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(tmp, path)
-        fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        if os.name != "nt":
+            fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -70,9 +75,23 @@ def atomic(path, data):
 @contextmanager
 def lock(path):
     require(not path.is_symlink(), "lock must not be a symlink")
-    with path.open("a") as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
-        yield
+    if fcntl is not None:
+        with path.open("a", encoding="utf-8") as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX)
+            yield
+    else:
+        with path.open("a+b") as stream:
+            stream.seek(0, os.SEEK_END)
+            if stream.tell() == 0:
+                stream.write(b"\0")
+                stream.flush()
+            stream.seek(0)
+            msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def git(path, *args):

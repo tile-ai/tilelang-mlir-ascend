@@ -49,7 +49,7 @@ def freeze(store, ref, dependencies):
     if path.suffix != ".json":
         return
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, UnicodeError):
         return  # Opaque artifacts are hashed; only the explicit index schema is traversed.
     if isinstance(data, dict) and str(data.get("schema", "")).startswith(("operator-harness/artifact-index@", "operator-harness/diagnostic-evidence@")):
@@ -62,7 +62,7 @@ def freeze(store, ref, dependencies):
 
 def checked(store, ref, dependencies):
     freeze(store, ref, dependencies)
-    return json.loads(store.local(ref["path"]).read_text())
+    return json.loads(store.local(ref["path"]).read_text(encoding="utf-8"))
 
 
 def item_or_ref(store, item, dependencies):
@@ -184,7 +184,7 @@ def device_usage(store, context, receipt):
                 "one started device request consumes one execution")
     elif pool["unit"] == "seconds":
         path = store.records / "runs" / context["run_id"] / "jobs" / context["request_id"] / "process-receipt.json"
-        process = json.loads(path.read_text())
+        process = json.loads(path.read_text(encoding="utf-8"))
         require(all(process.get(key) == context[key] for key in ("project_id", "run_id", "request_id")) and
                 process.get("status") == "exited" and process.get("exit_codes") == {"process": 0} and
                 number(process.get("elapsed_seconds")), "device usage needs the original successful process receipt")

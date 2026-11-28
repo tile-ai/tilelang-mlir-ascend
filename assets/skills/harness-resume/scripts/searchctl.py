@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Project search and knowledge records. Python 3.9+, POSIX, stdlib only.
+"""Project search and knowledge records. Python 3.9+, cross-platform, stdlib only.
 
 This is a metadata ledger, not an executor or an authentication service.
 """
@@ -8,7 +8,11 @@ import argparse
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+    import msvcrt
 import hashlib
 import json
 import os
@@ -81,11 +85,12 @@ def atomic(path, value, immutable=False):
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        if os.name != "nt":
+            directory = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
@@ -94,9 +99,24 @@ def atomic(path, value, immutable=False):
 @contextmanager
 def lock(directory):
     directory.mkdir(parents=True, exist_ok=True)
-    with (directory / ".lock").open("a") as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
-        yield
+    lock_path = directory / ".lock"
+    if fcntl is not None:
+        with lock_path.open("a", encoding="utf-8") as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX)
+            yield
+    else:
+        with lock_path.open("a+b") as stream:
+            stream.seek(0, os.SEEK_END)
+            if stream.tell() == 0:
+                stream.write(b"\0")
+                stream.flush()
+            stream.seek(0)
+            msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 class Store:
@@ -240,7 +260,7 @@ class Store:
             actual = re.sub(r"^not_applicable\s*[:：]\s*.+$", "not_applicable", actual)
         # Historical manifests used paths; newly emitted metadata uses IDs.
         allowed = {parent_id} if parent_id else {"not_applicable"}
-        if parent_ref and '<!-- harness-metadata -->' not in self.local(manifest["path"]).read_text():
+        if parent_ref and '<!-- harness-metadata -->' not in self.local(manifest["path"]).read_text(encoding="utf-8"):
             allowed.add(parent_ref["path"])
         require(actual in allowed, "candidate parent mismatch")
 
@@ -354,7 +374,7 @@ class Store:
             self.parent(ref, parent, tree["candidates"][parent]["manifest"] if parent else None)
             tree["candidates"][key] = {"search_node_id": op["search_node_id"],
                                        "parent_candidate": parent, "manifest": ref}
-            producer_id = metadata(self.local(ref['path']).read_text()).get('producer_run')
+            producer_id = metadata(self.local(ref['path']).read_text(encoding="utf-8")).get('producer_run')
             producer = tree['runs'].get(producer_id, {})
             if producer.get('queue_item_id'):
                 require(not settled(producer) and not tree['scheduling']['leases'][producer_id]['released'],
@@ -659,7 +679,7 @@ class Store:
         require(performance in ("true", "false"), "performance_required must be true or false")
         require(mode not in ("code-only", "collect-only") or performance == "false",
                 "code/diagnostic-only cannot require performance acceptance")
-        if "diagnostics_required" in metadata(self.local(task["path"]).read_text()):
+        if "diagnostics_required" in metadata(self.local(task["path"]).read_text(encoding="utf-8")):
             diagnostics = self.value(task, "diagnostics_required")
             require(diagnostics in ("true", "false"), "diagnostics_required must be true or false")
             require(mode != "code-only" or diagnostics == "false", "code-only cannot require device diagnostics")
@@ -698,7 +718,7 @@ class Store:
                     "idea diagnosis needs valid accuracy and performance results")
             evidence["regression"] = self.reference(self.value(result, "regression_evidence"))
         # Optional for historical TASKs; current templates explicitly declare the scope.
-        if "diagnostics_required" in metadata(self.local(scope["path"]).read_text()):
+        if "diagnostics_required" in metadata(self.local(scope["path"]).read_text(encoding="utf-8")):
             evidence["analysis_data"] = self.analysis_data_ref(scope, result)
         for ref in evidence.values():
             require(bool(self.local(ref["path"]).read_bytes().strip()), "empty develop evidence")

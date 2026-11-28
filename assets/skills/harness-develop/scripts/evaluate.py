@@ -72,7 +72,7 @@ def collect_case(store, adapter, state, context, case, output):
         verifier(capture, case)
     ref = capture['evidence']
     store.verify_ref(ref)
-    report = json.loads(store.local(ref['path']).read_text())
+    report = json.loads(store.local(ref['path']).read_text(encoding="utf-8"))
     searchctl.require(report['schema'] == 'operator-harness/diagnostic-evidence@1' and
                       report['candidate'] == context['candidate'], 'diagnostic collector identity mismatch')
     return ref
@@ -164,7 +164,7 @@ def candidate(store, run_id, candidate_id, source, build, launch, parent_id):
             record[key + '_sha256'] = ref['sha256']
         text = render('Candidate', record)
         if path.exists():
-            searchctl.require(path.read_text() == text, 'candidate_id already exists with different artifacts; use a new candidate_id')
+            searchctl.require(path.read_text(encoding="utf-8") == text, 'candidate_id already exists with different artifacts; use a new candidate_id')
         else:
             searchctl.require(candidate_id not in tree['candidates'], 'candidate_id already registered; use a new candidate_id')
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,7 +179,7 @@ def evaluate(store, run_id, candidate_path, request_id, reservation=None, device
     tree = store.load()
     store.verify_run(tree, run_id)
     run = tree['runs'][run_id]
-    data = json.loads(store.local(run['evaluation_plan']['path']).read_text())
+    data = json.loads(store.local(run['evaluation_plan']['path']).read_text(encoding="utf-8"))
     dependencies = dict(run.get('evaluation_inputs') or searchctl.evidence.plan(store, run['evaluation_plan'])[1])
     searchctl.require(data.get('execution'), 'plan needs a frozen execution adapter')
     searchctl.require(not device_receipt_path or data['execution']['backend'] == 'torch_npu',
@@ -210,7 +210,7 @@ def evaluate(store, run_id, candidate_path, request_id, reservation=None, device
     recovering = context_path.is_file() and prior_request.is_file()
     with store.write(closing=recovering):
         if context_path.exists():
-            searchctl.require(json.loads(context_path.read_text()) == context, 'evaluation request conflict')
+            searchctl.require(json.loads(context_path.read_text(encoding="utf-8")) == context, 'evaluation request conflict')
         else:
             emission.save(context_path, context)
     spec = {'schema': 'operator-harness/process-request@2', 'project_id': store.project_id,
@@ -226,13 +226,13 @@ def evaluate(store, run_id, candidate_path, request_id, reservation=None, device
     process = runctl.execute(store.workspace, store.project_id, store.owner, spec)
     if process['status'] != 'exited' or process['exit_codes']['process'] != 0:
         return {'status': process['status'], 'process': process}
-    produced = json.loads((output / 'worker-result.json').read_text())
+    produced = json.loads((output / 'worker-result.json').read_text(encoding="utf-8"))
     accuracy = 'passed' if produced['status'] == 'complete' else 'failed'
     worker_result = store.reference(str((output / 'worker-result.json').relative_to(store.root)))
     final_device = None
     if data['execution']['backend'] == 'torch_npu' and accuracy == 'passed':
         finalization = output / 'device-finalization.json'
-        saved = json.loads(finalization.read_text()) if finalization.exists() else None
+        saved = json.loads(finalization.read_text(encoding="utf-8")) if finalization.exists() else None
         final_device = store.reference(device_receipt_path) if device_receipt_path else saved
         if final_device is None:
             return {'status': 'pending_guard_receipt', 'context': str(context_path.relative_to(store.root)),
@@ -242,7 +242,7 @@ def evaluate(store, run_id, candidate_path, request_id, reservation=None, device
         device = searchctl.evidence.device_receipt(store, final_device, context, worker_result, dependencies)
         with store.write(closing=True):
             if finalization.exists():
-                searchctl.require(json.loads(finalization.read_text()) == final_device, 'device finalization conflict')
+                searchctl.require(json.loads(finalization.read_text(encoding="utf-8")) == final_device, 'device finalization conflict')
             else:
                 projectctl.atomic(finalization, final_device)
         usage = searchctl.evidence.device_usage(store, context, device)
@@ -266,7 +266,7 @@ def evaluate(store, run_id, candidate_path, request_id, reservation=None, device
         passed = []
         for row, case in zip(report['cases'], data['cases']):
             perf = row['performance']
-            values = perf['samples_ms'] if 'samples_ms' in perf else json.loads(store.local(perf['path']).read_text())['samples_ms']
+            values = perf['samples_ms'] if 'samples_ms' in perf else json.loads(store.local(perf['path']).read_text(encoding="utf-8"))['samples_ms']
             aggregate = statistics.mean(values) if data['statistic'] == 'mean' else statistics.median(values)
             passed.append(aggregate <= case['max_latency_ms'])
         performance = 'passed' if all(passed) else 'failed'
@@ -294,7 +294,7 @@ def evaluate(store, run_id, candidate_path, request_id, reservation=None, device
             output / 'diagnostic-evidence.json', produced['diagnostics'])
         if final_device:
             path = store.local(diagnostic['path'])
-            report = json.loads(path.read_text())
+            report = json.loads(path.read_text(encoding="utf-8"))
             report.update(device_receipt=final_device, worker_result=worker_result, process=receipt['process'])
             emission.save(path, report)
         fields.update(accuracy_status='not_run', performance_status='not_applicable',
@@ -330,7 +330,7 @@ def main():
     try:
         store = searchctl.Store(args.workspace, args.project, args.owner)
         if args.command == 'worker':
-            worker(store, json.loads(args.context.read_text()))
+            worker(store, json.loads(args.context.read_text(encoding="utf-8")))
             return 0
         if args.command == 'candidate':
             result = candidate(store, args.run, args.id, args.source, args.build, args.launch, args.parent)

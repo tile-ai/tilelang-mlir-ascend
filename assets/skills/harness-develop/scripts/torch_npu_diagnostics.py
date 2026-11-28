@@ -151,7 +151,7 @@ def capture_diagnostics(call, *, output, identity, metrics, prepare, synchronize
               "purpose": "analysis_only", "passes": []}
 
     def save():
-        (root / "collection.json").write_text(json.dumps(report, indent=2) + "\n")
+        (root / "collection.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     save()
     try:

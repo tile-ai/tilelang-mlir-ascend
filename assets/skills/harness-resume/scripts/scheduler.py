@@ -267,7 +267,7 @@ def workspace_resources(store, tree, item, run_id, cache=None):
                     'remote directory must be a bounded absolute path')
             require('identity_evidence' in resource, 'remote workspace needs identity evidence')
             store.verify_ref(resource['identity_evidence'])
-            identity = json.loads(store.local(resource['identity_evidence']['path']).read_text())
+            identity = json.loads(store.local(resource['identity_evidence']['path']).read_text(encoding="utf-8"))
             require(identity.get('schema') == 'operator-harness/workspace-identity@1' and
                     identity.get('domain') == domain and identity.get('path') == str(PurePosixPath(path)) and
                     identity.get('canonical') is True and identity.get('source'),
@@ -312,7 +312,7 @@ def checks(store, tree, item, run_id=None, cache=None):
     # by an active writer cannot enter a subsequent normal analysis/develop.
     if candidate_id:
         manifest = tree['candidates'][candidate_id]['manifest']
-        values = store.local(manifest['path']).read_text()
+        values = store.local(manifest['path']).read_text(encoding="utf-8")
         from records import metadata
         producer = metadata(values).get('producer_run')
         if producer:
@@ -496,7 +496,7 @@ def apply(store, tree, op):
         require(not lease['released'] and lease['generation'] == op['generation'], 'stale or released lease')
         control.reconciled(tree, key)
         ref = store.reference(op['evidence'])
-        record = json.loads(store.local(ref['path']).read_text())
+        record = json.loads(store.local(ref['path']).read_text(encoding="utf-8"))
         require(record.get('schema') == 'operator-harness/workspace-release@1' and
                 record.get('project_id') == store.project_id and record.get('run_id') == key and
                 record.get('generation') == lease['generation'], 'release identity mismatch')
@@ -511,7 +511,7 @@ def apply(store, tree, op):
             store.verify_run(tree, key)
         for cid, candidate in tree['candidates'].items():
             from records import metadata
-            if metadata(store.local(candidate['manifest']['path']).read_text()).get('producer_run') == key:
+            if metadata(store.local(candidate['manifest']['path']).read_text(encoding="utf-8")).get('producer_run') == key:
                 candidate_inputs(store, tree, cid)
         lease.update(released=True, evidence=ref)
     else:

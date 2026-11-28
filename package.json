@@ -1,0 +1,38 @@
+{
+  "name": "tilelang-harness",
+  "version": "0.1.0",
+  "description": "Cross-platform CLI for installing and managing Operator Harness skills and workspace lifecycle for Ascend NPU TileLang development",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "bin": {
+    "tilelang-harness": "./bin/tilelang-harness.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "assets/codex/AGENTS.md",
+    "assets/skills/**",
+    "!**/__pycache__/**",
+    "!**/*.pyc",
+    "!**/*.pyo",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/cli/*.test.mjs"
+  },
+  "keywords": [
+    "tilelang",
+    "ascend",
+    "npu",
+    "operator-harness",
+    "codex",
+    "claude-code",
+    "antigravity",
+    "agent-skills"
+  ]
+}

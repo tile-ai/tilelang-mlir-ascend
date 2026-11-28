@@ -24,6 +24,8 @@
 | 长上下文 Decode 并行不足、两段 launch 间隙、grid 尾波/全核屏障死锁、PV DFU 偏低 | Split-KV 单核 MIX 融合屏障 + `grid` 严对物理核数 + 非 2 的幂精确打包 + `N128 PV`/双槽/UnitFlag/预取展开 | Ascend950 | [decode-split-kv-fused-barrier.md](patterns/decode-split-kv-fused-barrier.md) |
 | Prefix/RoPE 外部 `cat` 流量大、滑窗 mask 冗余、内部块 UB 写带宽高、逐 tile 碎读 sink | 双 `L1` Ring 零拷贝融合、滑窗 KV 块上下界拆分、无 mask 内部块免 UB 写回、AIV 入口缓存不变量 | Ascend950 | [attention-prefix-window-fusion.md](patterns/attention-prefix-window-fusion.md) |
 | 多 GEMM 反向因 `dK/dV` 常驻占满 L0C 被迫用 `64×128` 半宽 MMAD（`aic_mac ~0.94` 但 MFU 卡在 ~82%） | `dk_c/dv_c` 保持常驻 + `QK/dP/dQ` 复用 2 槽 `tmp_c[2]`（256 KiB）+ `dQ` 前置藏于 3 个满 MMAD 后 + L0 奇偶交替 | Ascend950 | [l0c-pingpong-dq-first-128x128-bwd.md](patterns/l0c-pingpong-dq-first-128x128-bwd.md) |
+| GEMM输入复用不足、L1/L0分块与多缓冲预算不清 | 分级K块、容量与版本预算、M/N复用及任务局部性 | Ascend950 | [gemm-hierarchical-tiles-and-task-locality.md](patterns/gemm-hierarchical-tiles-and-task-locality.md) |
+| Cube/Fixpipe交接的软件同步开销与双槽复用 | 输入槽就绪/释放、最终计算与输出的UnitFlag配对 | Ascend950 | [cube-fixpipe-unitflag-buffer-lifetime.md](patterns/cube-fixpipe-unitflag-buffer-lifetime.md) |
 
 ### 已证伪反例（避免重复踩坑）
 

@@ -397,7 +397,7 @@ export async function main(
           streams.stdout.write('\nNext steps:\n');
           streams.stdout.write('  • Open any operator repository and start with $harness-new-project or $harness-onboard\n');
           streams.stdout.write('  • Each repository uses its own .workspace/ at runtime; to keep shared .gitignore clean, run:\n');
-          streams.stdout.write('      echo ".workspace/" >> .git/info/exclude\n');
+          streams.stdout.write('      echo ".workspace/" >> "$(git rev-parse --path-format=absolute --git-path info/exclude)"\n');
           streams.stdout.write('  • Run "tilelang-harness doctor" to verify your setup\n');
         }
       }

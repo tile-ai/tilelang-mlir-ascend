@@ -64,7 +64,7 @@ npx github:tile-ai/tilelang-mlir-ascend#harness doctor
 
 ### 2. 开启第一个算子任务
 
-在目标算子仓库打开你的 coding agent（若刚安装完未看到新技能，先重启会话），按场景选择入口（各节点会在当前仓库下独立管理 `.workspace/`；首次在 Git 仓库创建 `.workspace/` 时，推荐执行 `echo ".workspace/" >> .git/info/exclude` 做本地忽略，避免污染团队共享 `.gitignore`）：
+在目标算子仓库打开你的 coding agent（若刚安装完未看到新技能，先重启会话），按场景选择入口（各节点会在当前仓库下独立管理 `.workspace/`；首次在 Git 仓库或 linked worktree 创建 `.workspace/` 时，推荐执行 `echo ".workspace/" >> "$(git rev-parse --path-format=absolute --git-path info/exclude)"` 做本地忽略，避免污染团队共享 `.gitignore`）：
 
 - **从零开发新算子**：
   ```text

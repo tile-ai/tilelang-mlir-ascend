@@ -29,7 +29,7 @@ description: 将已有算子仓库接入 Operator Harness：理解代码与文�
 
 ## 更新计划
 
-首次接入时按项目管理契约调用 projectctl create，建立项目身份和 owner；若当前目录是 Git 仓库且 `.workspace/` 尚未被忽略，引导用户通过 `echo ".workspace/" >> .git/info/exclude` 本地忽略（不静默改动共享 `.gitignore`）；继续已有项目时核对状态和会话归属。准备独立 worktree 后才开始代码修改，不直接改只读调查的源仓库。
+首次接入时按项目管理契约调用 projectctl create，建立项目身份和 owner；若当前目录是 Git 仓库（含 linked worktree）且 `git check-ignore -- .workspace/` 未命中，引导用户通过 `echo ".workspace/" >> "$(git rev-parse --path-format=absolute --git-path info/exclude)"` 本地忽略（不静默改动共享 `.gitignore`）；继续已有项目时核对状态和会话归属。准备独立 worktree 后才开始代码修改，不直接改只读调查的源仓库。
 
 理解收敛后，按共享的 [项目记录](../harness-new-project/references/project-records.md) 直接更新 Markdown。沿用已有决定和人工修改，补充本次的新发现；缺失的记录按需补齐，过时的路径直接修正。
 

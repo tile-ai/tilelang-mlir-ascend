@@ -741,26 +741,58 @@ test('global install supports all 4 hosts simultaneously, rewrites ~/ paths, and
   });
 });
 
-test('local install does not mutate .gitignore and doctor recognizes .git/info/exclude', async () => {
-  await withTempDir(async (repo) => {
-    fs.mkdirSync(path.join(repo, '.git/info'), { recursive: true });
-    const initRes = await runCliInProcess(['init', '--local', '--dir', repo, '--host', 'codex']);
-    assert.equal(initRes.code, 0, initRes.stderr);
-    assert.equal(fs.existsSync(path.join(repo, '.gitignore')), false);
+test('local install does not mutate .gitignore and doctor handles normal repo and linked git worktree', async () => {
+  await withTempDir(async (tmp) => {
+    const repo = path.join(tmp, 'main-repo');
+    const worktree = path.join(tmp, 'linked-wt');
+    assert.equal(spawnSync('git', ['init', '-q', repo], { encoding: 'utf8' }).status, 0);
+    assert.equal(
+      spawnSync(
+        'git',
+        ['-C', repo, '-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-m', 'init', '-q'],
+        { encoding: 'utf8' },
+      ).status,
+      0,
+    );
+    assert.equal(
+      spawnSync('git', ['-C', repo, 'worktree', 'add', '-q', worktree, '-b', 'wt-branch'], { encoding: 'utf8' }).status,
+      0,
+    );
+    // Confirm linked worktree has a .git file (not a directory).
+    assert.equal(fs.statSync(path.join(worktree, '.git')).isFile(), true);
 
-    // Create .workspace/ at runtime without ignoring it -> doctor advises .git/info/exclude.
+    const initMain = await runCliInProcess(['init', '--local', '--dir', repo, '--host', 'codex']);
+    assert.equal(initMain.code, 0, initMain.stderr);
+    const initWt = await runCliInProcess(['init', '--local', '--dir', worktree, '--host', 'codex']);
+    assert.equal(initWt.code, 0, initWt.stderr);
+    assert.equal(fs.existsSync(path.join(repo, '.gitignore')), false);
+    assert.equal(fs.existsSync(path.join(worktree, '.gitignore')), false);
+
+    // Create .workspace/ in both main checkout and linked worktree without ignoring it.
     fs.mkdirSync(path.join(repo, '.workspace/demo'), { recursive: true });
-    const warnDoc = await runCliInProcess(['doctor', '--local', '--dir', repo, '--json']);
-    assert.equal(warnDoc.code, 0, warnDoc.stderr);
-    const warnReport = JSON.parse(warnDoc.stdout);
-    assert.ok(warnReport.warnings.some((w) => w.includes('.git/info/exclude')));
+    fs.mkdirSync(path.join(worktree, '.workspace/demo'), { recursive: true });
 
-    // Add .workspace/ to .git/info/exclude -> warning disappears while .gitignore stays untouched.
-    fs.writeFileSync(path.join(repo, '.git/info/exclude'), '.workspace/\n', 'utf8');
-    const cleanDoc = await runCliInProcess(['doctor', '--local', '--dir', repo, '--json']);
-    const cleanReport = JSON.parse(cleanDoc.stdout);
-    assert.equal(cleanReport.warnings.some((w) => w.includes('.git/info/exclude')), false);
-    assert.equal(fs.existsSync(path.join(repo, '.gitignore')), false);
+    const wtWarnDoc = await runCliInProcess(['doctor', '--local', '--dir', worktree, '--json']);
+    assert.equal(wtWarnDoc.code, 0, wtWarnDoc.stderr);
+    const wtWarnReport = JSON.parse(wtWarnDoc.stdout);
+    assert.equal(wtWarnReport.workspace_git_ignore.is_git_repo, true);
+    assert.equal(wtWarnReport.workspace_git_ignore.ignored, false);
+    const excludePath = wtWarnReport.workspace_git_ignore.exclude_path;
+    assert.ok(excludePath && excludePath.endsWith(path.join('info', 'exclude')));
+    assert.equal(fs.realpathSync(excludePath), fs.realpathSync(path.join(repo, '.git', 'info', 'exclude')));
+    assert.ok(wtWarnReport.warnings.some((w) => w.includes(excludePath)));
+
+    // Append .workspace/ to the resolved common info/exclude -> both main checkout and linked worktree are now ignored!
+    fs.appendFileSync(excludePath, '\n.workspace/\n', 'utf8');
+
+    for (const dir of [repo, worktree]) {
+      const cleanDoc = await runCliInProcess(['doctor', '--local', '--dir', dir, '--json']);
+      assert.equal(cleanDoc.code, 0, cleanDoc.stderr);
+      const cleanReport = JSON.parse(cleanDoc.stdout);
+      assert.equal(cleanReport.workspace_git_ignore.ignored, true);
+      assert.equal(cleanReport.warnings.some((w) => w.includes('.workspace/')), false);
+      assert.equal(fs.existsSync(path.join(dir, '.gitignore')), false);
+    }
   });
 });
 

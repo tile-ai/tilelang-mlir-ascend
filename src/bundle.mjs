@@ -1061,6 +1061,45 @@ function detectPython() {
 
 function checkWorkspaceGitIgnore(dir) {
   const hasWorkspaceDir = fs.existsSync(path.join(dir, '.workspace'));
+  const insideRes = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
+    cwd: dir,
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+  if (!insideRes.error && insideRes.status === 0 && insideRes.stdout.trim() === 'true') {
+    const ignoreRes = spawnSync('git', ['check-ignore', '-q', '--', '.workspace/'], {
+      cwd: dir,
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    const ignored = ignoreRes.status === 0;
+    let excludePath = null;
+    const absRes = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'], {
+      cwd: dir,
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    if (!absRes.error && absRes.status === 0 && absRes.stdout.trim()) {
+      excludePath = absRes.stdout.trim();
+    } else {
+      const relRes = spawnSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
+        cwd: dir,
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      if (!relRes.error && relRes.status === 0 && relRes.stdout.trim()) {
+        excludePath = path.resolve(dir, relRes.stdout.trim());
+      }
+    }
+    return {
+      is_git_repo: true,
+      has_workspace_dir: hasWorkspaceDir,
+      ignored,
+      exclude_path: excludePath,
+    };
+  }
+
+  // Fallback when git CLI is unavailable or directory is a non-git checkout.
   const gitDir = path.join(dir, '.git');
   const isGitRepo = fs.existsSync(gitDir);
   const containsWorkspaceRule = (filePath) => {
@@ -1069,16 +1108,17 @@ function checkWorkspaceGitIgnore(dir) {
     return lines.includes('.workspace/') || lines.includes('.workspace');
   };
   const inGitignore = containsWorkspaceRule(path.join(dir, '.gitignore'));
+  let excludePath = null;
   let inInfoExclude = false;
   if (isGitRepo && fs.statSync(gitDir).isDirectory()) {
-    inInfoExclude = containsWorkspaceRule(path.join(gitDir, 'info', 'exclude'));
+    excludePath = path.join(gitDir, 'info', 'exclude');
+    inInfoExclude = containsWorkspaceRule(excludePath);
   }
   return {
     is_git_repo: isGitRepo,
     has_workspace_dir: hasWorkspaceDir,
-    ignored_in_gitignore: inGitignore,
-    ignored_in_info_exclude: inInfoExclude,
     ignored: inGitignore || inInfoExclude,
+    exclude_path: excludePath,
   };
 }
 
@@ -1262,8 +1302,11 @@ export function doctorWorkspace({
 
   const gitWorkspaceIgnore = localRoot ? checkWorkspaceGitIgnore(localRoot) : null;
   if (gitWorkspaceIgnore && gitWorkspaceIgnore.is_git_repo && gitWorkspaceIgnore.has_workspace_dir && !gitWorkspaceIgnore.ignored) {
+    const excludeTarget = gitWorkspaceIgnore.exclude_path
+      ? `"${gitWorkspaceIgnore.exclude_path}"`
+      : '"$(git rev-parse --path-format=absolute --git-path info/exclude)"';
     warnings.push(
-      '.workspace/ exists in this Git repo but is not ignored; run \'echo ".workspace/" >> .git/info/exclude\' (or add to .gitignore for team-wide use)',
+      `.workspace/ exists in this Git repo but is not ignored; run 'echo ".workspace/" >> ${excludeTarget}' (or add to .gitignore for team-wide use)`,
     );
   }
 

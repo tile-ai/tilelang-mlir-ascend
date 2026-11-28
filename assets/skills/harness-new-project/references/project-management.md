@@ -6,10 +6,10 @@
 - `project_id`：与用户确定的稳定目录名；一个项目可以包含多个算子，当前不提供子项目层级。
 - `project_dir`：`<workspace_root>/.workspace/<project_id>`。记录、实验、专属源码、依赖和构建都归此目录；它不是源码仓库根。
 
-首次在 Git 仓库内建立 `.workspace/` 且尚未被忽略时，不要直接静默修改共享的 `.gitignore`（团队成员可能使用不同 harness）；优先引导用户在本地忽略：
+首次在 Git 仓库（含 linked worktree）内建立 `.workspace/` 且 `git check-ignore -- .workspace/` 未命中时，不要直接静默修改共享的 `.gitignore`（团队成员可能使用不同 harness）；优先引导用户在本地忽略：
 
 ```bash
-echo ".workspace/" >> .git/info/exclude
+echo ".workspace/" >> "$(git rev-parse --path-format=absolute --git-path info/exclude)"
 ```
 
 仅在团队明确统一使用本 harness 且用户同意时，才将 `.workspace/` 写入仓库的 `.gitignore`。

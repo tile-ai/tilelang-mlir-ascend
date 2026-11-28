@@ -4,7 +4,7 @@ Operator Harness 通过跨平台 Node.js CLI（`tilelang-harness`，要求 Node.
 
 **安装位置与运行时 `.workspace/` 解耦**：
 - **安装阶段**只负责安装全部受管技能、宿主指令区块和受管清单（支持 **Global 全局安装一次** 或 **Local 项目本地安装**），不会创建 `.workspace/`，也不会静默修改任何仓库的 `.gitignore`。
-- **运行阶段**由各节点（`harness-new-project` / `harness-onboard` / `projectctl.py`）按当前打开的算子仓库各自管理 `.workspace/`。首次在 Git 仓库内建立 `.workspace/` 时，工作流会引导用户执行 `echo ".workspace/" >> .git/info/exclude` 做本地忽略，避免污染团队共享的 `.gitignore`（仅在团队统一使用本 harness 时才建议写入 `.gitignore`）。
+- **运行阶段**由各节点（`harness-new-project` / `harness-onboard` / `projectctl.py`）按当前打开的算子仓库各自管理 `.workspace/`。首次在 Git 仓库（含 linked worktree）内建立 `.workspace/` 时，工作流会引导用户执行 `echo ".workspace/" >> "$(git rev-parse --path-format=absolute --git-path info/exclude)"` 做本地忽略，避免污染团队共享的 `.gitignore`（仅在团队统一使用本 harness 时才建议写入 `.gitignore`）。
 
 安装、升级、恢复、回滚与卸载在写入前均会检查目标及安装元数据的祖先路径；指向工作区外、路径别名或悬空目标的软链接一律拒绝。安装器保存 `<metadataDir>/manifest.json`（`operator-harness/installation@2`，向下兼容旧版 `@1` 清单），只登记随包技能文件和 Harness 指令区块（`<!-- operator-harness --> ... <!-- /operator-harness -->`）的摘要；额外文件、指令区块外内容以及 `.workspace/` 归用户所有。重复安装只在随包内容一致时成功，冲突在写入前拒绝。
 

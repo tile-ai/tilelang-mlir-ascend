@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "yyttt6/TileOPs",
+    "pull_request": 21,
+    "head_commit": "a09896da34fa2fdc37553f061cc71e476b71dfc4",
+    "implementation_commit": "17d7b799110e1391445676654fba66530af17b38"
+  },
+  "port": {
+    "repository": "tile-ai/tilelang-mlir-ascend",
+    "base_commit": "a1b56d2453ed4a84cf0ccceea3022cc48533e0b5",
+    "target": "npuir",
+    "mode": "Expert",
+    "tiles": [
+      64,
+      128,
+      64
+    ],
+    "npu_validation": "not run: no NPU on development host",
+    "cpu_contract_tests_passed": 21,
+    "cpu_kernel_ast_checks_passed": 30,
+    "device_tests_skipped": 28,
+    "cpu_checks_note": "AST checks execute the real kernel control flow with CPU tensor arithmetic; they do not validate NPUIR lowering or device execution.",
+    "performance_measurements": null,
+    "note": "Upstream results below are provenance only and do not validate this NPUIR port."
+  },
+  "upstream_report": {
+    "schema_version": 1,
+    "manifest_commit": "b84f999c9ec5d375bcedb62b44d79863f830924a",
+    "repository_commit": "17d7b799",
+    "scope": "Ascend 950DT GroupedGemmFwdOp: all six manifest calls, seven dtype cases (moe-fwd NT bfloat16 and float16, moe-dgrad NN float16, moe-wgrad TN float16, three qwen3-30b-ep8 NT bfloat16 routes). The schedules are generalized from DeepGEMM's m-grouped and k-grouped kernels; not a public performance receipt.",
+    "device": {
+      "model": "Ascend950DT_9582",
+      "cube_cores": 32,
+      "vector_cores": 64,
+      "dense_bfloat16_peak_tflops": 432,
+      "physical_node": "/dev/davinci7"
+    },
+    "campaign": {
+      "protocol": "issue1-default-clock-task-adapter-v1, one window per arm",
+      "warmup": 3,
+      "calls_per_window": 25,
+      "eviction_bytes": 1073741824,
+      "metric": "arithmetic mean of raw ffts device execution interval unions",
+      "clock_policy": "unchanged platform default",
+      "formal_pending": true,
+      "reason": "Task-private protocol adapter: one profiler window carries all 25 calls instead of one window per call. The eviction and the parsed statistic are unchanged; the public default-clock receipt and the host-wide reservation are still unavailable.",
+      "workspace": "Task acceptance workspace, kept outside the repository.",
+      "environment": {
+        "tilelang": "0.1.15",
+        "torch": "2.13.0+cpu",
+        "torch_npu": "2.13.0.rc1",
+        "python": "3.12.11",
+        "compiler_and_headers": "CANN 9.2.0 release (V100R001C12SPC001B237)",
+        "runtime_opp": "CANN 9.2.0 (this site's container)",
+        "driver": "25.6.rc1",
+        "canonical_profile_note": "The maintained profile pins the runtime/OPP to CANN 9.1.0 and the compiler and headers to the 9.2.0 release. This container serves 9.2.0 for every component; that deviation is recorded here instead of being rounded into one version string."
+      },
+      "baseline_environment": {
+        "note": "DeepGEMM's extension is ABI-locked to the PyTorch 2.7 stack, so the DeepGEMM arm runs in a second process on the same device in the same round.",
+        "torch": "2.7.1+cpu",
+        "torch_npu": "2.7.1.post11"
+      },
+      "float16_baseline": "DeepGEMM BF16 arm on the same shape and round; DeepGEMM has no float16 grouped entry point and the matrix unit runs both 16-bit dtypes at the same rate.",
+      "deepgemm_scope": "DeepGEMM's m-grouped kernels require group starts on a 256-row boundary and its k-grouped entry point takes the group sizes on the host, so only the three moe-* cases have a DeepGEMM baseline."
+    },
+    "validation_record": {
+      "head": "22952a051430ebdf96d19d934caa760422b166fa",
+      "result": "7 of 7 dtype cases verified on physical Ascend950DT_9582 (32 Cube / 64 Vector) under the shared device reservation, 0 failed, source fingerprint unchanged, input preservation on every case",
+      "cases": "the three moe-* layouts (NT bfloat16 and float16, NN float16, TN float16) and the three qwen3-30b-ep8 routes (NT bfloat16: empty, routed-1k, ragged)"
+    },
+    "replay": {
+      "entry_point": "scripts/benchmark_ascend.py --op GroupedGemmFwdOp --verify-only",
+      "case_regex": "^(moe-fwd-bfloat16|moe-fwd-float16|moe-dgrad-float16|moe-wgrad-float16|qwen3-30b-ep8-empty-bfloat16|qwen3-30b-ep8-routed1k-bfloat16|qwen3-30b-ep8-ragged-bfloat16)$",
+      "result": "7 of 7 dtype cases verified, source fingerprint unchanged",
+      "guard": "scripts/npu_guard.py with /dev/davinci0 remapped to /dev/davinci7 for this site",
+      "receipt": "Task acceptance workspace, kept outside the repository."
+    },
+    "verification": {
+      "manifest_cases": 7,
+      "manifest_cases_passed": 7,
+      "extra_split_checks": "The same kernel was compared against the per-group reference on group sizes of 1, 16, 17, 32 and 64 rows and on eight zero-row groups (numel 8, 257, 512, 1024 over 16 experts); every case matched exactly.",
+      "tolerances": "The shared workload numeric policy through the public runner."
+    },
+    "cases": [
+      {
+        "case": "moe-fwd-bfloat16",
+        "numel": 4096,
+        "experts": 16,
+        "n": 4096,
+        "k": 4096,
+        "layout": "NT",
+        "tiles": "256x256x256, stages 2, MAD 64",
+        "candidate_us": 335.5,
+        "tflops": 409.7,
+        "baseline": "deepgemm m-grouped nt (bf16 arm)",
+        "baseline_us": 323.4,
+        "ratio": 0.9639
+      },
+      {
+        "case": "moe-fwd-float16",
+        "numel": 4096,
+        "experts": 16,
+        "n": 4096,
+        "k": 4096,
+        "layout": "NT",
+        "tiles": "256x256x256, stages 2, MAD 64",
+        "candidate_us": 335.6,
+        "tflops": 409.6,
+        "baseline": "deepgemm m-grouped nt (bf16 arm)",
+        "baseline_us": 323.4,
+        "ratio": 0.9636
+      },
+      {
+        "case": "moe-dgrad-float16",
+        "numel": 4096,
+        "experts": 16,
+        "n": 4096,
+        "k": 4096,
+        "layout": "NN",
+        "tiles": "256x256x256, stages 2, MAD 64",
+        "candidate_us": 337.2,
+        "tflops": 407.6,
+        "baseline": "deepgemm m-grouped nn (bf16 arm)",
+        "baseline_us": 323.7,
+        "ratio": 0.96
+      },
+      {
+        "case": "moe-wgrad-float16",
+        "numel": 4096,
+        "experts": 16,
+        "n": 4096,
+        "k": 4096,
+        "layout": "TN",
+        "tiles": "256x256 output, group contraction 64",
+        "candidate_us": 616.8,
+        "tflops": 222.9,
+        "baseline": "deepgemm k-grouped tn (bf16 arm)",
+        "baseline_us": 750.7,
+        "ratio": 1.2171
+      },
+      {
+        "case": "qwen3-30b-ep8-empty-bfloat16",
+        "numel": 8,
+        "experts": 16,
+        "n": 1536,
+        "k": 2048,
+        "layout": "NT",
+        "tiles": "64x256x256, stages 2, MAD 64",
+        "candidate_us": 21,
+        "tflops": 2.4,
+        "baseline": "torch per-group mm loop",
+        "baseline_us": 42.3,
+        "ratio": 2.014,
+        "note": "DeepGEMM cannot serve this split: its grouped layouts require 256-aligned group starts."
+      },
+      {
+        "case": "qwen3-30b-ep8-routed1k-bfloat16",
+        "numel": 1024,
+        "experts": 16,
+        "n": 1536,
+        "k": 2048,
+        "layout": "NT",
+        "tiles": "64x256x256, stages 2, MAD 64",
+        "candidate_us": 39.9,
+        "tflops": 161.5,
+        "baseline": "torch per-group mm loop",
+        "baseline_us": 124,
+        "ratio": 3.108,
+        "note": "DeepGEMM cannot serve this split: its grouped layouts require 256-aligned group starts."
+      },
+      {
+        "case": "qwen3-30b-ep8-ragged-bfloat16",
+        "numel": 257,
+        "experts": 16,
+        "n": 1536,
+        "k": 2048,
+        "layout": "NT",
+        "tiles": "64x256x256, stages 2, MAD 64",
+        "candidate_us": 33.8,
+        "tflops": 47.8,
+        "baseline": "torch per-group mm loop",
+        "baseline_us": 90.5,
+        "ratio": 2.678,
+        "note": "DeepGEMM cannot serve this split: its grouped layouts require 256-aligned group starts."
+      }
+    ]
+  }
+}

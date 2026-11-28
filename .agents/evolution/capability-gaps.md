@@ -44,6 +44,33 @@ open ──(≥2 独立任务识别)──> recurring ──(提案产出)──
 
 ## Open
 
+### CG-2026-0018
+
+```yaml
+gap_id: CG-2026-0018
+layer: codegen / Frontend API
+capability: Native E4M3FN operands, conversion and Cube GEMM in NPUIR.
+blocked_algo: TileOPs PR 82 native FP8 W4A8 pipeline requires FP16 carriers on this revision.
+evidence:
+  - docs/Tilelang.language/线性代数操作/T.gemm.md section 2.2.1 lists fp16/bf16/int8/fp32 operands, not FP8.
+  - docs/Tilelang.language/数据类型转换操作/T.vcast.md section 2.2.1 has no FP8 conversion pair.
+  - src/target/codegen_npuir_api.cc DTypetoMLIRType handles Float16/32/64 and BFloat16, but no Float8E4M3FN type.
+  - The corresponding DTypetoMLIRType in codegen_npuir_api_a5.cc and codegen_npuir_dev_a5.cc also has no FP8 mapping.
+  - examples/deepseek_v4/example_fp8_gemm_kernel.py uses FP16 carriers for FP8 values.
+workaround: >-
+  Decode FP8 storage bytes and round signed INT4 times FP8 scales with constant
+  lookup tables; retain the resulting FP8 values exactly in FP16. Use FP16 Cube
+  GEMM with FP32 accumulation. Scratch uses 2*M*K + 2*N*K + 4*M*N bytes,
+  versus N*K + 4*M*N in the source native pipeline; one additional activation
+  decode launch. Native FP8 throughput is not retained; no performance measurement.
+occurrences: 1
+tasks: [tileops-pr82-w4a8-port-20261128]
+toolchain_stamp: tilelang a1b56d2453ed4a84cf0ccceea3022cc48533e0b5; no CANN compiler or NPU on development host
+status: open
+created_by: tileops-pr82-w4a8-port-20261128
+last_seen: tileops-pr82-w4a8-port-20261128
+```
+
 ### CG-2026-0004
 
 ```yaml

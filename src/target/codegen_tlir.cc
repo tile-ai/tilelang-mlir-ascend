@@ -369,6 +369,15 @@ void CodeGenTileLangTLIR::EmitUnary(const CallNode *op) {
                          GetBufferValue(un.dst));
 }
 
+template <typename TLOpT, typename NpuirOpT>
+void CodeGenTileLangTLIR::EmitUnaryVariadic(const CallNode *op) {
+  NpuirOpT un(op->args, vmap_);
+  ICHECK_EQ(un.srcs.size(), 1U)
+      << "EmitUnaryVariadic only supports a single source operand";
+  builder_.create<TLOpT>(builder_.getUnknownLoc(), GetBufferValue(un.srcs[0]),
+                         GetBufferValue(un.dst));
+}
+
 void CodeGenTileLangTLIR::EmitConcat(const CallNode *op) {
   tvm::tl::NpuirConcat concat(op->args, vmap_);
 
@@ -572,11 +581,14 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
     EmitBinary<::mlir::tl::MinOp, tvm::tl::NpuirMin>(op);
     return {};
   }
+  if (op->op.same_as(Op::Get("tl.npuir_vcos"))) {
+    EmitUnaryVariadic<::mlir::tl::CosOp, tvm::tl::NpuirVCos>(op);
+    return {};
+  }
   if (op->op.same_as(Op::Get("tl.npuir_reduce"))) {
     EmitReduce(op);
     return {};
   }
-  
   if (op->op.same_as(Op::Get("tl.npuir_ln"))) {
     EmitUnary<::mlir::tl::LnOp, tvm::tl::NpuirLn>(op);
     return {};
@@ -599,7 +611,7 @@ mlir::Value CodeGenTileLangTLIR::VisitExpr_(const CallNode *op) {
   }
   if (op->op.same_as(Op::Get("tl.npuir_atomic_add"))) {
     EmitAtomicAdd(op);
-     return {};
+    return {};
   }
   if (op->op.same_as(Op::Get("tl.npuir_rsqrt"))) {
     EmitUnary<::mlir::tl::RsqrtOp, tvm::tl::NpuirRsqrt>(op);

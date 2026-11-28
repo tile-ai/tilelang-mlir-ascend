@@ -105,6 +105,9 @@ private:
   template <typename TLOpT, typename NpuirOpT>
   void EmitUnary(const CallNode *op);
 
+  template <typename TLOpT, typename NpuirOpT>
+  void EmitUnaryVariadic(const CallNode *op);
+
   mlir::MLIRContext context_;
   mlir::OpBuilder builder_;
   mlir::ModuleOp module_;

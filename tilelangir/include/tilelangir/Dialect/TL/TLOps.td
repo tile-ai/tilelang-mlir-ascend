@@ -239,6 +239,14 @@ def TL_MinOp : TL_BinaryOp<"min"> {
   let description = [{ Destination-style vector min: out = min(lhs, rhs). }];
 }
 
+def TL_CosOp : TL_UnaryOp<"cos"> {
+  let summary = "Elementwise cosine of a tile buffer";
+  let description = [{
+    Destination-style vector cos: out = cos(src).
+    Lowers to hivm.hir.vcos.
+  }];
+}
+
 
 def TL_ReduceOp : TL_Op<"reduce", [
     MemoryEffects<[MemRead, MemWrite]>
